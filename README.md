@@ -1,7 +1,7 @@
 # EVCarHUD cho board ESP32-P4 3.5" (Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5)
 
 Firmware HUD cho board **Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5** (ESP32-P4 + ESP32-C6, màn 3.5" ST7796 480×320 đặt ngang, cảm ứng điện dung FT6336, loa ES8311).
-Cùng chức năng với bản 2.8" ([EVCarHUD_S3](https://github.com/chutich3344/EVCarHUD_S3)): điện thoại chạy **Waze Mod** (giao thức HLP/1) hoặc app **GOFA** gửi dữ liệu dẫn đường qua **Bluetooth LE**, HUD giải mã và hiện giao diện. Giao diện vẽ lại cho màn 3.5" theo bộ màn mẫu "Layout HUD ESP32-P4 3.5 inch", mọi con số dùng font Inter.
+Cùng chức năng với bản 2.8" ([EVCarHUD_S3](https://github.com/chutich3344/EVCarHUD_S3)): điện thoại chạy **Waze Mod** (giao thức HLP/1) hoặc app **GOFA** gửi dữ liệu dẫn đường qua **Bluetooth LE**, HUD giải mã và hiện giao diện. Giao diện vẽ lại cho màn 3.5" theo bộ màn mẫu "Layout HUD ESP32-P4 3.5 inch", mọi con số dùng font Inter. Thanh trên của các màn chạy xe có ô nguồn **waze** / **GOFA** cạnh chấm GPS.
 
 ![Giao diện](docs/giao-dien.png)
 
@@ -13,6 +13,8 @@ HUD tự chọn màn theo dữ liệu từ điện thoại:
 
 | Màn | Khi nào | Nội dung |
 |---|---|---|
+| **Khởi động** | Vừa bật nguồn (3 giây) | Logo EVCarHUD, thanh tiến trình "Đang khởi động…", rồi "KẾT NỐI VỚI" + ô **waze** (xanh nhạt) hoặc **GOFA** (xanh lá) theo nguồn đang chọn |
+| **Đã kết nối** | Điện thoại vừa kết nối | Như màn trên kèm "Đã kết nối điện thoại", hiện 2,5 giây (chạm để tắt) |
 | **Màn chờ** | Chưa có dữ liệu, hoặc đứng yên 30 giây khi không dẫn đường | Chưa nối điện thoại: đồng hồ số 24 giờ (dấu ":" nhấp nháy). Đã nối: đồng hồ lật. Ngày tháng, trạng thái kết nối |
 | **Tốc độ** | Đang chạy, chưa đặt lộ trình | Số tốc độ rất to: xanh, vàng khi cách giới hạn ≤ 5 km/h, đỏ khi vượt. Biển giới hạn to, biển báo trên đường, dải dưới báo vượt tốc độ / cảnh báo xa / "Đường thoáng" |
 | **Cảnh báo** | Đang chạy, có cảnh báo trong 800 m (camera, cảnh sát, tai nạn, nguy hiểm...) | Thẻ vàng: biển cảnh báo to, tên, khoảng cách, thanh ngắn dần. Hai ô phụ cho cảnh báo / biển tiếp theo |
@@ -51,6 +53,14 @@ idf.py -p COM5 flash monitor
 ```
 
 Nạp không được: giữ **BOOT**, bấm **RST**, thả BOOT, chạy lại. Hoặc gộp thành 1 file (nạp ở địa chỉ **0x0**): `idf.py merge-bin -o evcarhud-full.bin`.
+
+Nạp file .bin có sẵn bằng **ESP Flash Download Tool** (chọn ESP32-P4) hoặc esptool:
+
+```bat
+python -m esptool --chip esp32p4 -p COM5 -b 460800 write_flash 0x0 evcarhud-p4-full.bin
+```
+
+File `evcarhud-p4-full.bin` gồm bootloader + bảng phân vùng + firmware, nạp ở **0x0**. Chỉ nạp phần firmware (board đã có bootloader) thì nạp `evcarhud_p4.bin` ở **0x10000**.
 
 ## 3. Lần chạy đầu
 

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Tao main/ui_logo.c (logo ngang EVCarHUD, RGB565 tron san tren nen toi 0x05080F) tu evcarhud-logo-ngang-nen-toi.png.
+"""Tao main/ui_logo.c (logo EVCarHUD: vong dong ho + chu EVCarHUD, RGB565 tren nen toi 0x020617) tu logo-khoi-dong.png.
+logo-khoi-dong.png chup tu logo-khoi-dong.html bang render_logo.js (logo that tu repo evcarhud-web).
 Chay: python3 tools/logo/gen_logo.py  (can Pillow)"""
 import os
 from PIL import Image
 
-W, H = 288, 64
-BG = (0x05, 0x08, 0x0F)
+W, H = 240, 136
+BG = (0x02, 0x06, 0x17)
 here = os.path.dirname(os.path.abspath(__file__))
-src = Image.open(os.path.join(here, "evcarhud-logo-ngang-nen-toi.png")).convert("RGBA").resize((W, H), Image.LANCZOS)
+src = Image.open(os.path.join(here, "logo-khoi-dong.png")).convert("RGBA").resize((W, H), Image.LANCZOS)
 img = Image.new("RGBA", (W, H), BG + (255,))
 img.alpha_composite(src)
 data = bytearray()
@@ -17,7 +18,7 @@ for r, g, b, _ in img.getdata():
 lines = [", ".join(f"0x{x:02x}" for x in data[i:i + 16]) for i in range(0, len(data), 16)]
 out = os.path.join(here, "..", "..", "main", "ui_logo.c")
 with open(out, "w") as f:
-    f.write("/* Tu sinh boi tools/logo/gen_logo.py: logo ngang EVCarHUD %dx%d, RGB565 tren nen 0x05080F. Khong sua tay. */\n" % (W, H))
+    f.write("/* Tu sinh boi tools/logo/gen_logo.py: logo EVCarHUD %dx%d, RGB565 tren nen 0x020617. Khong sua tay. */\n" % (W, H))
     f.write('#include "lvgl.h"\n\n')
     f.write("static const uint8_t px[] = {\n    " + ",\n    ".join(lines) + "\n};\n\n")
     f.write("const lv_image_dsc_t ui_logo = {\n")

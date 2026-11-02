@@ -65,6 +65,11 @@ int main(int argc, char **argv)
     lv_screen_load(ui_splash_create("v1.1", UI_SRC_WAZE));          /* man chao logo */
     run(800);
     snprintf(p, sizeof p, "%s/00_man_chao.bmp", dir); save_bmp(p);
+    run(1400);
+    snprintf(p, sizeof p, "%s/00b_man_chao_waze.bmp", dir); save_bmp(p);
+    lv_screen_load(ui_splash_create("v1.1", UI_SRC_GOFA));
+    run(2200);
+    snprintf(p, sizeof p, "%s/00c_man_chao_gofa.bmp", dir); save_bmp(p);
 
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
@@ -86,6 +91,9 @@ int main(int argc, char **argv)
     ui_set_signal(true);
     ui_set_phone(true);
     ui_set_waze(true);
+    run(300);
+    snprintf(p, sizeof p, "%s/ket_noi_waze.bmp", dir); save_bmp(p);
+    run(2600);
     ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
     ui_set_speed(112);
     ui_set_speed_limit(120);
@@ -111,6 +119,7 @@ int main(int argc, char **argv)
     /* Gia lap app Gofa: ban tin protobuf giong tai lieu (so truong = thu tu trong bang) */
     ui_set_source(UI_SRC_GOFA);
     gofa_connected(true);
+    run(2600);                                      /* het man "Da ket noi dien thoai" */
     {
         char sum[96];
         static const uint8_t tm[] = {0x0A, 0x06, 0x08, 14, 0x10, 5, 0x18, 9};
