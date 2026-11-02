@@ -1,0 +1,88 @@
+menu "EVCarHUD"
+
+    menu "Man hinh"
+        config EVCARHUD_LCD_SPI_MHZ
+            int "Toc do SPI man hinh (MHz)"
+            range 10 80
+            default 40
+            help
+                BSP chinh hang cua Waveshare chay 80 MHz. 40 MHz chac chan on dinh; hinh nhiu thi giam xuong.
+
+        config EVCARHUD_LCD_BGR
+            bool "Thu tu mau BGR (do va xanh duong bi doi cho thi bat/tat muc nay)"
+            default y
+
+        config EVCARHUD_LCD_INVERT
+            bool "Dao mau (nen trang thanh den, anh am ban thi bat/tat muc nay)"
+            default y
+
+        config EVCARHUD_LCD_MIRROR_X
+            bool "Lat ngang hinh"
+            default n
+
+        config EVCARHUD_LCD_MIRROR_Y
+            bool "Lat doc hinh"
+            default n
+
+        config EVCARHUD_COLOR_TEST
+            bool "Man kiem tra mau luc khoi dong (4 o DO / XANH LA / XANH DUONG / TRANG)"
+            default y
+
+        config EVCARHUD_BL_DAY
+            int "Do sang den nen ban ngay (%)"
+            range 10 100
+            default 100
+
+        config EVCARHUD_BL_NIGHT
+            int "Do sang den nen ban dem (%)"
+            range 5 100
+            default 45
+    endmenu
+
+    menu "Cam ung FT6336"
+        config EVCARHUD_TOUCH
+            bool "Dung cam ung (cham doi Ngay/Dem, giu tay mo cai dat)"
+            default y
+
+        config EVCARHUD_TOUCH_SWAP
+            bool "Cam ung: doi truc X/Y"
+            depends on EVCARHUD_TOUCH
+            default y
+
+        config EVCARHUD_TOUCH_MIRROR_X
+            bool "Cam ung: lat truc X"
+            depends on EVCARHUD_TOUCH
+            default y if !EVCARHUD_LCD_MIRROR_X
+            default n
+
+        config EVCARHUD_TOUCH_MIRROR_Y
+            bool "Cam ung: lat truc Y"
+            depends on EVCARHUD_TOUCH
+            default y if EVCARHUD_LCD_MIRROR_Y
+            default n
+    endmenu
+
+    config EVCARHUD_PIN_BOOT
+        int "Nut BOOT (board P4: GPIO35)"
+        default 35
+
+    config EVCARHUD_BLE_NAME
+        string "Ten Bluetooth (Waze Mod tim theo ten nay)"
+        default "EVHUD-P4"
+        help
+            Khac ten "EVCarHUD" cua ban 2.8 inch de dien thoai khong nham hai board.
+            Toi da 8 ky tu thi nam gon trong goi quang ba.
+
+    config EVCARHUD_BLE_DIRECT_HCI
+        bool "C6 dung firmware xuat xuong: noi thang kenh HCI, khong gui lenh bat Bluetooth"
+        default y
+        help
+            Firmware C6 co san tren board khong tra loi lenh bat Bluetooth cua esp_hosted 3.x (moi lan cho 5 s)
+            nhung da tu bat Bluetooth luc khoi dong. Tat di neu sau nay cap nhat firmware C6 len 3.x.
+
+    config EVCARHUD_GOFA_UUID_PREFIX
+        string "GOFA: tien to Service UUID dinh danh (20 ky tu hex XXXXXXXX-XXXX-XXXX-XXXX, theo cau hinh thong nhat voi GOFA)"
+        default "6E400001-B5A3-F393-E0A9"
+        help
+            Quang ba o che do GOFA: "<tien to>-<MAC Bluetooth 12 ky tu hex>". Hoi GOFA gia tri dung.
+endmenu

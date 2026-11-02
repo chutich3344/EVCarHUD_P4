@@ -1,0 +1,51 @@
+# Build firmware tren GitHub (khong can cai ESP-IDF tren may):
+# moi lan day code len main -> build, gop thanh 1 file evcarhud-full.bin (nap o dia chi 0x0)
+# va dat vao ban phat hanh "ban-moi-nhat" de tai ve, roi tai len evcarhud.com/admin.
+name: Build firmware
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                 # de phien ban trong file .bin la ma commit (git describe)
+
+      - name: Bo the ban-moi-nhat (khong de git describe ghi ten the vao phien ban)
+        run: git tag -d ban-moi-nhat || true
+
+      - name: Build bang ESP-IDF 5.5
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: release-v5.5
+          target: esp32
+          command: git config --global --add safe.directory /app/${{ github.repository }} && idf.py build && idf.py merge-bin -o evcarhud-full.bin
+
+      - name: Dat ten file theo commit
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          cp build/evcarhud-full.bin "evcarhud-2.8-$SHORT.bin"
+          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+          ls -la build/evcarhud-full.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evcarhud-2.8-${{ env.SHORT }}
+          path: evcarhud-2.8-${{ env.SHORT }}.bin
+
+      - name: Cap nhat ban phat hanh "ban-moi-nhat"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ban-moi-nhat --yes --cleanup-tag || true
+          gh release create ban-moi-nhat "evcarhud-2.8-$SHORT.bin" --target "$GITHUB_SHA" \
+            --title "Bản mới nhất ($SHORT)" \
+            --notes "Firmware 2.8\" build tự động từ commit $SHORT. Tải file .bin rồi đưa lên evcarhud.com/admin, địa chỉ nạp 0x0." --prerelease
