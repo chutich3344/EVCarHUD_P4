@@ -44,6 +44,8 @@ Lần đầu `idf.py` tự tải LVGL, driver ST7796 / FT5x06, esp_hosted (cầu
 
 **Không cài ESP-IDF cũng được**: mỗi lần đẩy code lên nhánh `main`, GitHub tự build (mục **Actions → Build firmware**) và đặt file `evcarhud-3.5-<commit>.bin` vào bản phát hành **ban-moi-nhat**.
 
+Firmware build cho chip ESP32-P4 **v1.x** (board Waveshare đang bán), xem cuối `sdkconfig.defaults`. Board dùng chip v3.x thì xoá 2 dòng đó rồi build lại.
+
 ## 2. Nạp
 
 Cáp USB-C **dữ liệu** nối máy tính với cổng **USB TO UART** của board:

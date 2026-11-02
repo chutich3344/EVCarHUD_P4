@@ -41,3 +41,8 @@ CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
 CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_MEM_SIZE_KILOBYTES=128
 CONFIG_LV_FONT_MONTSERRAT_14=y
+
+# Board Waveshare dang ban dung chip P4 doi cu (v1.x). ESP-IDF 5.5 mac dinh chi chay tren v3.01-v3.99:
+# bootloader thay chip khong khop la dung, man hinh khong len gi.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_0=y
