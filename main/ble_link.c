@@ -6,6 +6,7 @@
 #include "esp_hosted_bt_host_stack.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include "esp_err.h"
 #include "esp_log.h"
@@ -324,6 +325,12 @@ static void on_sync(void)
     ble_hs_id_copy_addr(s_addr_type, a, NULL);
     ESP_LOGI(TAG, "dang quang ba \"%s\" (%02X:%02X:%02X:%02X:%02X:%02X, dich vu HLP RX handle %u): cho Waze Mod ket noi",
              ble_svc_gap_device_name(), a[5], a[4], a[3], a[2], a[1], a[0], (unsigned)s_rx_handle);
+    /* Trang nap evcarhud.com nghe cong UART sau khi nap de doc MAC Bluetooth (chip C6) dang ky GOFA: giu dung dinh dang dong nay.
+     * NimBLE luu dia chi nguoc thu tu nen in tu a[5] ve a[0]. */
+    uint8_t m[6];
+    if (ble_hs_id_copy_addr(BLE_ADDR_PUBLIC, m, NULL) != 0) memcpy(m, a, sizeof m);
+    printf("EVCARHUD_BT_MAC=%02X:%02X:%02X:%02X:%02X:%02X\n", m[5], m[4], m[3], m[2], m[1], m[0]);
+    fflush(stdout);
     advertise();
 }
 
