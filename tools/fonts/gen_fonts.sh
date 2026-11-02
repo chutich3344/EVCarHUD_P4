@@ -50,3 +50,4 @@ gen ui_font_r44     44 inter 800 digits
 gen ui_font_r36     36 inter 800 digits
 gen ui_font_dist26  26 inter 800 dist
 gen ui_font_dist30  30 inter 800 dist
+gen ui_font_r92    92 inter 800 digits

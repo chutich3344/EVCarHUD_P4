@@ -2,8 +2,7 @@
 #ifndef LV_CONF_H
 #define LV_CONF_H
 #define LV_COLOR_DEPTH 16
-#define LV_USE_STDLIB_MALLOC LV_STDLIB_BUILTIN
-#define LV_MEM_SIZE (192 * 1024U)
+#define LV_USE_STDLIB_MALLOC LV_STDLIB_CLIB   /* giong board: malloc he thong (lop phong to so can ~150 KB) */
 #define LV_USE_OS LV_OS_NONE
 #define LV_DRAW_SW_COMPLEX 1
 #define LV_USE_LOG 1

@@ -21,4 +21,5 @@ extern const lv_font_t ui_font_d150, ui_font_d120, ui_font_d104, ui_font_d96;   
 extern const lv_font_t ui_font_r76, ui_font_r50, ui_font_r44, ui_font_r36;       /* so trong bien gioi han */
 extern const lv_font_t ui_font_dist26;   /* Inter ExtraBold 26: khoang cach "250 m", "1,2 km" tren dai */
 extern const lv_font_t ui_font_dist30;   /* Inter ExtraBold 30: khoang cach tren dai canh bao */
+extern const lv_font_t ui_font_r92;      /* man Toc do khong co dai: so trong bien 202 px */
 #endif
