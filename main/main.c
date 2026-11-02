@@ -204,6 +204,11 @@ void app_main(void)
         }
     }
     ui_set_rotate_hook(on_rotate);
+    ui_set_rotated(settings_get_rotated());
+    {
+        const esp_app_desc_t *ad = esp_app_get_description();
+        ui_set_version(ad ? ad->version : "");
+    }
     link_init();                                             /* bo giai ma HLP + chon duong truyen */
     {
         int64_t t;

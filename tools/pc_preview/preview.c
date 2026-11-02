@@ -1,4 +1,4 @@
-/* Chup anh giao dien 320x240 tren PC (khong can board): chay che do trinh dien qua bo giai ma HLP that
+/* Chup anh giao dien 480x320 tren PC (khong can board): chay che do trinh dien qua bo giai ma HLP that
  * va luu vai khung hinh ra file BMP. Xem tools/pc_preview/build.sh. */
 #include "lvgl.h"
 #include "dashboard.h"
@@ -82,6 +82,31 @@ int main(int argc, char **argv)
 
     demo_stop();
     run(400);
+    /* Man Cao toc + man Canh bao khong co o phu (khong co trong kich ban trinh dien) */
+    ui_set_signal(true);
+    ui_set_phone(true);
+    ui_set_waze(true);
+    ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
+    ui_set_speed(112);
+    ui_set_speed_limit(120);
+    {
+        ui_alert_t a[3] = {{12, 24000, -1}, {19, 18000, -1}, {2, 2400, -1}};
+        ui_set_alerts(a, 3);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/cao_toc.bmp", dir); save_bmp(p);
+    ui_set_speed_limit(60);
+    ui_set_speed(72);
+    {
+        ui_alert_t a[1] = {{59, 250, -1}};
+        ui_set_alerts(a, 1);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/canh_bao_mot.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    ui_set_signal(false);
+    ui_set_phone(false);
+    run(300);
     /* Nut BOOT trong cai dat: 1 lan = muc ke (khung vang), 2 lan = chon */
     /* Gia lap app Gofa: ban tin protobuf giong tai lieu (so truong = thu tu trong bang) */
     ui_set_source(UI_SRC_GOFA);
@@ -117,7 +142,7 @@ int main(int argc, char **argv)
     ui_set_source(UI_SRC_WAZE);
     ui_set_mac("A0:B7:65:2C:4F:A6");
     ui_open_settings();
-    static const int keys[] = {UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_OK, UI_KEY_NEXT, UI_KEY_NEXT};
+    static const int keys[] = {UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_OK, UI_KEY_NEXT, UI_KEY_OK, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_OK};
     for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
         ui_settings_key(keys[i]);
         run(200);
@@ -126,5 +151,14 @@ int main(int argc, char **argv)
     ui_settings_key(UI_KEY_OK);
     run(200);
     snprintf(p, sizeof p, "%s/nut_99.bmp", dir); save_bmp(p);
+    /* tung trang cai dat + man "Da chon GOFA" */
+    for (int pg = 0; pg < 4; pg++) {
+        ui_open_settings_page(pg);
+        run(200);
+        snprintf(p, sizeof p, "%s/cai_dat_%d.bmp", dir, pg); save_bmp(p);
+    }
+    ui_test_switch(UI_SRC_GOFA);
+    run(200);
+    snprintf(p, sizeof p, "%s/cai_dat_doi_nguon.bmp", dir); save_bmp(p);
     return 0;
 }

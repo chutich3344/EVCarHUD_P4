@@ -44,7 +44,7 @@ static const ble_uuid128_t UUID_CAPS = HLP_UUID(0x04);
 static const char CAPS[] = "{\"v\":1,\"caps\":{\"transport\":\"ble\",\"maxFrame\":512}}";
 
 #define START_DELAY_MS 2000              /* de man hinh len truoc va cau noi SDIO toi chip C6 san sang */
-#define LINE_MAX 640                     /* 1 dong HLP toi da 512 byte */
+#define BLE_LINE_MAX 640                     /* 1 dong HLP toi da 512 byte */
 #define EV_RX   (1u << 0)
 #define EV_TX   (1u << 1)
 #define EV_UP   (1u << 2)
@@ -342,7 +342,7 @@ static void host_task(void *arg)
 static void ble_tx(const char *line)                              /* link.c goi (dang giu khoa LVGL): chi xep hang */
 {
     size_t n = strlen(line);
-    if (!s_tx_mb || n == 0 || n >= LINE_MAX) return;
+    if (!s_tx_mb || n == 0 || n >= BLE_LINE_MAX) return;
     if (xMessageBufferSend(s_tx_mb, line, n, 0) == n) wake(EV_TX);
 }
 
@@ -424,7 +424,7 @@ static bool bt_up(void)
 static void ble_task(void *arg)
 {
     (void)arg;
-    static char line[LINE_MAX + 2];
+    static char line[BLE_LINE_MAX + 2];
     static uint8_t rx[256];
     vTaskDelay(pdMS_TO_TICKS(START_DELAY_MS));
     if (!bt_up()) {
@@ -465,7 +465,7 @@ static void ble_task(void *arg)
         while ((n = xStreamBufferReceive(s_rx_sb, rx, sizeof rx, 0)) > 0) {
             if (s_linked) link_rx(LINK_BLE, rx, n, false);        /* ghep dong theo LF nam trong bo giai ma */
         }
-        while ((n = xMessageBufferReceive(s_tx_mb, line, LINE_MAX, 0)) > 0) send_line(line, n);
+        while ((n = xMessageBufferReceive(s_tx_mb, line, BLE_LINE_MAX, 0)) > 0) send_line(line, n);
     }
 }
 

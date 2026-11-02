@@ -1,4 +1,4 @@
-/* EVCarHUD S3 - giao dien LVGL 9 cho man hinh 2.8" ngang 320x240.
+/* EVCarHUD P4 - giao dien LVGL 9 cho man hinh 3.5" ngang 480x320.
  * Giao dien chi nhan du lieu qua cac ham ui_set_*, khong goi truc tiep phan cung hay giao thuc
  * (dashboard_hlp.c giai ma Waze Mod HLP/1 roi goi vao day). Moi ham phai goi trong khoa LVGL (board_ui_lock). */
 #ifndef DASHBOARD_H
@@ -19,8 +19,8 @@
 extern "C" {
 #endif
 
-#define UI_W 320
-#define UI_H 240
+#define UI_W 480
+#define UI_H 320
 
 /* Canh bao sap toi (ma theo HLP `alr`, 0..75). dist/value = -1 neu khong co. */
 typedef struct {
@@ -78,7 +78,9 @@ void ui_toast(const char *text);
  * 2 tieng khi vuot toc do (nhac lai moi 8 giay neu van vuot). Giu tay 5 giay tren man hinh: man cai dat am luong. */
 bool ui_settings_shown(void);                          /* man cai dat dang mo */
 void ui_open_settings(void);                           /* mo man cai dat am luong (giu tay 5 giay) */
-void ui_open_settings_page(int page);                  /* 0 = Am thanh, 1 = Ket noi */
+void ui_open_settings_page(int page);                  /* 0 = Hien thi, 1 = Canh bao (am thanh), 2 = Ket noi, 3 = He thong */
+void ui_set_version(const char *version);              /* phien ban firmware (trang He thong) */
+void ui_set_rotated(bool on);                          /* trang thai xoay 180 do da luu (NVS) */
 void ui_set_source(int source);                        /* nguon da luu (NVS), UI_SRC_* */
 void ui_set_source_hook(void (*cb)(int source));       /* nguoi dung doi nguon: luu NVS (chay nguon moi sau khi bam RST) */
 enum { UI_KEY_NEXT = 0, UI_KEY_OK = 1 };

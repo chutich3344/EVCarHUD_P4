@@ -26,26 +26,26 @@ jobs:
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: release-v5.5
-          target: esp32
+          target: esp32p4
           command: git config --global --add safe.directory /app/${{ github.repository }} && idf.py build && idf.py merge-bin -o evcarhud-full.bin
 
       - name: Dat ten file theo commit
         run: |
           SHORT=$(git rev-parse --short HEAD)
-          cp build/evcarhud-full.bin "evcarhud-2.8-$SHORT.bin"
+          cp build/evcarhud-full.bin "evcarhud-3.5-$SHORT.bin"
           echo "SHORT=$SHORT" >> "$GITHUB_ENV"
           ls -la build/evcarhud-full.bin
 
       - uses: actions/upload-artifact@v4
         with:
-          name: evcarhud-2.8-${{ env.SHORT }}
-          path: evcarhud-2.8-${{ env.SHORT }}.bin
+          name: evcarhud-3.5-${{ env.SHORT }}
+          path: evcarhud-3.5-${{ env.SHORT }}.bin
 
       - name: Cap nhat ban phat hanh "ban-moi-nhat"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete ban-moi-nhat --yes --cleanup-tag || true
-          gh release create ban-moi-nhat "evcarhud-2.8-$SHORT.bin" --target "$GITHUB_SHA" \
+          gh release create ban-moi-nhat "evcarhud-3.5-$SHORT.bin" --target "$GITHUB_SHA" \
             --title "Bản mới nhất ($SHORT)" \
-            --notes "Firmware 2.8\" build tự động từ commit $SHORT. Tải file .bin rồi đưa lên evcarhud.com/admin, địa chỉ nạp 0x0." --prerelease
+            --notes "Firmware 3.5\" build tự động từ commit $SHORT. Tải file .bin rồi đưa lên evcarhud.com/admin, địa chỉ nạp 0x0." --prerelease

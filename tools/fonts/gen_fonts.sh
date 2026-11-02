@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 [ -d node_modules/lv_font_conv ] || npm i --no-save lv_font_conv @fontsource/inter @fontsource/jetbrains-mono
 F=node_modules/@fontsource
 OUT=../../main
-LATIN="0x20-0x7E,0xA0-0xFF"
+LATIN="0x20-0x7E,0xA0-0xFF,0x2013-0x2014,0x2026"
 VIET="0x102-0x103,0x110-0x111,0x128-0x129,0x168-0x169,0x1A0-0x1A1,0x1AF-0x1B0,0x1EA0-0x1EF9"
 gen() {  # ten co ho do_dam bo_ky_tu(full|digits|ascii)
   local name=$1 size=$2 fam=$3 w=$4 set=$5 args=()
@@ -16,6 +16,7 @@ gen() {  # ten co ho do_dam bo_ky_tu(full|digits|ascii)
     digits) args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20) ;;
     onoff)  args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x46,0x4E,0x4F) ;;
     num)    args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x2C) ;;
+    numpct) args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x2C,0x25) ;;
     clock)  args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x3A) ;;
   esac
   npx lv_font_conv --bpp 4 --size $size --format lvgl --no-compress --lv-include lvgl.h \
@@ -30,15 +31,15 @@ gen ui_font_mono14  14 jetbrains-mono 700 full
 gen ui_font_dist24  24 jetbrains-mono 700 ascii
 gen ui_font_sign24  24 inter 700 digits
 gen ui_font_speed62 62 inter 700 digits
-gen ui_font_speed88 88 inter 700 digits
 gen ui_font_sign32  32 inter 700 digits
-gen ui_font_clock60 60 jetbrains-mono 700 digits
-gen ui_font_clock80 80 jetbrains-mono 700 clock
 # giao dien A (dan duong) + C (chay thuong): so to, it chu
 gen ui_font_num54   54 inter 700 num
-gen ui_font_num30   30 inter 700 num
-gen ui_font_speed72 72 inter 700 digits
-gen ui_font_speed110 110 inter 700 digits
-gen ui_font_sign40  40 inter 700 digits
 gen ui_font_unit22  22 inter 700 ascii
-gen ui_font_onoff44 44 inter 700 onoff
+# ban P4 3.5" (480x320): so to hon, van la Inter
+gen ui_font_speed140 140 inter 700 digits
+gen ui_font_sign64  64 inter 700 digits
+gen ui_font_num40   40 inter 700 numpct
+gen ui_font_clk18   18 inter 600 clock
+gen ui_font_clock120 120 inter 700 clock
+gen ui_font_clock88 88 inter 700 clock
+gen ui_font_txt20   20 inter 700 full
