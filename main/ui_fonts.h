@@ -16,6 +16,9 @@ extern const lv_font_t ui_font_num54;    /* Inter Bold 54, chu so va ",": khoang
 extern const lv_font_t ui_font_unit22;   /* Inter Bold 22, chi ASCII: don vi m / km, so loi ra vong xuyen */
 /* ban P4 3.5" (480x320) */
 extern const lv_font_t ui_font_speed140; /* Inter Bold 140, chu so va "-": toc do man chay thuong */
+extern const lv_font_t ui_font_speed72;  /* Inter Bold 72, chu so: toc do cot phai man chi dan / canh bao */
+extern const lv_font_t ui_font_num68;    /* Inter Bold 68, chu so va ",": khoang cach toi cho re */
+extern const lv_font_t ui_font_unit30;   /* Inter Bold 30, ASCII: don vi "m" / "km" canh khoang cach */
 extern const lv_font_t ui_font_sign64;   /* Inter Bold 64, chu so va "-": so trong bien gioi han to */
 extern const lv_font_t ui_font_num40;    /* Inter Bold 40, chu so "," "%": khoang cach canh bao, am luong */
 extern const lv_font_t ui_font_clk18;    /* Inter SemiBold 18, chu so ":": gio tren thanh tren */

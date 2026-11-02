@@ -43,3 +43,7 @@ gen ui_font_clk18   18 inter 600 clock
 gen ui_font_clock120 120 inter 700 clock
 gen ui_font_clock88 88 inter 700 clock
 gen ui_font_txt20   20 inter 700 full
+# so to hon cho man chi dan / canh bao (gop y sau khi chay tren board that)
+gen ui_font_speed72 72 inter 700 digits
+gen ui_font_num68   68 inter 700 num
+gen ui_font_unit30  30 inter 700 ascii

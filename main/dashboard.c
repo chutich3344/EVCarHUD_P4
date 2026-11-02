@@ -80,7 +80,7 @@ static lv_obj_t *top, *top_line, *t_clock, *t_street, *t_badge, *t_gps_dot, *t_s
 /* bien gioi han: moi man mot vong */
 typedef struct { lv_obj_t *ring, *lbl; int size; } ring_t;
 /* toc do: so + "KM/H" */
-typedef struct { lv_obj_t *num, *unit; } spd_t;
+typedef struct { lv_obj_t *num, *unit; bool big; } spd_t;   /* big: 72 px, 3 chu so thi 62 px cho vua cot */
 /* Toc do (cruise) */
 static spd_t c_spd;
 static ring_t c_ring;
@@ -224,6 +224,10 @@ static bool shown(lv_obj_t *o) { return !lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN);
 static int baseline(const lv_font_t *f) { return f->line_height - f->base_line; }   /* dinh label -> chan chu */
 
 static int text_w(const char *s, const lv_font_t *f) { return lv_text_get_width(s, strlen(s), f, 0); }
+
+/* so to: khoang chu -0.03em nhu ban mau */
+#define TIGHT(f) (-(int)(f)->line_height * 3 / 100 - 1)
+static int text_w_t(const char *s, const lv_font_t *f) { return lv_text_get_width(s, strlen(s), f, TIGHT(f)); }
 
 /* 183 -> "180" "m", 1240 -> "1,2" "km", 12400 -> "12" "km" */
 static void fmt_dist2(char *num, size_t nc, const char **unit, int m)
@@ -406,6 +410,8 @@ static spd_t mk_speed(lv_obj_t *p, const lv_font_t *f, int x, int y, int w, cons
     spd_t s;
     s.num = mk_label_w(p, f, x, y, w, LV_TEXT_ALIGN_CENTER);
     lv_label_set_long_mode(s.num, LV_LABEL_LONG_CLIP);
+    s.big = f == &ui_font_speed72;
+    if (s.big) lv_obj_set_style_text_letter_space(s.num, TIGHT(f), 0);
     s.unit = mk_label_w(p, uf, x, y + baseline(f) + 8, w, LV_TEXT_ALIGN_CENTER);
     lv_obj_set_style_text_letter_space(s.unit, 2, 0);
     lv_label_set_text(s.unit, "KM/H");
@@ -418,6 +424,11 @@ static void render_speed(spd_t *s)
     if (speed < 0) snprintf(b, sizeof b, "--");
     else snprintf(b, sizeof b, "%d", speed % 1000);
     lv_label_set_text(s->num, b);
+    if (s->big) {                                                  /* 3 chu so: ha co de khong tran cot 100 px */
+        const lv_font_t *f = speed >= 100 ? &ui_font_speed62 : &ui_font_speed72;
+        lv_obj_set_style_text_font(s->num, f, 0);
+        lv_obj_set_style_translate_y(s->num, baseline(&ui_font_speed72) - baseline(f), 0);
+    }
     lv_obj_set_style_text_color(s->num, speed_color(), 0);
     lv_obj_set_style_text_color(s->unit, th->mut, 0);
 }
@@ -576,13 +587,14 @@ static void build_alert(void)
     lv_obj_set_style_text_letter_space(a_cap, 1, 0);
     a_name = mk_label_w(a_card, &ui_font_txt20, tx, 40, tw, LV_TEXT_ALIGN_LEFT);
     lv_label_set_long_mode(a_name, LV_LABEL_LONG_WRAP);
-    a_dist = mk_label(a_card, &ui_font_num40, tx, 0, "");
-    a_unit = mk_label(a_card, &ui_font_txt20, 0, 0, "");
+    a_dist = mk_label(a_card, &ui_font_num54, tx, 0, "");
+    lv_obj_set_style_text_letter_space(a_dist, TIGHT(&ui_font_num54), 0);
+    a_unit = mk_label(a_card, &ui_font_unit22, 0, 0, "");
     a_bar = mk_fill(a_card, tx, 0, tw, 6, 3);
     a_fill = mk_fill(a_bar, 0, 0, 0, 6, 3);
 
     int sx = UI_W - PAD - SIDE_W;
-    a_spd = mk_speed(p, &ui_font_speed62, sx, 0, SIDE_W, &ui_font_sm12);
+    a_spd = mk_speed(p, &ui_font_speed72, sx, 0, SIDE_W, &ui_font_sm12);
     a_ring = mk_ring(p, sx + (SIDE_W - 64) / 2, 0, 64);
     int cy = BODY_H - 12 - A_CELL_H, cellw = (UI_W - 2 * PAD - 10) / 2;
     for (int i = 0; i < 2; i++) {
@@ -621,8 +633,8 @@ static void render_alert(void)
     int ny = lv_obj_get_y(a_name) + lv_obj_get_height(a_name) + 6;
     int tx = lv_obj_get_x(a_name);
     lv_obj_set_y(a_dist, ny);
-    lv_obj_set_pos(a_unit, tx + text_w(num, &ui_font_num40) + 6, ny + baseline(&ui_font_num40) - baseline(&ui_font_txt20));
-    lv_obj_set_y(a_bar, ny + baseline(&ui_font_num40) + 10);
+    lv_obj_set_pos(a_unit, tx + text_w_t(num, &ui_font_num54) + 6, ny + baseline(&ui_font_num54) - baseline(&ui_font_unit22));
+    lv_obj_set_y(a_bar, ny + baseline(&ui_font_num54) + 10);
     lv_obj_set_style_bg_color(a_bar, th->al_border, 0);
     lv_obj_set_style_bg_color(a_fill, th->al_fg, 0);
     bool bar = ev_now->dist >= 0 && ev_now->code != 8;
@@ -631,10 +643,10 @@ static void render_alert(void)
 
     /* cot phai: toc do + bien gioi han, can giua theo chieu doc cua the */
     render_speed(&a_spd);
-    int colh = baseline(&ui_font_speed62) + 8 + ui_font_sm12.line_height + 10 + 64;
+    int colh = baseline(&ui_font_speed72) + 8 + ui_font_sm12.line_height + 10 + 64;
     int y0 = PAD + (ch - colh) / 2;
     lv_obj_set_y(a_spd.num, y0);
-    lv_obj_set_y(a_spd.unit, y0 + baseline(&ui_font_speed62) + 8);
+    lv_obj_set_y(a_spd.unit, y0 + baseline(&ui_font_speed72) + 8);
     lv_obj_set_y(a_ring.ring, y0 + colh - 64);
     render_ring(&a_ring);
 
@@ -785,12 +797,16 @@ static void build_nav(void)
     n_exit = mk_label(n_card, &ui_font_txt20, 8 + N_ARROW - 14, 8, "");
     lv_obj_set_style_text_color(n_exit, lv_color_white(), 0);
     int tx = 8 + N_ARROW + 10;
-    n_dist = mk_label(n_card, &ui_font_num54, tx, 12, "");
+    n_dist = mk_label(n_card, &ui_font_num68, tx, 8, "");
+    lv_obj_set_style_text_letter_space(n_dist, TIGHT(&ui_font_num68), 0);
     lv_obj_set_style_text_color(n_dist, lv_color_white(), 0);
-    n_unit = mk_label(n_card, &ui_font_unit22, 0, 0, "");
+    n_unit = mk_label(n_card, &ui_font_unit30, 0, 0, "");
     lv_obj_set_style_text_color(n_unit, lv_color_white(), 0);
-    n_turn = mk_label_w(n_card, &ui_font_txt14, tx, 12 + baseline(&ui_font_num54) + 6, cw - tx - 12, LV_TEXT_ALIGN_LEFT);
-    n_street = mk_label_w(n_card, &ui_font_txt20, 14, 8 + N_ARROW + 10, cw - 28, LV_TEXT_ALIGN_LEFT);
+    int ty = 8 + baseline(&ui_font_num68) + 6;
+    n_turn = mk_label_w(n_card, &ui_font_txt16, tx, ty, cw - tx - 12, LV_TEXT_ALIGN_LEFT);
+    int sy = ty + ui_font_txt16.line_height + 10;
+    if (sy < 8 + N_ARROW + 10) sy = 8 + N_ARROW + 10;
+    n_street = mk_label_w(n_card, &ui_font_txt20, 14, sy, cw - 28, LV_TEXT_ALIGN_LEFT);
     lv_label_set_long_mode(n_street, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_max_height(n_street, 2 * ui_font_txt20.line_height, 0);
     lv_obj_set_style_text_color(n_street, lv_color_white(), 0);
@@ -803,7 +819,7 @@ static void build_nav(void)
     lv_obj_set_style_image_recolor_opa(n_next, LV_OPA_COVER, 0);
 
     int sx = UI_W - PAD - SIDE_W;
-    n_spd = mk_speed(p, &ui_font_speed62, sx, 0, SIDE_W, &ui_font_sm12);
+    n_spd = mk_speed(p, &ui_font_speed72, sx, 0, SIDE_W, &ui_font_sm12);
     n_ring = mk_ring(p, sx + (SIDE_W - 64) / 2, 0, 64);
     n_sign = mk_image(p, sx + (SIDE_W - 40) / 2, 0, 40, 48);
 
@@ -840,7 +856,7 @@ static void render_nav(void)
     lv_label_set_text(n_dist, num);
     lv_label_set_text(n_unit, unit);
     int tx = lv_obj_get_x(n_dist);
-    lv_obj_set_pos(n_unit, tx + text_w(num, &ui_font_num54) + 6, 12 + baseline(&ui_font_num54) - baseline(&ui_font_unit22));
+    lv_obj_set_pos(n_unit, tx + text_w_t(num, &ui_font_num68) + 6, 8 + baseline(&ui_font_num68) - baseline(&ui_font_unit30));
     lv_label_set_text(n_turn, turn_name(turn_now));
     lv_obj_set_style_text_color(n_turn, th->blue_fg, 0);
     lv_label_set_text(n_street, street_nav);
@@ -861,12 +877,12 @@ static void render_nav(void)
     /* cot phai */
     render_speed(&n_spd);
     bool sg = sign_now != NULL;
-    int ch = lv_obj_get_height(n_card), colh = baseline(&ui_font_speed62) + 8 + ui_font_sm12.line_height + 10 + 64 + (sg ? 8 + 40 : 0);
+    int ch = lv_obj_get_height(n_card), colh = baseline(&ui_font_speed72) + 8 + ui_font_sm12.line_height + 10 + 64 + (sg ? 8 + 40 : 0);
     int y0 = PAD + (ch - colh) / 2;
     if (y0 < 4) y0 = 4;
     lv_obj_set_y(n_spd.num, y0);
-    lv_obj_set_y(n_spd.unit, y0 + baseline(&ui_font_speed62) + 8);
-    int ry = y0 + baseline(&ui_font_speed62) + 8 + ui_font_sm12.line_height + 10;
+    lv_obj_set_y(n_spd.unit, y0 + baseline(&ui_font_speed72) + 8);
+    int ry = y0 + baseline(&ui_font_speed72) + 8 + ui_font_sm12.line_height + 10;
     lv_obj_set_y(n_ring.ring, ry);
     render_ring(&n_ring);
     show(n_sign, sg);
