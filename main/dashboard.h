@@ -46,8 +46,32 @@ void ui_set_speed_limit(int kmh);                 /* 0 = chua biet: an bien, kho
 void ui_set_time(int hour, int minute, int wday); /* wday: 0 = Chu nhat ... 6 = Thu bay, -1 = chua biet */
 int ui_get_speed(void);
 void ui_set_date(int day, int month);
-void ui_set_clock_synced(bool synced);            /* false: gio uoc tinh (chua chinh theo dien thoai) */             /* ngay 1..31, thang 1..12 (man cho) */
-bool ui_get_clock(int *h, int *m);                /* false: chua co gio tu dien thoai */
+bool ui_get_clock(int *h, int *m);                /* false: chua co gio */
+enum { UI_TSRC_NONE = 0, UI_TSRC_RTC = 1, UI_TSRC_PHONE = 2, UI_TSRC_NTP = 3 };   /* nguon gio, thap -> cao */
+void ui_set_time_source(int src);                 /* man cho: o "Gio: Wi-Fi / dien thoai / RTC" */
+
+/* --- Wi-Fi + thoi tiet (man cho) ---
+ * Giao dien chi ve; wifi_link.c (board) lam viec that qua cac hook. Cham bieu tuong Wi-Fi hoac dai vang o man cho:
+ * mo trang Wi-Fi (bat/tat, do mang, nhap mat khau bang ban phim tren man hinh). */
+enum { UI_WIFI_OFF = 0, UI_WIFI_IDLE, UI_WIFI_CONNECTING, UI_WIFI_CONNECTED, UI_WIFI_FAIL };
+typedef struct {
+    char ssid[33];
+    int rssi;                                     /* dBm */
+    bool lock;                                    /* co mat khau */
+} ui_wifi_ap_t;
+typedef struct {
+    void (*enable)(bool on);                      /* cong tac Wi-Fi */
+    void (*scan)(void);                           /* do mang: tra ket qua bang ui_wifi_scan_done */
+    void (*join)(const char *ssid, const char *pass);   /* ket noi + luu NVS */
+} ui_wifi_hooks_t;
+void ui_set_wifi_hooks(const ui_wifi_hooks_t *h);
+void ui_wifi_set_state(int state, const char *ssid);   /* UI_WIFI_*; ssid: mang dang/da ket noi */
+void ui_wifi_scan_done(const ui_wifi_ap_t *aps, int n);
+void ui_open_wifi(void);
+void ui_wifi_test_pass(const char *ssid, const char *pwd, bool err);   /* chi de chup anh xem truoc */
+void ui_wifi_test_join(void);
+enum { UI_WX_NONE = 0, UI_WX_SUN, UI_WX_CLOUD, UI_WX_RAIN, UI_WX_STORM, UI_WX_FOG };
+void ui_set_weather(int kind, const char *text);  /* kind UI_WX_NONE: "Chua co thoi tiet"; text vd "TP. Ho Chi Minh · 31°C · Nang" */
 
 /* --- du lieu dan duong (Waze HLP) --- */
 void ui_set_nav(bool active, int turn, int dist_m, int exit_n, const char *street, int turn2);

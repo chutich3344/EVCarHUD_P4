@@ -22,6 +22,10 @@
 #include "link.h"
 #include "settings.h"
 #include "gofa.h"
+#include "rtc_ds3231.h"
+#include "wifi_link.h"
+#include <sys/time.h>
+#include <time.h>
 #include "ui_fonts.h"
 
 static const char *TAG = "evcarhud";
@@ -31,32 +35,38 @@ static void on_night(bool night) { board_set_backlight(night ? CONFIG_EVCARHUD_B
 
 static void on_mode(int mode) { settings_set_mode(mode); }
 
-/* Gio theo dien thoai: luu 10 phut/lan (va lan dau) de lan bat may sau dong ho chay tiep ngay, khong phai "--:--" */
-static void on_clock(int64_t unix_s, int tz_min)
+/* Moi lan co gio day du (RTC / dien thoai / NTP): dat gio he thong (dong ho trong chip, van chay khi ngu sau),
+ * ghi module DS3231 neu co, luu mui gio. */
+static bool has_ds3231;
+static void on_clock(int64_t unix_s, int tz_min, int src)
 {
-    static int64_t saved;
-    if (saved && unix_s - saved < 600) return;
-    saved = unix_s;
-    settings_set_clock(unix_s, tz_min);
+    if (src != UI_TSRC_NTP && src != UI_TSRC_RTC) {
+        struct timeval tv = {.tv_sec = (time_t)unix_s};
+        settimeofday(&tv, NULL);
+    }
+    if (has_ds3231 && src >= UI_TSRC_PHONE) ds3231_write(unix_s);
+    if (tz_min != settings_get_tz()) settings_set_tz(tz_min);
 }
 
-/* Gio luc build (__DATE__ __TIME__, may build tren GitHub dung gio UTC) -> giay UTC: dung khi chua tung co gio */
-static int64_t build_unix(void)
+/* Luc bat may: khong doan gio. Dong ho trong chip con gio (day sau ngu sau / khoi dong lai mem) -> dung; khong thi doc
+ * module DS3231 (neu gan). Khong co gi: man cho hien "--:--" cho Wi-Fi (NTP) hoac dien thoai. */
+static void clock_boot(void)
 {
-    static const char MON[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-    char m[4] = {0};
-    int d = 1, y = 2026, hh = 0, mm = 0, ss = 0;
-    sscanf(__DATE__, "%3s %d %d", m, &d, &y);
-    sscanf(__TIME__, "%d:%d:%d", &hh, &mm, &ss);
-    const char *p = strstr(MON, m);
-    int mo = p ? (int)(p - MON) / 3 + 1 : 1;
-    /* days_from_civil (H. Hinnant) */
-    y -= mo <= 2;
-    int era = y / 400, yoe = y - era * 400;
-    int doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    int64_t days = (int64_t)era * 146097 + doe - 719468;
-    return days * 86400 + hh * 3600 + mm * 60 + ss;
+    int tz = settings_get_tz();
+    has_ds3231 = ds3231_init(board_i2c_bus());
+    time_t now = time(NULL);
+    int64_t t;
+    if (now > 1700000000) {
+        ESP_LOGI(TAG, "gio con trong chip (%s)", esp_reset_reason() == ESP_RST_DEEPSLEEP ? "day sau ngu sau" : "khoi dong lai");
+        hlp_dash_set_clock(now, tz, UI_TSRC_RTC);
+    } else if (has_ds3231 && ds3231_read(&t)) {
+        struct timeval tv = {.tv_sec = (time_t)t};
+        settimeofday(&tv, NULL);
+        ESP_LOGI(TAG, "lay gio tu module DS3231");
+        hlp_dash_set_clock(t, tz, UI_TSRC_RTC);
+    } else {
+        ESP_LOGI(TAG, "chua co gio: cho NTP / dien thoai");
+    }
 }
 
 static void on_rotate(void)                                 /* bam BOOT 2 lan: xoay 180 do va nho lai */
@@ -210,16 +220,8 @@ void app_main(void)
         ui_set_version(ad ? ad->version : "");
     }
     link_init();                                             /* bo giai ma HLP + chon duong truyen */
-    {
-        int64_t t;
-        int tz;
-        if (!settings_get_clock(&t, &tz)) {                  /* moi nap firmware (NVS da xoa): lay gio build, mui gio VN */
-            t = build_unix();
-            tz = 7 * 60;
-        }
-        hlp_dash_set_clock_guess(t, tz);                     /* dong ho chay ngay; dien thoai noi se chinh lai */
-        if (!demo) hlp_dash_set_clock_hook(on_clock);        /* trinh dien dung gio gia: khong luu */
-    }
+    hlp_dash_set_clock_hook(on_clock);
+    clock_boot();
     if (demo) {
         demo_start();
         ui_toast("Trình diễn (giữ BOOT 3 giây để tắt)");
@@ -232,6 +234,7 @@ void app_main(void)
 
     buttons_start();
     if (!demo) ble_link_start();                             /* cho Waze Mod ket noi qua Bluetooth LE */
+    wifi_link_start();                                       /* Wi-Fi da luu: gio NTP + thoi tiet */
 #if CONFIG_EVCARHUD_LDR
     xTaskCreate(light_task, "anh_sang", 2560, NULL, 2, NULL);
 #endif

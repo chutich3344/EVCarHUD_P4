@@ -19,3 +19,9 @@ int settings_get_volume(void);        /* am luong 10..100 (mac dinh 70) */
 void settings_set_volume(int v);
 int settings_get_source(void);        /* nguon du lieu: 0 Waze Mod (mac dinh), 1 GOFA */
 void settings_set_source(int s);
+int settings_get_tz(void);            /* mui gio (phut), mac dinh +7 (Viet Nam) */
+void settings_set_tz(int tz_min);
+bool settings_get_wifi_on(void);      /* cong tac Wi-Fi (mac dinh: bat) */
+void settings_set_wifi_on(bool on);
+bool settings_get_wifi(char ssid[33], char pass[65]);   /* mang Wi-Fi da luu (false: chua co) */
+void settings_set_wifi(const char *ssid, const char *pass);

@@ -112,7 +112,7 @@ static lv_obj_t *n_cell[3], *n_cell_img[3], *n_cell_d[3];
 static lv_obj_t *n_eta, *n_eta_v[3], *n_eta_l[3];
 static strip_t n_st;
 /* man cho */
-static lv_obj_t *sb_brand, *sb_dot, *sb_chip, *sb_chip_l, *sb_date, *sb_bar, *sb_icon, *sb_txt, *sb_pill, *sb_pill_dot, *sb_pill_l;
+static lv_obj_t *sb_chip, *sb_chip_l, *sb_date, *sb_bar, *sb_txt, *sb_pill, *sb_pill_dot, *sb_pill_l;
 static lv_obj_t *dg_h, *dg_c, *dg_m;
 static lv_timer_t *colon_tmr, *strip_tmr;
 static bool blink_dim;
@@ -129,7 +129,7 @@ static int speed = -2, limit = -1, level = -1;
 static bool nav_on, has_route;
 static int clk_h = -1, clk_m = -1, day = -1, month = -1, wday = -1;
 static int screen = -1;
-static bool sig_ok, phone, waze = true, moving, clk_synced;
+static bool sig_ok, phone, waze = true, moving;
 static uint32_t stop_tick;
 static ui_alert_t al_list[4];
 static int al_n;
@@ -1620,18 +1620,97 @@ void ui_set_beep_hook(void (*cb)(int)) { beep_cb = cb; }
 void ui_set_sound_hook(void (*cb)(bool, int)) { sound_cb = cb; }
 
 /* ======================= man cho =======================
- * Theo man mau "Cho ket noi": dong ho to giua man, ngay thang; duoi la dai "Cho ket noi Waze/GOFA qua dien thoai..."
- * kem o "GPS san sang". Goc phai tren: cham trang thai + o nguon. Dau ":" nhap nhay khi chua noi dien thoai. */
+ * Theo man mau "Man cho · dong ho · Wi-Fi": thanh tren = thoi tiet (trai), Wi-Fi + Bluetooth + o nguon (phai); dong ho to
+ * giua man + ngay thang; dai duoi. Khong doan gio: chua co nguon gio nao thi hien "--:--", "Chua co gio" va dai vang
+ * "Ket noi Wi-Fi hoac dien thoai de lay gio" (cham de mo trang Wi-Fi). Co gio: dai cho ket noi + o "Gio: Wi-Fi / dien thoai". */
 #define SB_BAR_H 54
+#define C_YEL    0xFACC15
+static lv_obj_t *sb_wx_dot, *sb_wx, *sb_wifi_hit, *sb_wifi, *sb_bt, *sb_bar_wifi, *sb_bar_bt;
+static int tsrc, wifi_st = UI_WIFI_OFF, wx_kind;
+static char wx_txt[64], wifi_ssid[33];
+
+/* Bieu tuong Wi-Fi: 3 cung + 1 cham (font khong co), gach cheo do khi chua ket noi. */
+static lv_obj_t *mk_wifi_icon(lv_obj_t *p, int x, int y, int s)
+{
+    lv_obj_t *box = mk_box(p, x, y, s, s);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_EVENT_BUBBLE);
+    int cx = s / 2, cy = s * 82 / 100, w = s >= 30 ? 4 : 2;
+    static const int R[3] = {78, 54, 30};
+    for (int i = 0; i < 3; i++) {
+        int r = s * R[i] / 100;
+        lv_obj_t *a = lv_arc_create(box);
+        lv_obj_remove_style_all(a);
+        lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(a, LV_OBJ_FLAG_EVENT_BUBBLE);
+        lv_obj_set_pos(a, cx - r, cy - r);
+        lv_obj_set_size(a, 2 * r, 2 * r);
+        lv_arc_set_bg_angles(a, 225, 315);
+        lv_obj_set_style_arc_width(a, w, 0);
+        lv_obj_set_style_arc_rounded(a, true, 0);
+        lv_obj_set_style_arc_opa(a, LV_OPA_COVER, 0);
+    }
+    int d = w + 2;
+    mk_fill(box, cx - d / 2, cy - d / 2, d, d, LV_RADIUS_CIRCLE);
+    lv_point_precise_t *pt = lv_malloc(2 * sizeof(lv_point_precise_t));
+    pt[0].x = 1; pt[0].y = 1; pt[1].x = s - 1; pt[1].y = s - 1;
+    lv_obj_t *ln = lv_line_create(box);
+    lv_line_set_points(ln, pt, 2);
+    lv_obj_set_style_line_width(ln, w, 0);
+    lv_obj_set_style_line_rounded(ln, true, 0);
+    lv_obj_set_style_line_color(ln, lv_color_hex(0xFF4D4F), 0);
+    return box;
+}
+
+static void wifi_icon_color(lv_obj_t *box, lv_color_t c, bool slash)
+{
+    for (int i = 0; i < 3; i++) lv_obj_set_style_arc_color(lv_obj_get_child(box, i), c, 0);
+    lv_obj_set_style_bg_color(lv_obj_get_child(box, 3), c, 0);
+    show(lv_obj_get_child(box, 4), slash);
+}
+
+static lv_obj_t *mk_lock(lv_obj_t *p, int x, int y, lv_color_t c)
+{
+    lv_obj_t *b = mk_box(p, x, y, 12, 14);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_t *a = lv_arc_create(b);
+    lv_obj_remove_style_all(a);
+    lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(a, 2, 0);
+    lv_obj_set_size(a, 8, 10);
+    lv_arc_set_bg_angles(a, 180, 360);
+    lv_obj_set_style_arc_width(a, 2, 0);
+    lv_obj_set_style_arc_opa(a, LV_OPA_COVER, 0);
+    lv_obj_set_style_arc_color(a, c, 0);
+    lv_obj_t *body = mk_fill(b, 0, 5, 12, 9, 2);
+    lv_obj_set_style_bg_color(body, c, 0);
+    return b;
+}
+
+static lv_color_t wx_color(int k)
+{
+    switch (k) {
+    case UI_WX_SUN: return lv_color_hex(C_YEL);
+    case UI_WX_RAIN: return lv_color_hex(0x38BDF8);
+    case UI_WX_STORM: return lv_color_hex(0xA78BFA);
+    default: return lv_color_hex(0xCBD5E1);
+    }
+}
+
+static void sb_wifi_cb(lv_event_t *e) { (void)e; ui_open_wifi(); }
+
 static void build_standby(void)
 {
     lv_obj_t *p = page[SCR_STANDBY] = mk_box(scr, 0, 0, UI_W, UI_H);
     lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
-    sb_brand = mk_label(p, &ui_font_cap12, PAD, (TOP_H - ui_font_cap12.line_height) / 2, "EVCARHUD");
-    lv_obj_set_style_text_letter_space(sb_brand, 3, 0);
+    sb_wx_dot = mk_fill(p, PAD, (TOP_H - 10) / 2, 10, 10, LV_RADIUS_CIRCLE);
+    sb_wx = mk_label_w(p, &ui_font_txt14, PAD, (TOP_H - ui_font_txt14.line_height) / 2, 300, LV_TEXT_ALIGN_LEFT);
     sb_chip = mk_fill(p, 0, (TOP_H - 18) / 2, 40, 18, 5);
     sb_chip_l = mk_label(sb_chip, &ui_font_cap12, 6, (18 - ui_font_cap12.line_height) / 2, "waze");
-    sb_dot = mk_fill(p, 0, (TOP_H - 8) / 2, 8, 8, LV_RADIUS_CIRCLE);
+    sb_bt = mk_label(p, &lv_font_montserrat_14, 0, (TOP_H - lv_font_montserrat_14.line_height) / 2, LV_SYMBOL_BLUETOOTH);
+    sb_wifi_hit = mk_box(p, 0, 0, 40, TOP_H);                       /* vung cham rong hon bieu tuong 18 px */
+    lv_obj_add_flag(sb_wifi_hit, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(sb_wifi_hit, sb_wifi_cb, LV_EVENT_CLICKED, NULL);
+    sb_wifi = mk_wifi_icon(sb_wifi_hit, 11, (TOP_H - 18) / 2, 18);
 
     const lv_font_t *df = &ui_font_clock120;
     int by = UI_H - 14 - SB_BAR_H;
@@ -1648,12 +1727,15 @@ static void build_standby(void)
 
     int bw = UI_W - 2 * PAD;
     sb_bar = mk_card(p, PAD, by, bw, SB_BAR_H, 12);
-    sb_icon = mk_image(sb_bar, 14, (SB_BAR_H - 2 - 22) / 2, 22, 64);
-    lv_image_set_src(sb_icon, &arrow_straight);
-    lv_obj_set_style_image_recolor_opa(sb_icon, LV_OPA_COVER, 0);
-    sb_pill = mk_card(sb_bar, 0, (SB_BAR_H - 2 - 26) / 2, 120, 26, 13);
-    sb_pill_dot = mk_fill(sb_pill, 10, (24 - 7) / 2, 7, 7, LV_RADIUS_CIRCLE);
-    sb_pill_l = mk_label(sb_pill, &ui_font_sm12, 23, (24 - ui_font_sm12.line_height) / 2, "");
+    lv_obj_add_flag(sb_bar, LV_OBJ_FLAG_CLICKABLE);                  /* cham dai: mo trang Wi-Fi */
+    lv_obj_add_event_cb(sb_bar, sb_wifi_cb, LV_EVENT_CLICKED, NULL);
+    sb_bar_wifi = mk_wifi_icon(sb_bar, 14, (SB_BAR_H - 2 - 20) / 2, 20);
+    sb_bar_bt = mk_label(sb_bar, &lv_font_montserrat_14, 18, (SB_BAR_H - 2 - lv_font_montserrat_14.line_height) / 2,
+                         LV_SYMBOL_BLUETOOTH);
+    sb_pill = mk_card(sb_bar, 0, (SB_BAR_H - 2 - 28) / 2, 120, 28, 14);
+    lv_obj_add_flag(sb_pill, LV_OBJ_FLAG_EVENT_BUBBLE);
+    sb_pill_dot = mk_fill(sb_pill, 10, (26 - 7) / 2, 7, 7, LV_RADIUS_CIRCLE);
+    sb_pill_l = mk_label(sb_pill, &ui_font_sm12, 23, (26 - ui_font_sm12.line_height) / 2, "");
     sb_txt = mk_label_w(sb_bar, &ui_font_txt16, 46, (SB_BAR_H - 2 - ui_font_txt16.line_height) / 2, 200, LV_TEXT_ALIGN_LEFT);
 }
 
@@ -1675,41 +1757,90 @@ static void render_standby(void)
     }
     lv_label_set_text(dg_h, hh);
     lv_label_set_text(dg_m, mm);
-    if (day > 0 && month > 0 && wday >= 0) snprintf(b, sizeof b, "%s, %02d/%02d", WDAY_NAME[wday % 7], day, month);
-    else if (wday >= 0) snprintf(b, sizeof b, "%s", WDAY_NAME[wday % 7]);
-    else snprintf(b, sizeof b, "Chờ giờ từ điện thoại");
+    if (clk_h < 0) snprintf(b, sizeof b, "Chưa có giờ");
+    else if (day > 0 && month > 0 && wday >= 0) snprintf(b, sizeof b, "%s, %02d/%02d", WDAY_NAME[wday % 7], day, month);
+    else snprintf(b, sizeof b, "Chưa có ngày");
     lv_label_set_text(sb_date, b);
     lv_obj_set_style_text_color(sb_date, th->fg, 0);
 
+    /* thanh tren: thoi tiet | Wi-Fi, Bluetooth, o nguon */
+    show(sb_wx_dot, wx_kind != UI_WX_NONE);
+    lv_obj_set_style_bg_color(sb_wx_dot, wx_color(wx_kind), 0);
+    lv_obj_set_x(sb_wx, wx_kind != UI_WX_NONE ? PAD + 16 : PAD);
+    lv_label_set_text(sb_wx, wx_kind != UI_WX_NONE ? wx_txt : "Chưa có thời tiết");
+    lv_obj_set_style_text_color(sb_wx, th->fg, 0);
     bool g = src == UI_SRC_GOFA;
     const char *sn = g ? "GOFA" : "waze";
     lv_label_set_text(sb_chip_l, sn);
     lv_obj_set_style_text_color(sb_chip_l, g ? lv_color_white() : lv_color_hex(0x05263A), 0);
     lv_obj_set_style_bg_color(sb_chip, g ? lv_color_hex(0x0B8F4D) : lv_color_hex(0x33CCFF), 0);
-    int cw = text_w(sn, &ui_font_cap12) + 12;
+    int cw = text_w(sn, &ui_font_cap12) + 12, cx = UI_W - PAD - cw;
     lv_obj_set_width(sb_chip, cw);
-    lv_obj_set_x(sb_chip, UI_W - PAD - cw);
-    lv_obj_set_x(sb_dot, UI_W - PAD - cw - 6 - 8);
-    lv_obj_set_style_bg_color(sb_dot, phone ? th->ok : th->dim, 0);
-    lv_obj_set_style_text_color(sb_brand, th->fg, 0);
+    lv_obj_set_x(sb_chip, cx);
+    int btx = cx - 10 - text_w(LV_SYMBOL_BLUETOOTH, &lv_font_montserrat_14);
+    lv_obj_set_x(sb_bt, btx);
+    lv_obj_set_style_text_color(sb_bt, phone ? lv_color_hex(0x33CCFF) : th->fg, 0);
+    lv_obj_set_x(sb_wifi_hit, btx - 8 - 29);
+    bool wok = wifi_st == UI_WIFI_CONNECTED, wcon = wifi_st == UI_WIFI_CONNECTING;
+    wifi_icon_color(sb_wifi, wok ? lv_color_hex(0x22C55E) : wcon ? lv_color_hex(C_YEL) : th->fg, !wok && !wcon);
+    lv_obj_set_width(sb_wx, btx - 8 - 29 - 8 - lv_obj_get_x(sb_wx));
 
-    lv_obj_set_style_bg_color(sb_bar, night ? lv_color_hex(0x0B1A2E) : th->card, 0);
-    lv_obj_set_style_border_color(sb_bar, night ? lv_color_hex(0x1E3A5F) : th->border, 0);
-    lv_obj_set_style_image_recolor(sb_icon, g ? lv_color_hex(0x0B8F4D) : lv_color_hex(0x33CCFF), 0);
-    const char *gp = phone ? "GPS sẵn sàng" : (clk_h >= 0 && !clk_synced) ? "Giờ chưa chỉnh" : "Chưa có GPS";
-    lv_label_set_text(sb_pill_l, gp);
-    lv_obj_set_style_text_color(sb_pill_l, th->fg, 0);
-    int pw = 23 + text_w(gp, &ui_font_sm12) + 12, bw = lv_obj_get_width(sb_bar) - 2;
+    /* dai duoi */
+    int bw = lv_obj_get_width(sb_bar) - 2;
+    bool none = clk_h < 0;
+    show(sb_bar_wifi, none);
+    show(sb_bar_bt, !none);
+    show(sb_pill_dot, !none);
+    const char *pl, *tx;
+    if (none) {
+        lv_obj_set_style_bg_color(sb_bar, lv_color_hex(night ? 0x2A1E06 : 0xFEF9C3), 0);
+        lv_obj_set_style_border_color(sb_bar, lv_color_hex(night ? 0x7A5A12 : 0xCA8A04), 0);
+        wifi_icon_color(sb_bar_wifi, lv_color_hex(night ? C_YEL : 0xA16207), false);
+        pl = "Wi-Fi ›";
+        tx = wcon ? "Đang tự kết nối Wi-Fi đã lưu…" : wok ? "Đã kết nối Wi-Fi · đang lấy giờ…"
+                  : "Kết nối Wi-Fi hoặc điện thoại để lấy giờ";
+        lv_obj_set_style_bg_color(sb_pill, lv_color_hex(C_YEL), 0);
+        lv_obj_set_style_border_color(sb_pill, lv_color_hex(C_YEL), 0);
+        lv_obj_set_style_text_color(sb_pill_l, lv_color_hex(0x1A1606), 0);
+        lv_obj_set_style_text_font(sb_pill_l, &ui_font_cap12, 0);
+        lv_obj_set_x(sb_pill_l, 12);
+    } else {
+        lv_obj_set_style_bg_color(sb_bar, night ? lv_color_hex(0x0B1A2E) : th->card, 0);
+        lv_obj_set_style_border_color(sb_bar, night ? lv_color_hex(0x1E3A5F) : th->border, 0);
+        lv_obj_set_style_text_color(sb_bar_bt, g ? lv_color_hex(0x0B8F4D) : lv_color_hex(0x33CCFF), 0);
+        pl = tsrc == UI_TSRC_NTP ? "Giờ: Wi-Fi" : tsrc == UI_TSRC_RTC ? "Giờ: RTC" : "Giờ: điện thoại";
+        tx = phone ? "Đã kết nối · chờ dữ liệu dẫn đường"
+                   : g ? "Chờ kết nối GOFA qua điện thoại…" : "Chờ kết nối Waze qua điện thoại…";
+        lv_obj_set_style_bg_color(sb_pill, lv_color_hex(night ? 0x0F2A1C : 0xDCFCE7), 0);
+        lv_obj_set_style_border_color(sb_pill, lv_color_hex(night ? 0x1E4D33 : 0x86EFAC), 0);
+        lv_obj_set_style_bg_color(sb_pill_dot, th->ok, 0);
+        lv_obj_set_style_text_color(sb_pill_l, th->fg, 0);
+        lv_obj_set_style_text_font(sb_pill_l, &ui_font_sm12, 0);
+        lv_obj_set_x(sb_pill_l, 23);
+    }
+    lv_label_set_text(sb_pill_l, pl);
+    int pw = lv_obj_get_x(sb_pill_l) + text_w(pl, lv_obj_get_style_text_font(sb_pill_l, 0)) + 12;
     lv_obj_set_width(sb_pill, pw);
     lv_obj_set_x(sb_pill, bw - 14 - pw);
-    lv_obj_set_style_bg_color(sb_pill, phone ? lv_color_hex(night ? 0x0F2A1C : 0xDCFCE7) : th->card, 0);
-    lv_obj_set_style_border_color(sb_pill, phone ? lv_color_hex(night ? 0x1E4D33 : 0x86EFAC) : th->border, 0);
-    lv_obj_set_style_bg_color(sb_pill_dot, phone ? th->ok : th->dim, 0);
-    lv_label_set_text(sb_txt, phone ? "Đã kết nối · chờ dữ liệu dẫn đường"
-                              : g ? "Chờ kết nối GOFA qua điện thoại…" : "Chờ kết nối Waze qua điện thoại…");
+    lv_label_set_text(sb_txt, tx);
     lv_obj_set_width(sb_txt, bw - 14 - pw - 10 - 46);
     lv_obj_set_style_text_color(sb_txt, th->fg, 0);
 }
+
+void ui_set_time_source(int s)
+{
+    tsrc = s;
+    render_standby();
+}
+
+void ui_set_weather(int kind, const char *text)
+{
+    wx_kind = text && *text ? kind : UI_WX_NONE;
+    snprintf(wx_txt, sizeof wx_txt, "%s", text ? text : "");
+    render_standby();
+}
+
+#include "dashboard_wifi.inc"
 
 /* ======================= man khoi dong / ket noi ======================= */
 /* Theo bo man mau "Khoi dong · Logo": logo that (vong dong ho vach cyan, 2 vach cuoi do, kim trang, chu EVCar + HUD cyan,
@@ -1938,12 +2069,6 @@ void ui_set_time(int hour, int minute, int wd)
     if (changed && screen != SCR_STANDBY) render_top();
     render_standby();
     update_night();
-}
-
-void ui_set_clock_synced(bool synced)
-{
-    clk_synced = synced;
-    render_standby();
 }
 
 void ui_set_date(int d, int m)

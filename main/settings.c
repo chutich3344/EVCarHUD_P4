@@ -64,3 +64,47 @@ void settings_set_clock(int64_t unix_s, int tz_min)
     nvs_commit(h);
     nvs_close(h);
 }
+
+int settings_get_tz(void)
+{
+    nvs_handle_t h;
+    int16_t tz = 7 * 60;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return tz;
+    if (nvs_get_i16(h, "tz", &tz) != ESP_OK || tz < -12 * 60 || tz > 14 * 60) tz = 7 * 60;
+    nvs_close(h);
+    return tz;
+}
+
+void settings_set_tz(int tz_min)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_i16(h, "tz", (int16_t)tz_min);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+bool settings_get_wifi_on(void) { return get_u8("wifi_on", 1) != 0; }
+void settings_set_wifi_on(bool on) { set_u8("wifi_on", on ? 1 : 0); }
+
+bool settings_get_wifi(char ssid[33], char pass[65])
+{
+    nvs_handle_t h;
+    size_t a = 33, b = 65;
+    ssid[0] = pass[0] = 0;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
+    bool ok = nvs_get_str(h, "wifi_ssid", ssid, &a) == ESP_OK && ssid[0];
+    if (ok && nvs_get_str(h, "wifi_pass", pass, &b) != ESP_OK) pass[0] = 0;
+    nvs_close(h);
+    return ok;
+}
+
+void settings_set_wifi(const char *ssid, const char *pass)
+{
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, "wifi_ssid", ssid);
+    nvs_set_str(h, "wifi_pass", pass ? pass : "");
+    nvs_commit(h);
+    nvs_close(h);
+}

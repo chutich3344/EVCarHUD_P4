@@ -24,8 +24,9 @@ static int64_t clock_unix;            /* giay UTC tai thoi diem clock_tick */
 static int clock_tz;                  /* phut */
 static uint32_t clock_tick;
 static int shown_minute = -1;
-static bool clock_synced;             /* gio da chinh theo dien thoai (khong phai gio uoc tinh) */
-static void (*clock_hook)(int64_t, int);
+static int clock_src;                 /* UI_TSRC_*: nguon gio dang dung (khong doan gio) */
+static bool clock_dateless;           /* chi co gio, chua biet ngay (app GOFA gui HH:MM:SS) */
+static void (*clock_hook)(int64_t, int, int);
 
 static lv_timer_t *watch_tmr;
 #define WAZE_HOLD_MS 5000             /* mat du lieu Waze (ten duong, gioi han, canh bao) qua 5 s: coi nhu chi con GPS */
@@ -177,15 +178,7 @@ static void on_line(const char *line, size_t len, void *user)
             cur_sess = m.hi.sess;
             have_ts = false;
         }
-        if (m.hi.has_unix) {
-            has_clock = true;
-            clock_unix = m.hi.unix_time;
-            clock_tz = m.hi.tz;
-            clock_tick = lv_tick_get();
-            shown_minute = -1;
-            clock_synced = true;
-            ui_set_clock_synced(true);
-        }
+        if (m.hi.has_unix) hlp_dash_set_clock(m.hi.unix_time, m.hi.tz, UI_TSRC_PHONE);
         break;
     case HLP_MSG_PING:
         send_line("{\"v\":1,\"t\":\"pong\"}");       /* tra loi ngay, truoc moi viec ve */
@@ -232,30 +225,47 @@ static void watch_cb(lv_timer_t *t)
         int minute = (int)((now / 60) % 1440);
         if (minute != shown_minute) {
             shown_minute = minute;
-            if (clock_synced && clock_hook) clock_hook(now - (int64_t)clock_tz * 60, clock_tz);
             int64_t days = now / 86400;
-            int wday = (int)((days + 4) % 7);              /* 1/1/1970 la thu nam; 0 = Chu nhat */
-            ui_set_time(minute / 60, minute % 60, wday);
-            int d, m;
-            civil_from_days(days, &d, &m);
-            ui_set_date(d, m);
+            if (clock_dateless) {
+                ui_set_time(minute / 60, minute % 60, -1);
+            } else {
+                int wday = (int)((days + 4) % 7);          /* 1/1/1970 la thu nam; 0 = Chu nhat */
+                ui_set_time(minute / 60, minute % 60, wday);
+                int d, m;
+                civil_from_days(days, &d, &m);
+                ui_set_date(d, m);
+            }
         }
     }
 }
 
-void hlp_dash_set_clock_guess(int64_t unix_s, int tz_min)
+/* Nguon gio co thu hang: RTC < dien thoai < NTP. Nguon thap hon khong de len nguon cao hon da co. */
+void hlp_dash_set_clock(int64_t unix_s, int tz_min, int src)
 {
-    if (clock_synced) return;
+    if (src < clock_src && !clock_dateless) return;
     has_clock = true;
+    clock_dateless = false;
     clock_unix = unix_s;
     clock_tz = tz_min;
     clock_tick = lv_tick_get();
+    clock_src = src;
     shown_minute = -1;
-    ui_set_clock_synced(false);
+    ui_set_time_source(src);
+    if (clock_hook) clock_hook(unix_s, tz_min, src);
     watch_cb(NULL);
 }
 
-void hlp_dash_set_clock_hook(void (*cb)(int64_t, int)) { clock_hook = cb; }
+int hlp_dash_clock_source(void) { return clock_src; }
+
+bool hlp_dash_now(int64_t *unix_s, int *tz_min)
+{
+    if (!has_clock || clock_dateless) return false;
+    *unix_s = clock_unix + (int64_t)lv_tick_elaps(clock_tick) / 1000;
+    *tz_min = clock_tz;
+    return true;
+}
+
+void hlp_dash_set_clock_hook(void (*cb)(int64_t, int, int)) { clock_hook = cb; }
 
 void hlp_dash_init(hlp_tx_cb_t tx, void *user)
 {
@@ -265,7 +275,8 @@ void hlp_dash_init(hlp_tx_cb_t tx, void *user)
     cur_sess = -1;
     have_ts = false;
     has_clock = false;
-    clock_synced = false;
+    clock_dateless = false;
+    clock_src = UI_TSRC_NONE;
     have_state = false;
     gps_level = -1;
     signal_ok = true;                                /* de set_signal(false) ben duoi chay that */
@@ -315,21 +326,27 @@ void hlp_dash_external(bool on)
 
 void hlp_dash_external_touch(void) { last_rx_tick = lv_tick_get(); }
 
-/* App GOFA chi gui gio dia phuong (gio, phut, giay), khong co ngay: giu ngay cua dong ho dang chay (gio da luu /
- * gio build), chon ngay gan nhat de qua nua dem khong nhay sai 1 ngay. */
+/* App GOFA chi gui gio dia phuong (gio, phut, giay), khong co ngay. Da co ngay (RTC / NTP / Waze): giu ngay, chon ngay
+ * gan nhat de qua nua dem khong nhay sai 1 ngay. Chua co ngay: chi hien gio, khong doan ngay. */
 void hlp_dash_set_local_time(int h, int m, int sec)
 {
-    int64_t now = has_clock ? clock_unix + (int64_t)lv_tick_elaps(clock_tick) / 1000 + (int64_t)clock_tz * 60 : 0;
-    int64_t day = now / 86400;
-    int64_t t = day * 86400 + h * 3600 + m * 60 + sec;
+    if (clock_src > UI_TSRC_PHONE) return;                         /* da co gio NTP: chinh xac hon */
+    int tz = has_clock ? clock_tz : 7 * 60;                        /* Viet Nam UTC+7 */
+    if (!has_clock || clock_dateless) {
+        has_clock = true;
+        clock_dateless = true;
+        clock_tz = tz;
+        clock_unix = (int64_t)h * 3600 + m * 60 + sec - (int64_t)tz * 60;
+        clock_tick = lv_tick_get();
+        clock_src = UI_TSRC_PHONE;
+        shown_minute = -1;
+        ui_set_time_source(UI_TSRC_PHONE);
+        watch_cb(NULL);
+        return;
+    }
+    int64_t now = clock_unix + (int64_t)lv_tick_elaps(clock_tick) / 1000 + (int64_t)tz * 60;
+    int64_t t = now / 86400 * 86400 + h * 3600 + m * 60 + sec;
     if (t - now > 43200) t -= 86400;
     else if (now - t > 43200) t += 86400;
-    if (!has_clock) clock_tz = 7 * 60;                             /* Viet Nam UTC+7 */
-    has_clock = true;
-    clock_unix = t - (int64_t)clock_tz * 60;
-    clock_tick = lv_tick_get();
-    shown_minute = -1;
-    clock_synced = true;
-    ui_set_clock_synced(true);
-    watch_cb(NULL);
+    hlp_dash_set_clock(t - (int64_t)tz * 60, tz, UI_TSRC_PHONE);
 }

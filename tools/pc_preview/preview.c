@@ -77,6 +77,51 @@ int main(int argc, char **argv)
     hlp_dash_init(NULL, NULL);                     /* tren board: link_init() goi */
     run(400);
 
+    /* Man cho chua co gio + trang Wi-Fi */
+    ui_wifi_set_state(UI_WIFI_IDLE, NULL);
+    run(300);
+    snprintf(p, sizeof p, "%s/cho_1_chua_co_gio.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTING, "EVCar-Garage");
+    run(300);
+    snprintf(p, sizeof p, "%s/cho_2_tu_ket_noi.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_IDLE, "");
+    ui_open_wifi();
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_1_dang_do.bmp", dir); save_bmp(p);
+    {
+        ui_wifi_ap_t aps[5] = {{"iPhone của Kevin", -48, true}, {"EVCar-Garage", -60, true},
+                               {"VNPT_5G_A2F1", -72, true}, {"Highlands Coffee", -84, false}, {"", -50, true}};
+        ui_wifi_scan_done(aps, 5);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_2_danh_sach.bmp", dir); save_bmp(p);
+    ui_wifi_test_pass("iPhone của Kevin", "", true);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_3_mat_khau_loi.bmp", dir); save_bmp(p);
+    ui_wifi_test_pass("iPhone của Kevin", "evcar2026", false);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_4_mat_khau.bmp", dir); save_bmp(p);
+    ui_wifi_test_join();
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_5_dang_ket_noi.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTED, "iPhone của Kevin");
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_6_da_ket_noi.bmp", dir); save_bmp(p);
+    hlp_dash_set_clock(1793578500LL, 7 * 60, UI_TSRC_NTP);       /* 02/11/2026 07:15 (UTC+7) */
+    ui_set_weather(UI_WX_SUN, "TP. Hồ Chí Minh · 31°C · Nắng");
+    run(2400);
+    snprintf(p, sizeof p, "%s/cho_3_co_gio_wifi.bmp", dir); save_bmp(p);
+    ui_open_wifi();
+    ui_wifi_scan_done((ui_wifi_ap_t[]){{"iPhone của Kevin", -48, true}, {"EVCar-Garage", -60, true}}, 2);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_7_da_luu.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_OFF, "");
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_8_tat.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTED, "iPhone của Kevin");
+    lv_obj_add_flag(lv_obj_get_child(lv_layer_top(), -1), LV_OBJ_FLAG_HIDDEN);
+    run(300);
+
     /* Kich ban chay thu giong trang web (che do trinh dien): chup cuoi moi muc, khi chu ten muc da tat */
     demo_start();                                   /* vao thang muc 1 (logo da chup o tren) */
     for (int i = 1; demo_step_ms(i) > 0; i++) {
