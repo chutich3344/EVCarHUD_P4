@@ -111,6 +111,19 @@ int main(int argc, char **argv)
     }
     run(300);
     snprintf(p, sizeof p, "%s/canh_bao_mot.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_alerts(NULL, 0);
+    ui_set_speed_limit(50);
+    ui_set_speed(68);
+    run(300);
+    snprintf(p, sizeof p, "%s/toc_do_vuot.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{1, 1200, -1}};
+        ui_set_speed(45);
+        ui_set_alerts(a, 1);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/canh_bao_csgt.bmp", dir); save_bmp(p);
     ui_set_alerts(NULL, 0);
     ui_set_signal(false);
     ui_set_phone(false);
