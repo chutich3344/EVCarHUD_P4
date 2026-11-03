@@ -398,11 +398,11 @@ static head_t mk_head(lv_obj_t *p, int n, const hlev_t *lv)
         h.lv[i] = lv[i];
         int bw = lv_text_get_width("88", 2, lv[i].f2, -lv[i].sz2 * 4 / 100), b3 = lv_text_get_width("188", 3, lv[i].f3, -lv[i].sz3 * 4 / 100);
         bw = (b3 > bw ? b3 : bw) + 4;
-        int x0 = PAD + (HALF_W - bw - 6 - uw) / 2;
+        int x0 = PAD + (HALF_W - bw - 10 - uw) / 2;
         if (x0 < 4) x0 = 4;
         h.num[i] = mk_label_w(p, lv[i].f2, x0, 0, bw, LV_TEXT_ALIGN_RIGHT);   /* can phai trong khung co dinh: so khong nhay */
         lv_label_set_long_mode(h.num[i], LV_LABEL_LONG_CLIP);
-        h.unit[i] = mk_label(p, &ui_font_txt16, x0 + bw + 6, 0, "km/h");
+        h.unit[i] = mk_label(p, &ui_font_txt16, x0 + bw + 10, 0, "km/h");
     }
     return h;
 }
@@ -458,7 +458,7 @@ static void render_head(head_t *h, const int *w)
     lv_obj_set_pos(n, gcx - px, cy - py);
     lv_obj_t *u = h->unit[dom];
     lv_obj_set_style_text_color(u, th->fg, 0);
-    lv_obj_set_pos(u, gcx + tw * scale / 512 + 6, cy + CAP_H(s_d) * scale / 512 - baseline(&ui_font_txt16));
+    lv_obj_set_pos(u, gcx + tw * scale / 512 + 10, cy + CAP_H(s_d) * scale / 512 - baseline(&ui_font_txt16));
 
     lv_obj_set_size(h->ring, rs, rs);
     lv_obj_set_pos(h->ring, PAD + HALF_W + (HALF_W - rs) / 2, cy - rs / 2);
@@ -2204,9 +2204,10 @@ static void apply_nav(void)
 /* Giu dan duong khi dien thoai tam ngung gui (tat man hinh, Waze chay nen, mat Bluetooth): giu lenh re cuoi 2 phut.
  * Toi noi (lenh re 17 "den noi" con <= 30 m, hoac het dan duong ngay sau lenh den noi): bang "Ban da den noi" nam yen
  * cho toi khi nguoi dung cham "Ket thuc" (hoac Waze bat dau lo trinh moi). */
-#define NAV_HOLD_MS 120000
+#define NAV_HOLD_MS 120000                                       /* mat tin hieu dien thoai */
+#define NAV_GLITCH_MS 3000                                       /* Waze bao het dan duong khi van noi */
 #define ARRIVE_M 30
-static uint32_t wz_lost_tick;
+static uint32_t wz_lost_tick, wz_hold_ms;
 static lv_obj_t *arr_box, *arr_sub;
 static lv_timer_t *nav_tmr;
 
@@ -2265,7 +2266,8 @@ static const char *arrive_side(char side)
 static void nav_hold_cb(lv_timer_t *t)
 {
     (void)t;
-    if (wz_hold && !arr_box && lv_tick_elaps(wz_lost_tick) > NAV_HOLD_MS) {   /* 2 phut khong co lai: bo */
+    if (wz_hold && !sig_ok) wz_hold_ms = NAV_HOLD_MS;             /* mat han tin hieu: giu 2 phut */
+    if (wz_hold && !arr_box && lv_tick_elaps(wz_lost_tick) > wz_hold_ms) {   /* het thoi gian giu: bo */
         wz_on = wz_hold = false;
         apply_nav();
     }
@@ -2290,6 +2292,11 @@ void ui_set_nav(bool active, int turn, int dist_m, int exit_n, const char *stree
                 arrive_show("Bạn đã đến nơi", arrive_side('A'));
             }
             wz_hold = true;                                       /* giu man dan duong, cho dien thoai gui lai */
+            wz_lost_tick = lv_tick_get();
+            /* van co tin hieu ma Waze bao het dan duong (huy lo trinh / chop tat): chi giu 3 s; mat tin hieu: 2 phut */
+            wz_hold_ms = sig_ok ? NAV_GLITCH_MS : NAV_HOLD_MS;
+        } else if (wz_hold && sig_ok && wz_hold_ms == NAV_HOLD_MS) {   /* dien thoai gui lai, xac nhan het dan duong */
+            wz_hold_ms = NAV_GLITCH_MS;
             wz_lost_tick = lv_tick_get();
         }
         if (!wz_on) snprintf(wz_street, sizeof wz_street, "%s", street ? street : "");

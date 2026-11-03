@@ -138,7 +138,8 @@ int main(int argc, char **argv)
     ui_set_waze(true);
     run(300);
     snprintf(p, sizeof p, "%s/ket_noi_waze.bmp", dir); save_bmp(p);
-    run(2600);
+    ui_set_nav(false, 0, -1, 0, "", 0);             /* dien thoai xac nhan khong dan duong: bo man dan duong giu tam (3 s) */
+    run(3600);
     ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
     ui_set_speed(112);
     ui_set_speed_limit(120);
