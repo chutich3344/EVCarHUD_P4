@@ -30,6 +30,7 @@ class TramSacService : Service() {
     companion object {
         const val STOP = "stop"
         const val TEST = "test"
+        const val SEND = "send"     // gui ngay tram dang chon (vua chon tram dich)
         private const val CH = "tramsac"
         private const val NID = 1
         private const val FETCH_MIN_MS = 30_000L
@@ -79,6 +80,14 @@ class TramSacService : Service() {
             return START_NOT_STICKY
         }
         goForeground("Đang tìm trạm sạc…")
+        if (intent?.action == SEND) {
+            if (!AppState.running) onStartCommand(null, flags, startId)
+            testUntil = 0
+            last?.let { onFix(it) }
+            push(force = true)
+            push(force = true)
+            return START_STICKY
+        }
         if (intent?.action == TEST) {
             if (!AppState.running) onStartCommand(null, flags, startId)
             sendTest()
@@ -200,7 +209,7 @@ class TramSacService : Service() {
         val tgt = prefs.target
         val p = if (tgt != null) Geo.rank(l.latitude, l.longitude, heading, listOf(tgt)).first() else Geo.pick(ranked)
         picked = p
-        AppState.update { this.ranked = ranked.take(8); this.picked = p }
+        AppState.update { this.ranked = ranked.take(200); this.picked = p }
         push(force = false)
         val text = p?.let { "${it.st.name} · ${Geo.fmtDist(it.distM)} · ${Geo.sideText(it.side)}" }
             ?: "Chưa có trạm nào gần"

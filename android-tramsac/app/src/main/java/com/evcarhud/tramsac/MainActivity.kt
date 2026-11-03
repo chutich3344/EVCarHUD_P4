@@ -135,15 +135,24 @@ class MainActivity : Activity() {
         val o = JSONObject()
         o.put("running", s.running); o.put("gps", s.gps); o.put("hud", s.hud); o.put("data", s.data)
         o.put("speed", s.speedKmh); o.put("hudName", prefs.hudName); o.put("target", prefs.target != null)
+        o.put("targetKey", prefs.target?.let { key(it) } ?: "")
+        o.put("sentAt", s.sentAt)
         o.put("source", prefs.source); o.put("radius", prefs.radiusKm); o.put("ocmKey", prefs.ocmKey)
         val src = JSONArray(); SOURCES.forEach { src.put(JSONArray().put(it.first).put(it.second)) }; o.put("sources", src)
-        val p = s.picked ?: prefs.target?.let { Nearby(it, -1, null) }
+        // Tram dich vua chon: hien ngay, tinh khoang cach tu vi tri gan nhat neu co
+        val tgt = prefs.target
+        val p = if (tgt != null && (s.picked == null || key(s.picked!!.st) != key(tgt))) {
+            s.lastFix?.let { (la, lo) -> Geo.rank(la, lo, null, listOf(tgt)).first() } ?: Nearby(tgt, -1, null)
+        } else s.picked
         o.put("picked", p?.let { n -> js(n) } ?: JSONObject.NULL)
         val list = JSONArray(); s.ranked.forEach { list.put(js(it)) }; o.put("list", list)
         return o.toString()
     }
 
+    private fun key(st: Station) = "${st.name}|${"%.5f".format(java.util.Locale.US, st.lat)}|${"%.5f".format(java.util.Locale.US, st.lon)}"
+
     private fun js(n: Nearby) = JSONObject().apply {
+        put("key", key(n.st))
         put("name", n.st.name); put("op", n.st.operator); put("kw", n.st.maxKw); put("ports", n.st.ports)
         put("dist", if (n.distM < 0) JSONObject.NULL else n.distM)
         put("rel", n.relDeg ?: JSONObject.NULL); put("side", if (n.distM < 0) "" else n.side.toString())
@@ -161,10 +170,11 @@ class MainActivity : Activity() {
         @JavascriptInterface fun pickHud() = ui { this@MainActivity.pickHud() }
         @JavascriptInterface fun sendTest() = ui { this@MainActivity.sendTest() }
         @JavascriptInterface fun openHub(path: String) = ui { this@MainActivity.openHub(path) }
-        @JavascriptInterface fun clearTarget() = ui { prefs.target = null; applySettings() }
+        @JavascriptInterface fun clearTarget() = ui { prefs.target = null; AppState.picked = null; applySettings() }
         @JavascriptInterface fun setTarget(i: Int) = ui {
-            AppState.ranked.getOrNull(i)?.let { prefs.target = it.st; applySettings() }
+            AppState.ranked.getOrNull(i)?.let { prefs.target = it.st; AppState.picked = it; pushState(); sendNow() }
         }
+        @JavascriptInterface fun sendNow() = ui { this@MainActivity.sendNow() }
         @JavascriptInterface fun setSource(k: String) = ui {
             if (SOURCES.any { it.first == k }) { prefs.source = k; applySettings() }
         }
@@ -261,6 +271,15 @@ class MainActivity : Activity() {
         if (AppState.running) { TramSacService.stop(this); return }
         withPerms {
             if (prefs.hudMac.isBlank()) pickHud { TramSacService.start(this) } else TramSacService.start(this)
+        }
+    }
+
+    /** Gui ngay tram dang chon len HUD (bat dich vu neu chua chay). */
+    private fun sendNow() {
+        withPerms {
+            if (prefs.hudMac.isBlank()) { pickHud { sendNow() }; return@withPerms }
+            if (!AppState.running) TramSacService.start(this)
+            startService(Intent(this, TramSacService::class.java).setAction(TramSacService.SEND))
         }
     }
 

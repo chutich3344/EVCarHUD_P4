@@ -42,6 +42,6 @@ class Prefs(ctx: Context) {
 
     /** Ban kinh tim tram (km). */
     var radiusKm: Int
-        get() = sp.getInt("radius_km", 15)
-        set(v) = sp.edit().putInt("radius_km", v.coerceIn(2, 50)).apply()
+        get() = sp.getInt("radius_km2", 3)
+        set(v) = sp.edit().putInt("radius_km2", v.coerceIn(1, 50)).apply()
 }
