@@ -128,6 +128,7 @@ class MainActivity : Activity() {
         super.onResume()
         AppState.listen(refresh)
         pushState()
+        if (AppState.running) askBattery()
     }
 
     override fun onPause() {
@@ -150,6 +151,7 @@ class MainActivity : Activity() {
         o.put("speed", s.speedKmh); o.put("hudName", prefs.hudName); o.put("target", prefs.target != null)
         o.put("targetKey", prefs.target?.let { key(it) } ?: "")
         o.put("sentAt", s.sentAt)
+        o.put("battOk", battOk())
         o.put("source", prefs.source); o.put("radius", prefs.radiusKm); o.put("ocmKey", prefs.ocmKey)
         val src = JSONArray(); SOURCES.forEach { src.put(JSONArray().put(it.first).put(it.second)) }; o.put("sources", src)
         // Tram dich vua chon: hien ngay, tinh khoang cach tu vi tri gan nhat neu co
@@ -188,6 +190,7 @@ class MainActivity : Activity() {
             AppState.ranked.getOrNull(i)?.let { prefs.target = it.st; AppState.picked = it; pushState(); sendNow() }
         }
         @JavascriptInterface fun sendNow() = ui { this@MainActivity.sendNow() }
+        @JavascriptInterface fun battery() = ui { if (battOk()) openAppSettings() else openBattery() }
         @JavascriptInterface fun setSource(k: String) = ui {
             if (SOURCES.any { it.first == k }) { prefs.source = k; applySettings() }
         }
@@ -298,23 +301,28 @@ class MainActivity : Activity() {
 
     /** Xin bo toi uu pin 1 lan: khong thi nhieu may (Xiaomi, Oppo...) dung app khi tat man hinh. */
     @SuppressLint("BatteryLife")
-    private fun askBattery() {
-        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
-        if (pm.isIgnoringBatteryOptimizations(packageName)) return
-        val sp = getSharedPreferences("tramsac", MODE_PRIVATE)
-        if (sp.getBoolean("asked_battery", false)) return
-        sp.edit().putBoolean("asked_battery", true).apply()
+    private fun battOk() = (getSystemService(POWER_SERVICE) as android.os.PowerManager).isIgnoringBatteryOptimizations(packageName)
+    private var askedBattery = false
+
+    /** Hoi moi lan mo app (toi da 1 lan) khi chua duoc phep; force = nguoi dung bam nut trong Cai dat. */
+    private fun askBattery(force: Boolean = false) {
+        if (battOk()) return
+        if (askedBattery && !force) return
+        askedBattery = true
         AlertDialog.Builder(this)
             .setTitle("Chạy khi tắt màn hình")
             .setMessage("Để HUD vẫn nhận trạm khi tắt màn hình điện thoại, cho app chạy nền không bị giới hạn pin.")
-            .setPositiveButton("Cho phép") { _, _ ->
+            .setPositiveButton("Cho phép") { _, _ -> openBattery() }
+            .setNegativeButton("Để sau", null).show()
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun openBattery() {
                 try {
                     startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
                 } catch (_: Exception) {
-                    try { startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
+                    try { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
                 }
-            }
-            .setNegativeButton("Để sau", null).show()
     }
 
     private fun toggleRun() {
@@ -326,7 +334,12 @@ class MainActivity : Activity() {
     }
 
     /** Gui ngay tram dang chon len HUD (bat dich vu neu chua chay). */
+    private fun openAppSettings() {
+        try { startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
+    }
+
     private fun sendNow() {
+        askBattery()
         withPerms {
             if (prefs.hudMac.isBlank()) { pickHud { sendNow() }; return@withPerms }
             if (!AppState.running) TramSacService.start(this)
