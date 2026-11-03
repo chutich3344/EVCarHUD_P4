@@ -124,7 +124,7 @@ class MainActivity : Activity() {
             Sources.VF to "Chỉ trạm VinFast",
             Sources.OSM to "Chỉ OpenStreetMap",
             Sources.OCM to "OpenChargeMap (cần khóa API miễn phí)",
-            Sources.CUSTOM to "Máy chủ riêng (vd. máy chủ trung gian GOFA)",
+            Sources.CUSTOM to "Trạm sạc cộng đồng EVCarHUD (evcarhud.com)",
         )
         opts.forEachIndexed { i, (k, name) ->
             rg.addView(RadioButton(this).apply {
@@ -155,6 +155,11 @@ class MainActivity : Activity() {
             setOnClickListener {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://openchargemap.org/site/profile/applications")))
             }
+        })
+
+        col.addView(Button(this).apply {
+            text = "Gửi điểm sạc mới"
+            setOnClickListener { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Prefs.SUBMIT_URL))) }
         })
 
         col.addView(label("Các trạm quanh xe"))

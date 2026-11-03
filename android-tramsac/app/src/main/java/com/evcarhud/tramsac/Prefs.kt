@@ -3,6 +3,12 @@ package com.evcarhud.tramsac
 import android.content.Context
 
 class Prefs(ctx: Context) {
+    companion object {
+        /** API tram sac cong dong tren evcarhud.com (Cloudflare). */
+        const val DEFAULT_URL = "https://evcarhud.com/api/stations?vehicle=car"
+        const val SUBMIT_URL = "https://evcarhud.com/tram-sac#/gui"
+    }
+
     private val sp = ctx.getSharedPreferences("tramsac", Context.MODE_PRIVATE)
 
     var hudMac: String
@@ -18,7 +24,7 @@ class Prefs(ctx: Context) {
         get() = sp.getString("ocm_key", "") ?: ""
         set(v) = sp.edit().putString("ocm_key", v.trim()).apply()
     var customUrl: String
-        get() = sp.getString("custom_url", "") ?: ""
+        get() = sp.getString("custom_url", DEFAULT_URL) ?: DEFAULT_URL
         set(v) = sp.edit().putString("custom_url", v.trim()).apply()
     /** Ban kinh tim tram (km). */
     var radiusKm: Int
