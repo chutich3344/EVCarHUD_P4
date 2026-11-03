@@ -182,6 +182,17 @@ int main(int argc, char **argv)
     snprintf(p, sizeof p, "%s/anim_1_giua.bmp", dir); save_bmp(p);
     run(400);
     snprintf(p, sizeof p, "%s/anim_2_an_dai.bmp", dir); save_bmp(p);
+    ui_set_speed(88);
+    ui_set_speed_limit(90);
+    run(300);
+    snprintf(p, sizeof p, "%s/so_88.bmp", dir); save_bmp(p);
+    ui_set_speed(68);
+    ui_set_speed_limit(50);
+    run(300);
+    snprintf(p, sizeof p, "%s/so_68.bmp", dir); save_bmp(p);
+    ui_set_speed(45);
+    ui_set_speed_limit(50);
+    run(300);
     ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'N');
     run(600);
     snprintf(p, sizeof p, "%s/tram_sac.bmp", dir); save_bmp(p);

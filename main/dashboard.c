@@ -398,11 +398,12 @@ static head_t mk_head(lv_obj_t *p, int n, const hlev_t *lv)
         h.lv[i] = lv[i];
         int bw = lv_text_get_width("88", 2, lv[i].f2, -lv[i].sz2 * 4 / 100), b3 = lv_text_get_width("188", 3, lv[i].f3, -lv[i].sz3 * 4 / 100);
         bw = (b3 > bw ? b3 : bw) + 4;
-        int x0 = PAD + (HALF_W - bw - 10 - uw) / 2;
+        int ug = 8 + lv[i].sz2 * 7 / 100;
+        int x0 = PAD + (HALF_W - bw - ug - uw) / 2;
         if (x0 < 4) x0 = 4;
         h.num[i] = mk_label_w(p, lv[i].f2, x0, 0, bw, LV_TEXT_ALIGN_RIGHT);   /* can phai trong khung co dinh: so khong nhay */
         lv_label_set_long_mode(h.num[i], LV_LABEL_LONG_CLIP);
-        h.unit[i] = mk_label(p, &ui_font_txt16, x0 + bw + 10, 0, "km/h");
+        h.unit[i] = mk_label(p, &ui_font_txt16, x0 + bw + ug, 0, "km/h");
     }
     return h;
 }
@@ -458,7 +459,8 @@ static void render_head(head_t *h, const int *w)
     lv_obj_set_pos(n, gcx - px, cy - py);
     lv_obj_t *u = h->unit[dom];
     lv_obj_set_style_text_color(u, th->fg, 0);
-    lv_obj_set_pos(u, gcx + tw * scale / 512 + 10, cy + CAP_H(s_d) * scale / 512 - baseline(&ui_font_txt16));
+    int gap = (8 + s_d * 7 / 100) * scale / 256;                  /* ~18 px o so 150: chu so tron (8, 6, 9) khong bi de */
+    lv_obj_set_pos(u, gcx + tw * scale / 512 + gap, cy + CAP_H(s_d) * scale / 512 - baseline(&ui_font_txt16));
 
     lv_obj_set_size(h->ring, rs, rs);
     lv_obj_set_pos(h->ring, PAD + HALF_W + (HALF_W - rs) / 2, cy - rs / 2);
