@@ -37,15 +37,19 @@ jobs:
       - name: Build APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleRelease
+          ./gradlew --no-daemon assembleRelease bundleRelease
           SHORT=$(git rev-parse --short HEAD)
           cp app/build/outputs/apk/release/app-release.apk "../hud-tram-sac-$SHORT.apk"
+          # AAB ky khoa debug: Play khong nhan, dung de ky lai bang khoa tai len o ngoai (jarsigner)
+          cp app/build/outputs/bundle/release/app-release.aab "../hud-tram-sac-$SHORT-ky-debug.aab"
           echo "SHORT=$SHORT" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
           name: hud-tram-sac-${{ env.SHORT }}
-          path: hud-tram-sac-${{ env.SHORT }}.apk
+          path: |
+            hud-tram-sac-${{ env.SHORT }}.apk
+            hud-tram-sac-${{ env.SHORT }}-ky-debug.aab
 
       # Ban AAB cho Google Play: chi chay khi da them khoa tai len vao Secrets cua repo
       # (HUD_KEYSTORE_BASE64, HUD_KEYSTORE_PASSWORD, HUD_KEY_ALIAS, HUD_KEY_PASSWORD - xem docs/phat-hanh-google-play.md).
