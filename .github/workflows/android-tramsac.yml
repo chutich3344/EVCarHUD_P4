@@ -26,8 +26,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
+      # Runner ubuntu-latest da co san Android SDK (ANDROID_HOME); Gradle tu tai platform/build-tools neu thieu.
       - name: Build APK
         run: |
           chmod +x gradlew
