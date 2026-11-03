@@ -248,9 +248,9 @@ static void wf_key_cb(lv_event_t *e)
 static lv_obj_t *wf_key(int x, int y, int w, const char *txt, const lv_font_t *f, int code)
 {
     lv_obj_t *o = mk_card(wf_keys, x, y, w, 42, 8);
-    lv_obj_set_style_bg_color(o, lv_color_hex(0x141D20), 0);
-    lv_obj_set_style_border_color(o, lv_color_hex(0x1F2C30), 0);
-    lv_obj_set_style_bg_color(o, lv_color_hex(0x1E4D33), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(o, lv_color_hex(0x2C3149), 0);
+    lv_obj_set_style_border_color(o, lv_color_hex(0x32374C), 0);
+    lv_obj_set_style_bg_color(o, lv_color_hex(0x7A4535), LV_STATE_PRESSED);
     lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(o, wf_key_cb, LV_EVENT_CLICKED, (void *)(intptr_t)code);
     lv_obj_t *l = mk_label(o, f, 0, 0, txt);
@@ -290,7 +290,7 @@ static void wf_build_keys(void)
     wf_key(0, y, 72, wf_num ? "ABC" : "123", &ui_font_txt14, WK_NUM);
     wf_key(72 + G, y, W - 72 - 130 - 2 * G, "dấu cách", &ui_font_sm12, ' ');
     lv_obj_t *j = wf_key(W - 130, y, 130, "Kết nối", &ui_font_txt16, WK_JOIN);
-    lv_obj_set_style_bg_color(j, lv_color_hex(0x16A34A), 0);
+    lv_obj_set_style_bg_color(j, lv_color_hex(0xFF5A46), 0);
     lv_obj_set_style_border_color(j, S_GREEN, 0);
     lv_obj_set_style_bg_color(j, S_GREEN, LV_STATE_PRESSED);
 }
@@ -337,7 +337,7 @@ static void wf_build(void)
     lv_obj_set_style_text_color(wf_off_l, lv_color_white(), 0);
     wf_rescan = mk_card(p, 12, UI_H - 10 - 36, UI_W - 24, 36, 18);
     lv_obj_set_style_bg_color(wf_rescan, S_CARD, 0);
-    lv_obj_set_style_border_color(wf_rescan, lv_color_hex(0x1E4D33), 0);
+    lv_obj_set_style_border_color(wf_rescan, lv_color_hex(0x7A4535), 0);
     lv_obj_set_style_bg_color(wf_rescan, S_ON_BG, LV_STATE_PRESSED);
     lv_obj_add_flag(wf_rescan, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(wf_rescan, wf_rescan_cb, LV_EVENT_CLICKED, NULL);

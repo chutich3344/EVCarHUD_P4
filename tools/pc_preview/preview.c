@@ -75,6 +75,8 @@ int main(int argc, char **argv)
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
     dashboard_create(scr);
     hlp_dash_init(NULL, NULL);                     /* tren board: link_init() goi */
+    int force = argc > 2 ? (!strcmp(argv[2], "day") ? UI_MODE_DAY : UI_MODE_NIGHT) : -1;   /* ./preview out_ngay day */
+    if (force >= 0) ui_set_mode(force);
     run(400);
 
     /* Man cho chua co gio + trang Wi-Fi */
@@ -131,6 +133,7 @@ int main(int argc, char **argv)
     }
 
     demo_stop();
+    if (force >= 0) ui_set_mode(force);
     run(400);
     /* Man Cao toc + man Canh bao khong co o phu (khong co trong kich ban trinh dien) */
     ui_set_signal(true);
