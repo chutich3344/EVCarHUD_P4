@@ -138,7 +138,7 @@ static const ui_alert_t *ev_now;            /* canh bao (su kien) gan nhat */
 static const ui_alert_t *sign_now;          /* bien bao tren duong gan nhat */
 static int ev_code, ev_start;
 static int turn_now = -1, dist_now = -1, turn_start, exit_now, turn2_now;
-static char eta_txt[8], street_now[64], street_nav[64];
+static char eta_txt[8], street_now[64], street_nav[96];
 static int eta_rm, eta_rmin;
 static int mode = UI_MODE_AUTO, ambient = -1;
 static bool night;
