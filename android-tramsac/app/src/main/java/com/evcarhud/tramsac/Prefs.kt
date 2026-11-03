@@ -24,7 +24,7 @@ class Prefs(ctx: Context) {
         get() = sp.getString("ocm_key", "") ?: ""
         set(v) = sp.edit().putString("ocm_key", v.trim()).apply()
     var customUrl: String
-        get() = sp.getString("custom_url", DEFAULT_URL) ?: DEFAULT_URL
+        get() = (sp.getString("custom_url", "") ?: "").ifBlank { DEFAULT_URL }
         set(v) = sp.edit().putString("custom_url", v.trim()).apply()
     /** Ban kinh tim tram (km). */
     var radiusKm: Int
