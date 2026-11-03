@@ -5,140 +5,161 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>HUD Trạm sạc</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{--acc:#4ade80}
+/* Cung phong cach noi mem (neumorphism) xanh la voi trang web evcarhud.com/tram-sac, ban toi */
+:root{--a1:#4ade80;--a2:#059669;--acc:#4ade80;--g:linear-gradient(90deg,var(--a1),var(--a2));
+  --bg:#0f1d16;--hi:#1a2e23;--lo:#050c08;--tx:#ecfdf3;--mut:#9dbcaa;--soft:#132419;--trk:#07110c}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;min-height:100%}
-body{background-color:#06110b;background-image:radial-gradient(420px 420px at 8% 6%,rgba(74,222,128,.40),transparent 62%),radial-gradient(380px 380px at 105% 52%,rgba(16,185,129,.32),transparent 62%),radial-gradient(320px 320px at 15% 102%,rgba(132,204,22,.22),transparent 62%);background-attachment:fixed;color:#f0fdf4;font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-size:14px}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--tx);font-family:'Montserrat',system-ui,sans-serif;font-size:14px}
 button,input{font:inherit;color:inherit}
 button{border:0;background:none;padding:0;cursor:pointer}
-.wrap{max-width:520px;margin:0 auto;padding:44px 20px 120px}
-.glass{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(22px) saturate(150%);-webkit-backdrop-filter:blur(22px) saturate(150%);box-shadow:0 18px 40px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.18)}
-.orb{border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;color:#052e16;background:radial-gradient(circle at 32% 26%,#ecfdf3 0%,var(--acc) 40%,#15803d 100%);box-shadow:0 10px 22px rgba(34,197,94,.45),inset 0 -4px 8px rgba(0,0,0,.25)}
-.orb.g{color:#f0fdf4;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.34),rgba(255,255,255,.06) 62%);border:1px solid rgba(255,255,255,.18);box-shadow:0 8px 18px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.3)}
-.orb.off{color:#fecaca;background:radial-gradient(circle at 32% 26%,rgba(255,255,255,.3),rgba(248,113,113,.25) 62%);border:1px solid rgba(255,255,255,.18)}
-.btn3d{border-radius:99px;color:#052e16;font-weight:700;background:linear-gradient(180deg,color-mix(in srgb,var(--acc) 50%,#fff) 0%,var(--acc) 55%,color-mix(in srgb,var(--acc) 72%,#000) 100%);box-shadow:0 12px 26px rgba(34,197,94,.40),inset 0 1px 0 rgba(255,255,255,.6),inset 0 -3px 0 rgba(0,0,0,.15)}
-.btn3d.stop{color:#fff;background:linear-gradient(180deg,#fca5a5 0%,#ef4444 55%,#991b1b 100%);box-shadow:0 12px 26px rgba(239,68,68,.35),inset 0 1px 0 rgba(255,255,255,.5),inset 0 -3px 0 rgba(0,0,0,.2)}
-.mut{color:rgba(225,245,232,.72)}
-.pill{border-radius:99px;padding:9px 14px;font-size:12.5px;font-weight:600;white-space:nowrap}
-.row{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid rgba(255,255,255,.08);width:100%;text-align:left}
-.row:last-child{border-bottom:0}
-.big{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;font-size:16px}
-.sec{display:flex;justify-content:space-between;align-items:center;margin:22px 4px 10px}
-.sec b{font-weight:700;font-size:15px}
-.fld{width:100%;border-radius:18px;padding:13px 16px;outline:none;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14)}
-.fld::placeholder{color:rgba(225,245,232,.5)}
-.lbl{display:block;font-size:12px;font-weight:600;color:rgba(225,245,232,.8);margin:14px 4px 6px}
-.chips{display:flex;flex-wrap:wrap;gap:8px}
-.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nav{position:fixed;left:14px;right:14px;bottom:16px;max-width:492px;margin:0 auto;height:70px;border-radius:28px;display:flex;justify-content:space-around;align-items:center}
-.nav button{width:56px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:rgba(225,245,232,.66);font-size:10.5px;font-weight:600}
-.nav button.on{color:#f0fdf4}
-.hud{border-radius:22px;padding:10px;background:linear-gradient(160deg,rgba(255,255,255,.16),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.16);box-shadow:0 20px 40px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.25)}
-.hudscr{border-radius:14px;background:#000;display:flex;align-items:center;gap:16px;padding:16px 18px;box-shadow:inset 0 0 30px rgba(74,222,128,.12)}
-.ring{width:66px;height:66px;border-radius:50%;border:2px solid rgba(74,222,128,.35);display:flex;align-items:center;justify-content:center;color:var(--acc);flex:none}
-#arrow{transition:transform .4s ease}
-.hide{display:none!important}
-.tag{font-size:11px;font-weight:700;padding:4px 9px;border-radius:99px;background:rgba(74,222,128,.14);color:#bbf7d0;white-space:nowrap}
-.tag.w{background:rgba(255,255,255,.10);color:rgba(255,255,255,.8)}
-.row.sel{background:rgba(74,222,128,.14);border-radius:18px;box-shadow:inset 0 0 0 1.5px var(--acc)}
-.chips.scroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -20px;padding:2px 20px}
+.wrap{max-width:480px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top)) 22px calc(124px + env(safe-area-inset-bottom))}
+.raise{background:var(--bg);box-shadow:7px 7px 16px var(--lo),-7px -7px 16px var(--hi)}
+.raise-s{background:var(--bg);box-shadow:4px 4px 9px var(--lo),-4px -4px 9px var(--hi)}
+.inset{background:var(--bg);box-shadow:inset 5px 5px 10px var(--lo),inset -5px -5px 10px var(--hi)}
+.grad{background:var(--g);color:#fff;box-shadow:0 10px 22px color-mix(in srgb,var(--a2) 42%,transparent),inset 0 1px 0 rgba(255,255,255,.35)}
+.grad.stop{background:linear-gradient(90deg,#f87171,#dc2626);box-shadow:0 10px 22px rgba(220,38,38,.35),inset 0 1px 0 rgba(255,255,255,.35)}
+.c{display:flex;align-items:center;justify-content:center;border-radius:50%;flex:none}
+.mut{color:var(--mut)}
+.btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;border-radius:16px;padding:16px;font-weight:700;font-size:15px}
+.btn.sm{padding:12px;font-size:13.5px;border-radius:14px;font-weight:600}
+.btn.ol{border:2px solid var(--a2);padding:12px}
+.pill{border-radius:12px;padding:9px 14px;font-size:12.5px;font-weight:600;white-space:nowrap;color:var(--mut)}
+.pill.grad{color:#fff}
+.sec{display:flex;justify-content:space-between;align-items:baseline;margin:26px 2px 12px}
+.sec b{font-weight:700;font-size:17px}
+.f{border:0;border-radius:14px;padding:14px 16px;font-size:14px;font-weight:500;width:100%;outline:none;background:var(--bg);box-shadow:inset 5px 5px 10px var(--lo),inset -5px -5px 10px var(--hi)}
+.f::placeholder{color:var(--mut)}
+.lbl{display:block;font-size:12px;font-weight:600;color:var(--mut);margin:16px 4px 8px}
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+.chips.scroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -22px;padding:6px 22px 14px}
 .chips.scroll::-webkit-scrollbar{display:none}
-.search{display:flex;align-items:center;gap:10px;border-radius:99px;padding:0 16px;height:48px}
-.search input{flex:1;min-width:0;border:0;background:none;outline:none;height:100%}
-.search input::placeholder{color:rgba(225,245,232,.5)}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hide{display:none!important}
+/* O tim trang nhu web */
+.field{display:flex;align-items:center;gap:10px;border-radius:16px;padding:0 18px;height:52px;background:linear-gradient(180deg,#fff,#e3e5ea);color:#23263a;box-shadow:6px 8px 16px var(--lo),-5px -5px 12px var(--hi)}
+.field input{flex:1;min-width:0;border:0;outline:none;background:none;color:#23263a;font-weight:600;font-size:14.5px;padding:0;height:100%}
+.field input::placeholder{color:#6f7489;font-weight:500}
+/* Xem truoc HUD: man den nhu trang "Gui len HUD" cua web */
+.hudscr{border-radius:18px;background:#000;display:flex;align-items:center;gap:16px;padding:18px}
+.ring{width:66px;height:66px;border-radius:50%;border:2px solid var(--a1);display:flex;align-items:center;justify-content:center;color:var(--a1);flex:none}
+#arrow{transition:transform .4s ease}
+.tag{font-size:11px;font-weight:700;padding:4px 9px;border-radius:99px;background:rgba(74,222,128,.14);color:#bbf7d0;white-space:nowrap}
+.tag.w{background:rgba(255,255,255,.10);color:rgba(255,255,255,.85)}
+/* The so lieu */
+.stat{border-radius:20px;padding:14px;min-width:0;text-align:left}
+.stat .l{font-size:11.5px;font-weight:600;color:var(--mut)}
+.stat .v{font-weight:700;font-size:18px;margin-top:2px}
+.stat .s{font-size:12px;font-weight:600;color:var(--a1)}
+.ic{width:38px;height:38px;border-radius:13px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;color:var(--mut)}
+.ic.grad{color:#fff}
+.ic.off{background:linear-gradient(90deg,#f87171,#dc2626);color:#fff}
+/* Danh sach tram */
+.lst{background:var(--soft);border-radius:22px;padding:2px 16px;box-shadow:10px 12px 24px var(--lo),-6px -6px 14px var(--hi)}
+.row{display:flex;align-items:center;gap:14px;padding:14px 0;width:100%;text-align:left}
+.row+.row{border-top:1.5px dashed color-mix(in srgb,var(--mut) 45%,transparent)}
+.row.sel{background:color-mix(in srgb,var(--a1) 12%,transparent);border-radius:16px;box-shadow:inset 0 0 0 1.5px var(--a1);padding:14px 10px;margin:4px -10px;width:calc(100% + 20px)}
+.row.sel+.row,.row+.row.sel{border-top-color:transparent}
+.dir{width:38px;height:38px;color:var(--mut)}
+.dir.grad{color:#fff}
+/* Thanh dieu huong noi nhu web */
+.nav{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom));width:calc(100% - 36px);max-width:444px;height:68px;border-radius:99px;padding:0 12px;background:var(--soft);box-shadow:8px 8px 18px var(--lo),-6px -6px 14px var(--hi);display:flex;justify-content:space-between;align-items:center;z-index:10}
+.nav>button{color:var(--mut);width:56px;height:46px;display:flex;align-items:center;justify-content:center;border-radius:99px}
+.nav>button.on{width:76px;background:var(--g);color:#fff;box-shadow:0 10px 22px color-mix(in srgb,var(--a2) 42%,transparent)}
+.nav .hex{width:60px;height:60px;border-radius:50%;margin-top:-36px;border:6px solid var(--bg);color:#fff;flex:none}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div style="display:flex;justify-content:space-between;align-items:center">
-    <div>
-      <div style="font-size:21px;font-weight:800;letter-spacing:-.01em">HUD Trạm sạc</div>
-      <div class="mut" style="font-size:12px;margin-top:3px" id="sub">Gửi trạm sạc lên HUD qua Bluetooth</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <div style="min-width:0">
+      <div class="mut ell" style="font-size:12.5px;font-weight:600" id="sub">Gửi trạm sạc lên HUD qua Bluetooth</div>
+      <div style="font-size:22px;font-weight:800;margin-top:2px">HUD Trạm sạc</div>
     </div>
-    <button class="orb g" id="btOrb" aria-label="Chọn HUD" style="width:46px;height:46px" onclick="A.pickHud()">
+    <button class="c raise" id="btOrb" aria-label="Chọn HUD" style="width:48px;height:48px" onclick="A.pickHud()">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 7 10 10-5 5V2l5 5L7 17"></path></svg>
     </button>
   </div>
 
-  <!-- Xem truoc HUD: khung gon, chieu cao vua noi dung -->
-  <div class="glass" style="border-radius:28px;padding:14px;margin-top:18px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 4px 10px">
-      <span class="mut" style="font-size:11.5px;font-weight:700;letter-spacing:.04em" id="head">TRẠM SẠC GẦN NHẤT</span>
-      <button class="pill glass hide" id="clearT" style="padding:6px 12px;font-size:11.5px" onclick="A.clearTarget()">Bỏ chọn</button>
+  <!-- Xem truoc HUD -->
+  <div class="raise" style="border-radius:24px;padding:16px;margin-top:22px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:0 2px 12px">
+      <span class="mut" style="font-size:11.5px;font-weight:700;letter-spacing:.06em" id="head">TRẠM SẠC GẦN NHẤT</span>
+      <button class="pill raise-s hide" id="clearT" style="padding:6px 12px;font-size:11.5px;color:var(--tx)" onclick="A.clearTarget()">Bỏ chọn</button>
     </div>
-    <div class="hud">
+    <div class="inset" style="border-radius:22px;padding:8px">
       <div class="hudscr">
-        <div class="ring"><svg id="arrow" width="34" height="34" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 5 21l7-4 7 4z"></path></svg></div>
+        <div class="ring"><svg id="arrow" width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 5 21l7-4 7 4z"></path></svg></div>
         <div style="min-width:0;flex:1">
           <div style="font-size:30px;font-weight:800;color:#fff;line-height:1.05;font-variant-numeric:tabular-nums" id="dist">—</div>
-          <div style="font-size:13.5px;color:var(--acc);font-weight:700;margin-top:3px" class="ell" id="name">Bấm Bắt đầu</div>
+          <div style="font-size:13.5px;color:var(--a1);font-weight:700;margin-top:3px" class="ell" id="name">Bấm Bắt đầu</div>
           <div class="chips" style="margin-top:8px;gap:6px" id="tags"></div>
         </div>
       </div>
     </div>
-    <div class="mut" style="font-size:11px;margin:10px 4px 0" id="side">Khoảng cách đường chim bay</div>
-    <button class="btn3d big" id="sendBtn" style="margin-top:12px;padding:13px;font-size:15px" onclick="A.sendNow()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"></path><path d="M22 2 11 13"></path></svg>Gửi lên HUD</button>
-    <div style="font-size:11.5px;color:var(--acc);font-weight:600;margin:6px 4px 0" class="hide" id="sent"></div>
+    <div class="mut" style="font-size:11.5px;font-weight:500;margin:12px 2px 0" id="side">Khoảng cách đường chim bay</div>
+    <button class="btn grad" id="sendBtn" style="margin-top:12px" onclick="A.sendNow()"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4M13 6l-3 4h4l-3 4"></path></svg>Gửi lên HUD</button>
+    <div style="font-size:11.5px;color:var(--a1);font-weight:600;margin:8px 2px 0;text-align:center" class="hide" id="sent"></div>
   </div>
 
-  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px">
-    <div class="glass" style="border-radius:24px;padding:14px">
-      <div class="orb" id="gpsOrb" style="width:34px;height:34px;margin-bottom:10px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>
-      <div class="mut" style="font-size:11.5px">GPS</div>
-      <div style="font-size:17px;font-weight:800;margin-top:2px" id="spd">— km/h</div>
-      <div style="font-size:12px;color:var(--acc);font-weight:600" class="ell" id="gps">Chưa bật</div>
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:18px">
+    <div class="stat raise">
+      <div class="ic inset" id="gpsOrb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>
+      <div class="l">GPS</div>
+      <div class="v" id="spd">— km/h</div>
+      <div class="s ell" id="gps">Chưa bật</div>
     </div>
-    <button class="glass" style="border-radius:24px;padding:14px;text-align:left" onclick="A.pickHud()">
-      <div class="orb g" id="hudOrb" style="width:34px;height:34px;margin-bottom:10px"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"></path></svg></div>
-      <div class="mut" style="font-size:11.5px">HUD</div>
-      <div style="font-size:17px;font-weight:800;margin-top:2px" class="ell" id="hudName">Chưa chọn</div>
-      <div style="font-size:12px;color:var(--acc);font-weight:600" class="ell" id="hud">Chạm để chọn HUD</div>
+    <button class="stat raise" onclick="A.pickHud()">
+      <div class="ic inset" id="hudOrb"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg></div>
+      <div class="l">HUD</div>
+      <div class="v ell" id="hudName">Chưa chọn</div>
+      <div class="s ell" id="hud">Chạm để chọn HUD</div>
     </button>
   </div>
 
-  <button class="btn3d big" style="margin-top:16px" id="run" onclick="A.toggle()">Bắt đầu</button>
+  <button class="btn grad" style="margin-top:18px" id="run" onclick="A.toggle()">Bắt đầu</button>
 
-  <div class="sec"><div><b>Trạm quanh xe</b> <span class="mut" style="font-size:12px">· chạm để chọn làm trạm đích</span></div></div>
-  <div class="mut" style="font-size:12px;margin:-4px 4px 10px" id="data">—</div>
-  <label class="search glass" for="q"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+  <div class="sec"><b>Trạm quanh xe</b><span class="mut" style="font-size:12px;font-weight:500">chạm để chọn trạm đích</span></div>
+  <label class="field" for="q">
     <input id="q" list="names" placeholder="Lọc theo tên trạm, hãng…" autocomplete="off" oninput="draw()" aria-label="Lọc trạm">
-    <button class="hide" id="qx" aria-label="Xoá lọc" onclick="$('q').value='';draw()" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+    <button class="hide" id="qx" aria-label="Xoá lọc" onclick="$('q').value='';draw()" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#23263a"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
   </label>
   <datalist id="names"></datalist>
-  <div class="chips scroll" id="flt" style="margin-top:10px;margin-bottom:10px"></div>
-  <div class="glass" style="border-radius:26px;padding:2px 12px" id="list"><div class="row mut">Chưa có trạm</div></div>
+  <div class="chips scroll" id="flt" style="margin-top:12px"></div>
+  <div class="mut" style="font-size:12px;font-weight:500;margin:0 2px 12px" id="data">—</div>
+  <div class="lst" id="list"><div class="row mut">Chưa có trạm</div></div>
 
-  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px">
-    <button class="glass pill" style="padding:14px" onclick="A.openHub('')">Bản đồ trạm sạc</button>
-    <button class="glass pill" style="padding:14px" onclick="A.sendTest()">Gửi thử lên HUD</button>
+  <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:18px">
+    <button class="btn sm ol" onclick="A.openHub('#/ban-do')">Bản đồ trạm sạc</button>
+    <button class="btn sm ol" onclick="A.sendTest()">Gửi thử lên HUD</button>
   </div>
 
   <div class="sec" id="setTop"><b>Cài đặt</b></div>
-  <div class="glass" style="border-radius:26px;padding:6px 14px 16px">
+  <div class="raise" style="border-radius:24px;padding:4px 16px 18px">
     <span class="lbl">Nguồn dữ liệu trạm sạc</span>
     <div class="chips" id="src"></div>
     <div id="ocmBox" class="hide">
       <label class="lbl" for="ocm">Khóa OpenChargeMap</label>
-      <input class="fld" id="ocm" placeholder="Dán khóa API" onchange="A.setOcmKey(this.value)">
+      <input class="f" id="ocm" placeholder="Dán khóa API" onchange="A.setOcmKey(this.value)">
     </div>
     <span class="lbl">Chạy khi tắt màn hình</span>
-    <button class="pill glass" id="batt" style="width:100%;padding:13px 16px;text-align:left;display:flex;align-items:center;gap:10px" onclick="A.battery()">
-      <span class="orb g" id="battOrb" style="width:26px;height:26px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2"></rect><path d="M22 11v2"></path></svg></span>
+    <button class="raise-s" id="batt" style="width:100%;border-radius:14px;padding:12px 14px;text-align:left;display:flex;align-items:center;gap:12px;font-weight:600;font-size:13px" onclick="A.battery()">
+      <span class="ic inset" id="battOrb" style="width:30px;height:30px;border-radius:10px;margin:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="18" height="10" rx="2"></rect><path d="M22 11v2"></path></svg></span>
       <span style="flex:1" id="battTxt">Chưa cho phép: bấm để mở cài đặt pin</span>
     </button>
     <label class="lbl" for="rad">Bán kính tìm (km)</label>
-    <input class="fld" id="rad" type="number" min="2" max="50" inputmode="numeric" onchange="A.setRadius(parseInt(this.value)||15)">
+    <input class="f" id="rad" type="number" min="2" max="50" inputmode="numeric" onchange="A.setRadius(parseInt(this.value)||15)">
   </div>
 </div>
 
-<nav class="nav glass" aria-label="Điều hướng">
-  <button class="on" aria-label="HUD" onclick="scrollTo({top:0,behavior:'smooth'})"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"></path></svg>HUD</button>
-  <button aria-label="Bản đồ" onclick="A.openHub('')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"></path><path d="M9 4v14M15 6v14"></path></svg>Bản đồ</button>
-  <button class="btn3d" aria-label="Gửi điểm sạc mới" style="width:62px;height:62px;border-radius:22px;margin-top:-30px;color:#052e16" onclick="A.openHub('#/gui')"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
-  <button aria-label="Tìm trạm" onclick="A.openHub('')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>Tìm</button>
-  <button aria-label="Cài đặt" onclick="document.getElementById('setTop').scrollIntoView({behavior:'smooth'})"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>Cài đặt</button>
+<nav class="nav" aria-label="Điều hướng">
+  <button class="on" aria-label="HUD" onclick="scrollTo({top:0,behavior:'smooth'})"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z"></path></svg></button>
+  <button aria-label="Bản đồ" onclick="A.openHub('#/ban-do')"><svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6.5 9 4v14l-6 2.5zM10 4l5 2v14l-5-2zM16 6l6-2.5v14L16 20z"></path></svg></button>
+  <button class="c hex grad" aria-label="Gửi điểm sạc mới" onclick="A.openHub('#/gui')"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+  <button aria-label="Tìm trạm" onclick="A.openHub('#/tim')"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7.5"></circle><path d="m21 21-4.3-4.3"></path></svg></button>
+  <button aria-label="Cài đặt" onclick="document.getElementById('setTop').scrollIntoView({behavior:'smooth'})"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg></button>
 </nav>
 
 <script>
@@ -169,16 +190,16 @@ function draw(){
     if (F.side == 'front' && !(t.side == 'A' || t.side == 'L' || t.side == 'R')) return false;
     return true;
   });
-  $('flt').innerHTML = FILTERS.map(function(f, i){ return '<button class="pill ' + (fOn(i) ? 'btn3d' : 'glass') + '" onclick="setF(' + i + ')">' + f[0] + '</button>'; }).join('');
+  $('flt').innerHTML = FILTERS.map(function(f, i){ return '<button class="pill ' + (fOn(i) ? 'grad' : 'raise-s') + '" onclick="setF(' + i + ')">' + f[0] + '</button>'; }).join('');
   var seen = {}; $('names').innerHTML = L.filter(function(t){ if (seen[t.name]) return false; return seen[t.name] = 1; }).slice(0, 80)
     .map(function(t){ return '<option value="' + esc(t.name) + '">'; }).join('');
   var shown = V.slice(0, 60);
   $('list').innerHTML = shown.length ? shown.map(function(t, j){
     var sel = s.targetKey && t.key == s.targetKey;
     return '<button class="row' + (sel ? ' sel' : '') + '" onclick="pick(' + t.i + ')">' +
-      '<div class="orb' + (sel || (!s.targetKey && t.i == 0) ? '' : ' g') + '" style="width:40px;height:40px"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="transform:rotate(' + (t.rel == null ? 0 : t.rel) + 'deg)"><path d="M12 2 5 21l7-4 7 4z"></path></svg></div>' +
-      '<div style="flex:1;min-width:0"><div class="ell" style="font-weight:700">' + esc(t.name) + '</div><div class="mut ell" style="font-size:12px">' + esc([sel ? 'Đang chọn' : '', t.op, t.ports ? t.ports + ' cổng' : '', SIDE[t.side] || ''].filter(Boolean).join(' · ')) + '</div></div>' +
-      '<div style="text-align:right;font-weight:800;font-size:13px">' + km(t.dist) + (t.kw ? '<div style="font-size:12px;color:var(--acc)">' + t.kw + ' kW</div>' : '') + '</div></button>';
+      '<div class="c dir ' + (sel || (!s.targetKey && t.i == 0) ? 'grad' : 'inset') + '"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="transform:rotate(' + (t.rel == null ? 0 : t.rel) + 'deg)"><path d="M12 2 5 21l7-4 7 4z"></path></svg></div>' +
+      '<div style="flex:1;min-width:0"><div class="ell" style="font-weight:600">' + esc(t.name) + '</div><div class="mut ell" style="font-size:11.5px;font-weight:500;margin-top:2px">' + esc([sel ? 'Đang chọn' : '', t.op, t.ports ? t.ports + ' cổng' : '', SIDE[t.side] || ''].filter(Boolean).join(' · ')) + '</div></div>' +
+      '<div style="text-align:right;font-weight:700;font-size:14px;white-space:nowrap">' + km(t.dist) + (t.kw ? '<div style="font-size:11.5px;color:var(--a1)">' + t.kw + ' kW</div>' : '') + '</div></button>';
   }).join('') + (V.length > shown.length ? '<div class="row mut" style="font-size:12px">+ ' + (V.length - shown.length) + ' trạm nữa, gõ tên để lọc</div>' : '')
     : '<div class="row mut">' + (L.length ? 'Không có trạm khớp bộ lọc' : s.running ? 'Chưa có trạm trong bán kính' : 'Bấm Bắt đầu để tìm trạm') + '</div>';
   $('data').textContent = s.data + (L.length ? ' · đang hiện ' + V.length + '/' + L.length : '');
@@ -188,11 +209,11 @@ function render(s){
   $('run').textContent = s.running ? 'Dừng' : 'Bắt đầu';
   $('run').classList.toggle('stop', s.running);
   $('gps').textContent = s.gps; $('spd').textContent = (s.running ? s.speed : '—') + ' km/h';
-  $('gpsOrb').className = 'orb' + (/Có vị trí/.test(s.gps) ? '' : ' g');
+  $('gpsOrb').className = 'ic ' + (/Có vị trí/.test(s.gps) ? 'grad' : 'inset');
   $('hudName').textContent = s.hudName || 'Chưa chọn';
   $('hud').textContent = s.hud;
   var ok = /Đã kết nối/.test(s.hud);
-  $('hudOrb').className = 'orb' + (ok ? '' : ' g'); $('btOrb').className = 'orb' + (ok ? '' : ' g');
+  $('hudOrb').className = 'ic ' + (ok ? 'grad' : 'inset'); $('btOrb').className = 'c ' + (ok ? 'grad' : 'raise');
   $('head').textContent = s.target ? 'TRẠM ĐANG CHỌN' : 'TRẠM SẠC GẦN NHẤT';
   $('clearT').classList.toggle('hide', !s.target);
   var ago = s.sentAt ? Math.round((Date.now() - s.sentAt) / 1000) : -1;
@@ -215,10 +236,10 @@ function render(s){
   }
   S = s; draw();
   $('src').innerHTML = s.sources.map(function(o){
-    return '<button class="pill ' + (o[0] == s.source ? 'btn3d' : 'glass') + '" onclick="A.setSource(\'' + o[0] + '\')">' + esc(o[1]) + '</button>';
+    return '<button class="pill ' + (o[0] == s.source ? 'grad' : 'raise-s') + '" onclick="A.setSource(\'' + o[0] + '\')">' + esc(o[1]) + '</button>';
   }).join('');
   $('battTxt').textContent = s.battOk ? 'Đã cho phép chạy nền không giới hạn pin' : 'Chưa cho phép: bấm để mở cài đặt pin';
-  $('battOrb').className = 'orb' + (s.battOk ? '' : ' off');
+  $('battOrb').className = 'ic ' + (s.battOk ? 'grad' : 'off');
   $('ocmBox').classList.toggle('hide', s.source != 'ocm');
   if (document.activeElement != $('rad')) $('rad').value = s.radius;
   if (document.activeElement != $('ocm')) $('ocm').value = s.ocmKey;
