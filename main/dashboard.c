@@ -702,6 +702,22 @@ static bool urgent_alert(int code)                               /* chop + tit: 
     return code != 6 && code != 12 && code != 19 && !(code >= 20 && code <= 21) && code != 35 && code != 36;
 }
 
+/* dai vuot toc do: dem do tuoi / do sam; ngay nen chuyen do -> cam, chop bang do mo */
+static void over_paint(strip_t *s)
+{
+    if (night) {
+        lv_color_t c = lv_color_hex(blink_dim ? 0x5A0C12 : 0xE11D2A);
+        lv_obj_set_style_bg_color(s->box, c, 0);
+        lv_obj_set_style_bg_grad_dir(s->box, LV_GRAD_DIR_NONE, 0);
+        lv_obj_set_style_border_color(s->box, c, 0);
+        lv_obj_set_style_opa(s->box, LV_OPA_COVER, 0);
+    } else {
+        hgrad(s->box, lv_color_hex(0xFF3D3D), lv_color_hex(0xFFA23A));
+        lv_obj_set_style_border_color(s->box, lv_color_hex(0xFF6A3D), 0);
+        lv_obj_set_style_opa(s->box, blink_dim ? 150 : LV_OPA_COVER, 0);
+    }
+}
+
 /* ve dai: icon, chu, khoang cach (mau fg), loa, thanh tien do (permille < 0: an) */
 static void strip_fill(strip_t *s, const lv_image_dsc_t *icon, const char *txt, const char *dist,
                        lv_color_t bg, lv_color_t bd, lv_color_t fg, bool spk, int permille, int blink)
@@ -740,10 +756,7 @@ static void strip_fill(strip_t *s, const lv_image_dsc_t *icon, const char *txt, 
     }
     s->blink = blink;
     lv_obj_set_style_opa(s->box, blink == 1 && blink_dim ? 89 : LV_OPA_COVER, 0);
-    if (blink == 2) {
-        lv_obj_set_style_bg_color(s->box, lv_color_hex(blink_dim ? 0x5A0C12 : 0xE11D2A), 0);
-        lv_obj_set_style_border_color(s->box, lv_color_hex(blink_dim ? 0x5A0C12 : 0xE11D2A), 0);
-    }
+    if (blink == 2) over_paint(s);
 }
 
 static void strip_alert(strip_t *s, const ui_alert_t *a)
@@ -780,11 +793,7 @@ static void strip_blink_cb(lv_timer_t *t)
             all[i]->blink = 0;
             lv_obj_set_style_opa(all[i]->box, LV_OPA_COVER, 0);
         } else if (all[i]->blink == 1) lv_obj_set_style_opa(all[i]->box, blink_dim ? 89 : LV_OPA_COVER, 0);
-        else {
-            lv_color_t c = lv_color_hex(blink_dim ? 0x5A0C12 : 0xE11D2A);   /* do tuoi / do sam, chu trang */
-            lv_obj_set_style_bg_color(all[i]->box, c, 0);
-            lv_obj_set_style_border_color(all[i]->box, c, 0);
-        }
+        else over_paint(all[i]);                                   /* vuot toc do, chu trang */
 }
 
 /* ======================= thanh tren ======================= */
@@ -1050,14 +1059,16 @@ static void render_highway(void)
     if (it) {
         char d[16];
         fmt_dist(d, sizeof d, it->dist);
-        strip_fill(&h_st, sign_for_alert(it->code), alert_name(it->code), d, th->hw_bg, th->hw_bd, th->fg, false, -1, false);
+        lv_color_t abg, abd, afg;                                  /* canh bao: mau theo loai (xanh ngoc chi cho loi ra) */
+        alert_colors(it->code, &abg, &abd, &afg);
+        strip_fill(&h_st, sign_for_alert(it->code), alert_name(it->code), d, abg, abd, afg, false, -1, false);
     } else {
         char b[64];
         if (limit > 0) snprintf(b, sizeof b, "Tối đa %d km/h · giữ khoảng cách", limit);
         else snprintf(b, sizeof b, "Giữ khoảng cách an toàn");
         strip_fill(&h_st, &arrow_straight, b, "", th->hw_bg, th->hw_bd, th->fg, false, -1, false);
     }
-    if (night) hgrad(h_st.box, th->hw_bg, lv_color_hex(0x1F4361));   /* ban ngay: mau don (RGB565 de bi soc) */
+    if (night && !it) hgrad(h_st.box, th->hw_bg, lv_color_hex(0x1F4361));   /* ban ngay: mau don (RGB565 de bi soc) */
     lv_obj_set_style_image_recolor(h_st.img, th->fg, 0);
     lv_obj_set_style_image_recolor_opa(h_st.img, it ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
 
