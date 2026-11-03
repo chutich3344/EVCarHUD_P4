@@ -111,9 +111,9 @@ static int ts_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *
     b[n] = 0;
     ESP_LOGI(TAG, "tram sac: %s", b);
     if (strncmp(b, "T1|", 3) != 0) return 0;                      /* phien ban khac: bo qua */
-    char *f[8] = {0};
+    char *f[9] = {0};                                              /* ten, met, phia, goc, kW, cong, so tram, che do */
     int k = 0;
-    for (char *p = b + 3; k < 7; ) {
+    for (char *p = b + 3; k < 8; ) {
         f[k++] = p;
         char *q = strchr(p, '|');
         if (!q) break;
@@ -121,9 +121,10 @@ static int ts_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *
         p = q + 1;
     }
     board_ui_lock();
-    if (!f[0] || !f[0][0] || k < 3) ui_set_station(NULL, 0, '?', 0, 0, 0);
-    else ui_set_station(f[0], atoi(f[1]), f[2][0] ? f[2][0] : '?', k > 4 ? atoi(f[4]) : 0, k > 5 ? atoi(f[5]) : 0,
-                        k > 6 ? atoi(f[6]) : 0);
+    if (!f[0] || !f[0][0] || k < 3) ui_set_station(NULL, 0, '?', UI_TS_NO_ANGLE, 0, 0, 0, 'N');
+    else ui_set_station(f[0], atoi(f[1]), f[2][0] ? f[2][0] : '?', k > 3 && f[3][0] ? atoi(f[3]) : UI_TS_NO_ANGLE,
+                        k > 4 ? atoi(f[4]) : 0, k > 5 ? atoi(f[5]) : 0, k > 6 ? atoi(f[6]) : 0,
+                        k > 7 && f[7][0] == 'D' ? 'D' : 'N');
     board_ui_unlock();
     return 0;
 }

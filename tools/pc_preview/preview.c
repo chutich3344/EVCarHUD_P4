@@ -181,10 +181,16 @@ int main(int argc, char **argv)
     snprintf(p, sizeof p, "%s/anim_1_giua.bmp", dir); save_bmp(p);
     run(400);
     snprintf(p, sizeof p, "%s/anim_2_an_dai.bmp", dir); save_bmp(p);
-    ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 60, 4, 12);
+    ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'N');
     run(600);
     snprintf(p, sizeof p, "%s/tram_sac.bmp", dir); save_bmp(p);
-    ui_set_station(NULL, 0, '?', 0, 0, 0);
+    ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich.bmp", dir); save_bmp(p);
+    ui_set_station("VinFast Vincom Thảo Điền", 1800, 'L', -95, 60, 4, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich_xa.bmp", dir); save_bmp(p);
+    ui_set_station(NULL, 0, '?', UI_TS_NO_ANGLE, 0, 0, 0, 'N');
     run(600);
     ui_set_nav(true, 2, 2500, 0, "Nguyễn Hữu Thọ", 0);
     ui_set_route("20:05", 6500, 18);

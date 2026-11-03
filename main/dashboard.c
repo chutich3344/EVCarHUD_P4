@@ -126,7 +126,8 @@ static lv_timer_t *blink_tmr, *toast_tmr;
 
 /* ---------------- trang thai ---------------- */
 static int speed = -2, limit = -1, level = -1;
-static bool nav_on, has_route;
+static bool nav_on, has_route, wz_on;                        /* wz_on: Waze dang co lenh re */
+static void apply_nav(void);
 static int clk_h = -1, clk_m = -1, day = -1, month = -1, wday = -1;
 static int screen = -1;
 static bool sig_ok, phone, waze = true, moving;
@@ -751,13 +752,34 @@ static void render_alert_parts(void)                             /* dai canh bao
 
 /* Tram sac gan (app Tram sac): dai xanh ngoc o man Bien toc do khi khong co canh bao / vuot toc do. */
 #define TS_HOLD_MS 90000
+#define TS_NO_ANGLE (-999)
 static char ts_name[64];
-static int ts_dist, ts_kw;
-static char ts_side = '?';
+static int ts_dist, ts_kw, ts_ports, ts_ang = TS_NO_ANGLE;
+static char ts_side = '?', ts_mode = 'N';
 static uint32_t ts_tick;
 static lv_timer_t *ts_tmr;
 
 static bool station_on(void) { return ts_name[0] && lv_tick_elaps(ts_tick) < TS_HOLD_MS; }
+static bool ts_dest_on(void) { return ts_mode == 'D' && station_on(); }
+
+static int ts_turn(void)                                          /* goc lech -> ma re HLP (mui ten) */
+{
+    if (ts_ang == TS_NO_ANGLE) return 1;
+    int a = ts_ang < 0 ? -ts_ang : ts_ang;
+    bool r = ts_ang > 0;
+    if (a <= 20) return 1;
+    if (a <= 60) return r ? 5 : 4;
+    if (a <= 120) return r ? 3 : 2;
+    if (a <= 160) return r ? 7 : 6;
+    return 8;
+}
+
+static void ts_title(char *b, size_t n)                           /* ten tram + kW / cong */
+{
+    int k = snprintf(b, n, "%s", ts_name);
+    if (ts_kw > 0 && k < (int)n) k += snprintf(b + k, n - k, " · %d kW", ts_kw);
+    if (ts_ports > 0 && k < (int)n) snprintf(b + k, n - k, " · %d cổng", ts_ports);
+}
 
 static void station_fill(strip_t *s)
 {
@@ -780,7 +802,7 @@ static void render_cruise(void)
 {
     bool near = ev_now && ev_now->dist <= ALERT_M;
     bool over = level == UI_LEVEL_OVER;
-    bool st = station_on();
+    bool st = station_on() && ts_mode != 'D';
     bool strip = !near && (over || ev_now || st);                  /* dai 40 px: vuot toc do / canh bao xa / tram sac */
     morph_to(&d_t, &d_want, !near);
     if (!near && !strip && d_t < T_MAX) {                          /* het canh bao, duong thoang: di thang toi co to */
@@ -932,7 +954,7 @@ static void build_nav(void)
 #define NAV_NEAR_M 1000                    /* re con xa hon 1 km: an 3 o re, so + bien to ra */
 static void render_nav(void)
 {
-    bool calm = dist_now < 0 || dist_now > NAV_NEAR_M;            /* da qua cho re, lan re sau con xa */
+    bool calm = wz_on && (dist_now < 0 || dist_now > NAV_NEAR_M);   /* da qua cho re, lan re sau con xa (tram sac: luon hien) */
     morph_to(&n_t, &n_want, calm);
     render_head2(&n_hd, n_t);
     for (int i = 0; i < 3; i++) fade_part(n_cell[i], T_MAX - n_t);
@@ -1026,7 +1048,8 @@ static void set_screen(int s)
 static void update_screen(void)
 {
     int s;
-    if (!sig_ok || (!nav_on && !moving)) s = SCR_STANDBY;
+    if (nav_on && !wz_on) s = SCR_NAV;                           /* dan toi tram sac: ca khi dung yen */
+    else if (!sig_ok || (!nav_on && !moving)) s = SCR_STANDBY;
     else if (nav_on) s = SCR_NAV;
     else if (ev_now && ev_now->dist <= ALERT_M) s = SCR_CRUISE;   /* man Toc do o co nho + dai canh bao */
     else if (on_highway()) s = SCR_HIGHWAY;
@@ -2119,30 +2142,54 @@ bool ui_get_clock(int *h, int *m)
 }
 
 /* ======================= dan duong ======================= */
-void ui_set_nav(bool active, int turn, int dist_m, int exit_n, const char *street, int turn2)
+/* Dan duong: Waze (HLP) uu tien; khong co lenh re Waze thi tram sac dich (app Tram sac, che do D) dung man nay. */
+static int wz_turn, wz_dist, wz_exit, wz_turn2;
+static char wz_street[64];
+static bool ts_dest_on(void);
+static int ts_turn(void);
+static void ts_title(char *b, size_t n);
+
+static void apply_nav(void)
 {
-    const lv_image_dsc_t *arr = active ? arrow_for_turn(turn) : NULL;
-    nav_on = active && arr;
-    if (!street) street = "";
-    if (!nav_on) {
-        snprintf(street_now, sizeof street_now, "%s", street);
+    int turn, dist, exit_n = 0, turn2 = 0;
+    char st[96];
+    if (wz_on) {
+        turn = wz_turn; dist = wz_dist; exit_n = wz_exit; turn2 = wz_turn2;
+        snprintf(st, sizeof st, "%s", wz_street);
+    } else if (ts_dest_on()) {
+        turn = ts_turn(); dist = ts_dist;
+        ts_title(st, sizeof st);
     } else {
-        if (turn != turn_now || strcmp(street, street_nav) != 0 || dist_m > turn_start) {
-            turn_start = dist_m;
-            turn_beeped = false;
-        }
-        if (!turn_beeped && dist_m >= 0 && dist_m <= 100 && turn_start > 150) {   /* con 100 m toi cho re: tit */
-            turn_beeped = true;
-            beep(1);
-        }
-        turn_now = turn;
-        dist_now = dist_m;
-        exit_now = exit_n;
-        turn2_now = exit_n > 0 ? 0 : turn2;
-        snprintf(street_nav, sizeof street_nav, "%s", street);
+        nav_on = false;
+        snprintf(street_now, sizeof street_now, "%s", wz_street);
+        update_screen();
+        render_all();
+        return;
     }
+    nav_on = true;
+    if (turn != turn_now || strcmp(st, street_nav) != 0 || dist > turn_start) {
+        turn_start = dist;
+        turn_beeped = false;
+    }
+    if (!turn_beeped && dist >= 0 && dist <= 100 && turn_start > 150) {   /* con 100 m toi cho re: tit */
+        turn_beeped = true;
+        beep(1);
+    }
+    turn_now = turn;
+    dist_now = dist;
+    exit_now = exit_n;
+    turn2_now = exit_n > 0 ? 0 : turn2;
+    snprintf(street_nav, sizeof street_nav, "%s", st);
     update_screen();
     render_all();
+}
+
+void ui_set_nav(bool active, int turn, int dist_m, int exit_n, const char *street, int turn2)
+{
+    wz_on = active && arrow_for_turn(turn);
+    wz_turn = turn; wz_dist = dist_m; wz_exit = exit_n; wz_turn2 = turn2;
+    snprintf(wz_street, sizeof wz_street, "%s", street ? street : "");
+    apply_nav();
 }
 
 void ui_set_route(const char *eta, int remaining_m, int remaining_min)
@@ -2252,19 +2299,26 @@ static void ts_cb(lv_timer_t *t)
 {
     (void)t;
     if (ts_name[0] && !station_on()) {                            /* 90 giay khong co ban tin: an */
+        bool dest = ts_mode == 'D';
         ts_name[0] = 0;
-        if (screen == SCR_CRUISE) render_cruise();
+        if (dest) apply_nav();
+        else if (screen == SCR_CRUISE) render_cruise();
     }
 }
 
-void ui_set_station(const char *name, int dist_m, char side, int kw, int ports, int count)
+void ui_set_station(const char *name, int dist_m, char side, int angle, int kw, int ports, int count, char mode)
 {
-    (void)ports; (void)count;
+    (void)count;
+    bool was_dest = ts_dest_on();
     snprintf(ts_name, sizeof ts_name, "%s", name ? name : "");
     ts_dist = dist_m;
     ts_side = side;
+    ts_ang = angle;
     ts_kw = kw;
+    ts_ports = ports;
+    ts_mode = mode == 'D' ? 'D' : 'N';
     ts_tick = lv_tick_get();
     if (!ts_tmr) ts_tmr = lv_timer_create(ts_cb, 2000, NULL);
-    if (screen == SCR_CRUISE) render_cruise();
+    if (was_dest || ts_dest_on()) apply_nav();
+    else if (screen == SCR_CRUISE) render_cruise();
 }

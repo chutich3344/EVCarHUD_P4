@@ -83,9 +83,12 @@ void ui_set_phone(bool connected);                     /* dien thoai noi Bluetoo
 void ui_set_waze(bool on);                             /* false: chi co toc do GPS, chua co du lieu Waze */
 void ui_set_gps(int level);
 void ui_set_hint(const char *text);
-/* Tram sac gan (app Tram sac qua BLE): name NULL = xoa. side 'A' truoc, 'R' phai, 'L' trai, 'B' sau, '?' chua biet.
- * Hien o dai giua man Bien toc do khi khong co canh bao; tu an sau 90 giay khong co ban tin. */
-void ui_set_station(const char *name, int dist_m, char side, int kw, int ports, int count);                    /* bo qua: man cho tu hien "Cho ket noi Waze..." */
+/* Tram sac (app Tram sac qua BLE): name NULL = xoa. side 'A' truoc, 'R' phai, 'L' trai, 'B' sau, '?' chua biet.
+ * angle: goc lech do (duong = phai), UI_TS_NO_ANGLE = khong ro. mode 'N' tram gan nhat: dai giua man Bien toc do khi khong
+ * co canh bao. mode 'D' tram dich (nguoi dung bam "Gui len HUD"): man dan duong (mui ten theo goc, khoang cach, ten tram),
+ * ca khi dung yen; Waze dang dan duong thi uu tien Waze. Tu an sau 90 giay khong co ban tin. */
+#define UI_TS_NO_ANGLE (-999)
+void ui_set_station(const char *name, int dist_m, char side, int angle, int kw, int ports, int count, char mode);                    /* bo qua: man cho tu hien "Cho ket noi Waze..." */
 
 /* --- Ngay / Dem ---
  * Tu dong: theo cam bien anh sang neu board co (ui_set_ambient), khong thi theo gio (6:00-18:00 la ngay).
