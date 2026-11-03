@@ -39,15 +39,15 @@ import org.json.JSONObject
 class MainActivity : Activity() {
     companion object {
         const val HUB = "https://evcarhud.com/tram-sac"
-        /** Bat bam vao nut Trang chu (icon nha) tren trang tram-sac -> ve man HUD cua app. */
-        private const val HOME_JS = """(function(){ if (window.__hudHome) return; window.__hudHome = 1;
+        /** Trang tram-sac la man chinh cua app: doi nut cuoi thanh dieu huong (thong tin EVCarHUD) thanh nut mo man HUD. */
+        private const val NAV_JS = """(function(){ if (window.__hudNav) return; window.__hudNav = 1;
+  function fix(){ var a = document.querySelector('nav.nav a[href="/"]'); if (!a || a.dataset.hud) return;
+    a.dataset.hud = 1; a.setAttribute('aria-label', 'HUD'); a.setAttribute('href', '#hud');
+    a.innerHTML = '<i class="fa-solid fa-display"></i>'; }
+  fix(); new MutationObserver(fix).observe(document.body, {childList:true, subtree:true});
   document.addEventListener('click', function(e){
-    var a = e.target.closest && e.target.closest('a,button'); if (!a) return;
-    var l = (a.getAttribute('aria-label') || a.textContent || '').trim().toLowerCase();
-    var h = a.getAttribute('href') || '';
-    if (l == 'trang chủ' || l == 'trang chu' || l == 'về trang chủ' || h == '#/' || h == '#/home') {
-      e.preventDefault(); e.stopPropagation(); if (window.AndroidHub) AndroidHub.home();
-    }
+    var a = e.target.closest && e.target.closest('a'); if (!a || !a.dataset.hud) return;
+    e.preventDefault(); e.stopPropagation(); if (window.AndroidHub) AndroidHub.hud();
   }, true);
 })();"""
         private val SOURCES = listOf(
@@ -62,8 +62,6 @@ class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var web: WebView
     private var hub: WebView? = null
-    /** Da roi trang dau cua web tram-sac (de biet lan quay ve #/ la bam nut nha). */
-    private var hubLeftHome = false
     private lateinit var root: FrameLayout
     private val main = Handler(Looper.getMainLooper())
     private val refresh: () -> Unit = { pushState() }
@@ -72,12 +70,12 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        window.statusBarColor = Color.parseColor("#06110b")
-        window.navigationBarColor = Color.parseColor("#06110b")
+        window.statusBarColor = Color.parseColor("#0f1d16")
+        window.navigationBarColor = Color.parseColor("#0f1d16")
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-        root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#06110b")) }
+        root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#0f1d16")) }
         web = WebView(this).apply {
-            setBackgroundColor(Color.parseColor("#06110b"))
+            setBackgroundColor(Color.parseColor("#0f1d16"))
             settings.javaScriptEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
@@ -93,6 +91,7 @@ class MainActivity : Activity() {
         }
         root.addView(web, ViewGroup.LayoutParams(-1, -1))
         setContentView(root)
+        openHub("")                                      // mo app vao thang trang chu tram sac
         handleLink(intent)
     }
 
@@ -139,7 +138,8 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         val h = hub
-        if (h != null) { if (h.canGoBack()) h.goBack() else closeHub(); return }
+        if (h != null && h.visibility == View.VISIBLE) { if (h.canGoBack()) { h.goBack(); return } }
+        else if (h != null) { h.visibility = View.VISIBLE; return }      // dang o man HUD -> ve trang chu
         @Suppress("DEPRECATION") super.onBackPressed()
     }
 
@@ -214,7 +214,7 @@ class MainActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun openHub(path: String) {
         val h = hub ?: WebView(this).also { w ->
-            w.setBackgroundColor(Color.parseColor("#06110b"))
+            w.setBackgroundColor(Color.parseColor("#0f1d16"))
             w.settings.javaScriptEnabled = true
             w.settings.domStorageEnabled = true
             w.settings.setGeolocationEnabled(true)
@@ -228,18 +228,16 @@ class MainActivity : Activity() {
             }
             // Nut "Trang chu" cua trang web: quay ve man HUD cua app (chi co 1 ham, vo hai)
             w.addJavascriptInterface(object {
-                @JavascriptInterface fun home() = ui { closeHub() }
+                @JavascriptInterface fun hud() = ui { closeHub() }
             }, "AndroidHub")
             w.webViewClient = object : WebViewClient() {
                 override fun onPageFinished(v: WebView, url: String) {
-                    v.evaluateJavascript(HOME_JS, null)
+                    v.evaluateJavascript(NAV_JS, null)
                 }
 
-                // Du phong: trang dung dinh tuyen #/..., nen bam nut nha = doi dia chi ve #/ (khong qua shouldOverride)
-                override fun doUpdateVisitedHistory(v: WebView, url: String, isReload: Boolean) {
-                    val home = url.substringBefore('?').let { it == HUB || it == "$HUB/" || it == "$HUB#/" || it == "$HUB#" }
-                    if (home && hubLeftHome) { ui { closeHub() }; return }
-                    if (!home) hubLeftHome = true
+                // Mat mang: khong de trang loi, chuyen sang man HUD (van chay offline)
+                override fun onReceivedError(v: WebView, r: WebResourceRequest, e: android.webkit.WebResourceError) {
+                    if (r.isForMainFrame) { hubFailed = true; ui { closeHub() } }
                 }
 
                 override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
@@ -260,14 +258,18 @@ class MainActivity : Activity() {
             root.addView(w, ViewGroup.LayoutParams(-1, -1))
         }
         h.visibility = View.VISIBLE
-        hubLeftHome = path.isNotEmpty() && path != "#/"
-        h.loadUrl(HUB + path)
+        val cur = h.url
+        if (hubFailed || cur == null || !cur.startsWith(HUB)) { hubFailed = false; h.loadUrl(HUB + path.ifEmpty { "#/" }) }
+        else h.evaluateJavascript("location.hash=" + JSONObject.quote(path.ifEmpty { "#/" }), null)   // da tai: chi doi trang, khong tai lai
     }
 
+    /** An trang tram-sac (giu lai de quay ve nhanh), hien man HUD cua app. */
     private fun closeHub() {
-        hub?.let { root.removeView(it); it.destroy() }
-        hub = null
+        hub?.visibility = View.GONE
+        pushState()
     }
+
+    private var hubFailed = false
 
     // ---------------- Quyen ----------------
     private fun neededPerms(): Array<String> {
