@@ -20,7 +20,7 @@
     <application
         android:label="@string/app_name"
         android:icon="@drawable/ic_app"
-        android:theme="@android:style/Theme.DeviceDefault"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
         android:supportsRtl="false">
 
         <activity
