@@ -62,6 +62,8 @@ class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var web: WebView
     private var hub: WebView? = null
+    /** Da roi trang dau cua web tram-sac (de biet lan quay ve #/ la bam nut nha). */
+    private var hubLeftHome = false
     private lateinit var root: FrameLayout
     private val main = Handler(Looper.getMainLooper())
     private val refresh: () -> Unit = { pushState() }
@@ -230,6 +232,13 @@ class MainActivity : Activity() {
                     v.evaluateJavascript(HOME_JS, null)
                 }
 
+                // Du phong: trang dung dinh tuyen #/..., nen bam nut nha = doi dia chi ve #/ (khong qua shouldOverride)
+                override fun doUpdateVisitedHistory(v: WebView, url: String, isReload: Boolean) {
+                    val home = url.substringBefore('?').let { it == HUB || it == "$HUB/" || it == "$HUB#/" || it == "$HUB#" }
+                    if (home && hubLeftHome) { ui { closeHub() }; return }
+                    if (!home) hubLeftHome = true
+                }
+
                 override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                     val u = r.url
                     if (u.scheme == "evcarhud-tramsac") { handleLink(Intent(Intent.ACTION_VIEW, u)); return true }
@@ -248,6 +257,7 @@ class MainActivity : Activity() {
             root.addView(w, ViewGroup.LayoutParams(-1, -1))
         }
         h.visibility = View.VISIBLE
+        hubLeftHome = path.isNotEmpty() && path != "#/"
         h.loadUrl(HUB + path)
     }
 
