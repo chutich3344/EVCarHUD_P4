@@ -82,6 +82,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete app-tram-sac --yes --cleanup-tag || true
-          gh release create app-tram-sac "hud-tram-sac-$SHORT.apk" --target "$GITHUB_SHA" \
+          AAB=$(ls hud-tram-sac-$SHORT*.aab 2>/dev/null || true)
+          gh release create app-tram-sac "hud-tram-sac-$SHORT.apk" $AAB --target "$GITHUB_SHA" \
             --title "App HUD Trạm sạc ($SHORT)" \
             --notes "APK build tự động từ commit $SHORT (nhánh ${GITHUB_REF_NAME}). Tải về điện thoại Android rồi cài." --prerelease
