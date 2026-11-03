@@ -151,7 +151,10 @@ object Sources {
     private fun custom(base: String, lat: Double, lon: Double, radiusM: Int): List<Station> {
         if (base.isBlank()) throw RuntimeException("Chưa nhập địa chỉ máy chủ")
         val sep = if (base.contains('?')) "&" else "?"
-        val body = get("$base${sep}lat=$lat&lon=$lon&r=$radiusM").trim()
+        // Lam tron toa do 2 chu so (~1 km) va ban kinh them 1 km: trung bo nho dem 5 phut cua evcarhud.com nhieu hon
+        val la = String.format(java.util.Locale.US, "%.2f", lat)
+        val lo = String.format(java.util.Locale.US, "%.2f", lon)
+        val body = get("$base${sep}lat=$la&lon=$lo&r=${radiusM + 1000}").trim()
         val arr = if (body.startsWith("[")) JSONArray(body) else JSONObject(body).optJSONArray("stations") ?: JSONArray()
         val out = ArrayList<Station>()
         for (i in 0 until arr.length()) {
