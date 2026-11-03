@@ -15,15 +15,15 @@ import java.net.URL
 import java.util.zip.GZIPInputStream
 
 /**
- * Danh sach tram sac o to VinFast, lay tu du lieu cong khai ma trang "Tim kiem showroom & tram sac" cua
- * vinfastauto.com dung: static-cms-prod.vinfastauto.com/locators/locators-meta.json -> file locators-N.json.gz
- * (moi showroom, xuong dich vu, tram sac ca nuoc). Chi giu category_slug = car_charging_station.
- * Tai ca file mot lan, luu dem tren may, kiem tra ban moi moi 24 gio. Loc theo ban kinh lam tren may.
+ * Danh sach tram sac o to VinFast (~25.000 tram ca nuoc).
+ * Nguon goc: du lieu cong khai cua trang "Tim kiem showroom & tram sac" tren vinfastauto.com (file 75 MB gom ca
+ * showroom, tram doi pin...). GitHub Actions (du-lieu-vinfast.yml) moi ngay rut gon con ten + toa do (~vai tram KB)
+ * va dat vao ban phat hanh "du-lieu-tram-sac"; app tai file nho do, luu tren may, kiem tra ban moi moi 24 gio.
  */
 object VinFast {
-    private const val CDN = "https://static-cms-prod.vinfastauto.com/locators/"
+    private const val BASE = "https://github.com/chutich3344/EVCarHUD_P4/releases/download/du-lieu-tram-sac/"
     private const val CHECK_MS = 24 * 3600_000L
-    private const val UA = "Mozilla/5.0 (Linux; Android) EVCarHUD-TramSac/0.2"
+    private const val UA = "EVCarHUD-TramSac/0.2 (Android)"
 
     @Volatile private var cache: List<Station>? = null
     @Volatile private var checkedAt = 0L
@@ -52,15 +52,13 @@ object VinFast {
         val have = cache
         if (have != null && now - checkedAt < CHECK_MS) return have
         try {
-            val meta = JSONObject(String(fetch(CDN + "locators-meta.json").use { it.readBytes() }, Charsets.UTF_8))
-            val full = meta.optString("full")
-            val gen = meta.optString("generation")
-            if (!Regex("locators-\\d+\\.json\\.gz").matches(full)) throw RuntimeException("meta VinFast lạ")
+            val meta = JSONObject(String(fetch(BASE + "vinfast-meta.json").use { it.readBytes() }, Charsets.UTF_8))
+            val gen = meta.optString("generation") + "/" + meta.optString("updated")
             if (have != null && genF.exists() && genF.readText() == gen) {
                 checkedAt = now; return have            // chua co ban moi
             }
-            val list = fetch(CDN + full).use { parse(it) }
-            if (list.isEmpty()) throw RuntimeException("Dữ liệu VinFast không có trạm sạc ô tô")
+            val list = fetch(BASE + "vinfast-tram-sac.json.gz").use { parse(it) }
+            if (list.size < 100) throw RuntimeException("Dữ liệu VinFast quá ít trạm")
             writeCache(f, list); genF.writeText(gen)
             cache = list; checkedAt = now
             return list
@@ -74,10 +72,10 @@ object VinFast {
     private fun fetch(url: String): InputStream {
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 15000
-        c.readTimeout = 60000
+        c.readTimeout = 30000
+        c.instanceFollowRedirects = true
         c.setRequestProperty("User-Agent", UA)
         c.setRequestProperty("Accept", "application/json, */*")
-        c.setRequestProperty("Referer", "https://vinfastauto.com/vn_vi/tim-kiem-showroom-tram-sac")
         if (c.responseCode !in 200..299) { c.disconnect(); throw RuntimeException("HTTP ${c.responseCode}") }
         val bin = BufferedInputStream(c.inputStream)
         bin.mark(2)
@@ -86,54 +84,24 @@ object VinFast {
         return if (b0 == 0x1f && b1 == 0x8b) GZIPInputStream(bin) else bin
     }
 
-    /** Doc tung ban ghi (khong nap ca file vao bo nho). */
+    /** Doc [["ten", lat, lon], ...] tung phan tu (khong nap ca file thanh chuoi). */
     private fun parse(input: InputStream): List<Station> {
-        val out = ArrayList<Station>()
+        val out = ArrayList<Station>(30000)
         JsonReader(InputStreamReader(input, Charsets.UTF_8)).use { r ->
-            if (r.peek() == JsonToken.BEGIN_ARRAY) readRows(r, out) else {
-                r.beginObject()
-                while (r.hasNext()) {
-                    if (r.nextName() == "data" && r.peek() == JsonToken.BEGIN_ARRAY) readRows(r, out) else r.skipValue()
-                }
-                r.endObject()
+            r.beginArray()
+            while (r.hasNext()) {
+                if (r.peek() != JsonToken.BEGIN_ARRAY) { r.skipValue(); continue }
+                r.beginArray()
+                val name = if (r.peek() == JsonToken.STRING) r.nextString() else { r.skipValue(); "" }
+                val lat = r.nextDouble()
+                val lon = r.nextDouble()
+                while (r.hasNext()) r.skipValue()
+                r.endArray()
+                out.add(Station(name.ifBlank { "Trạm sạc VinFast" }, lat, lon, "VinFast"))
             }
+            r.endArray()
         }
         return out
-    }
-
-    private fun readRows(r: JsonReader, out: MutableList<Station>) {
-        r.beginArray()
-        while (r.hasNext()) {
-            if (r.peek() != JsonToken.BEGIN_OBJECT) { r.skipValue(); continue }
-            var name = ""; var addr = ""; var slug = ""; var status = ""
-            var lat = Double.NaN; var lon = Double.NaN
-            r.beginObject()
-            while (r.hasNext()) {
-                val k = r.nextName()
-                if (r.peek() == JsonToken.NULL) { r.nextNull(); continue }
-                when (k) {
-                    "name" -> name = str(r)
-                    "address" -> addr = str(r)
-                    "category_slug" -> slug = str(r)
-                    "status" -> status = str(r)
-                    "lat" -> lat = str(r).toDoubleOrNull() ?: Double.NaN
-                    "lng" -> lon = str(r).toDoubleOrNull() ?: Double.NaN
-                    else -> r.skipValue()
-                }
-            }
-            r.endObject()
-            if (slug != "car_charging_station") continue
-            if (status == "0" || status.equals("false", true) || status.equals("inactive", true)) continue
-            if (lat.isNaN() || lon.isNaN() || (lat == 0.0 && lon == 0.0)) continue
-            out.add(Station(name.trim().ifBlank { addr.ifBlank { "Trạm sạc VinFast" } }, lat, lon, "VinFast"))
-        }
-        r.endArray()
-    }
-
-    private fun str(r: JsonReader): String = when (r.peek()) {
-        JsonToken.STRING, JsonToken.NUMBER -> r.nextString()
-        JsonToken.BOOLEAN -> r.nextBoolean().toString()
-        else -> { r.skipValue(); "" }
     }
 
     private fun writeCache(f: File, list: List<Station>) {

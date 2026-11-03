@@ -27,39 +27,6 @@ jobs:
           java-version: "17"
 
       # Runner ubuntu-latest da co san Android SDK (ANDROID_HOME); Gradle tu tai platform/build-tools neu thieu.
-      - name: Kiem tra nguon VinFast (chi in ra, khong lam hong build)
-        continue-on-error: true
-        run: |
-          curl -sS -A "Mozilla/5.0" https://static-cms-prod.vinfastauto.com/locators/locators-meta.json | tee /tmp/meta.json; echo
-          FULL=$(python3 -c "import json;print(json.load(open('/tmp/meta.json'))['full'])")
-          curl -sS -A "Mozilla/5.0" -o /tmp/loc.gz "https://static-cms-prod.vinfastauto.com/locators/$FULL"
-          ls -la /tmp/loc.gz
-          python3 - <<'PY'
-          import json, gzip, collections
-          raw = open('/tmp/loc.gz','rb').read()
-          if raw[:2] == b'\x1f\x8b': raw = gzip.decompress(raw)
-          d = json.loads(raw); rows = d['data'] if isinstance(d, dict) else d
-          print('tong', len(rows))
-          print(collections.Counter(r.get('category_slug') for r in rows).most_common())
-          ch = [r for r in rows if r.get('category_slug') == 'car_charging_station']
-          print('status', collections.Counter(str(r.get('status')) for r in ch).most_common())
-          for r in ch[:3]: print({k: r.get(k) for k in ('name','address','lat','lng','status','store_type','store_model')})
-          print('keys', sorted(ch[0].keys()) if ch else None)
-          PY
-
-      - name: Kiem tra ban do Google My Maps (chi in ra)
-        continue-on-error: true
-        run: |
-          curl -sSL -A "Mozilla/5.0" -o /tmp/m.kml "https://www.google.com/maps/d/kml?mid=1BXlfFotk3L2rxJybz_QDggi4yYpMy50&forcekml=1"
-          ls -la /tmp/m.kml; head -c 400 /tmp/m.kml; echo
-          python3 - <<'PY'
-          import re
-          t = open('/tmp/m.kml', encoding='utf-8', errors='replace').read()
-          print('placemark', t.count('<Placemark'))
-          for f in re.findall(r'<Folder>\s*<name>(.*?)</name>', t, re.S): print('folder:', f, )
-          for pm in re.findall(r'<Placemark>(.*?)</Placemark>', t, re.S)[:4]: print(pm[:700]); print('----')
-          PY
-
       - name: Build APK
         run: |
           chmod +x gradlew

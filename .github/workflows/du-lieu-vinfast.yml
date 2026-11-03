@@ -1,0 +1,33 @@
+# Moi ngay lay danh sach tram sac o to VinFast, rut gon (ten + toa do, vai tram KB) va dat vao ban phat hanh
+# "du-lieu-tram-sac" de app HUD Tram sac tai ve (thay vi tai ca file 75 MB cua VinFast tren dien thoai).
+name: Du lieu tram sac VinFast
+
+on:
+  schedule:
+    - cron: "17 21 * * *"          # 4h17 sang gio Viet Nam
+  push:
+    paths:
+      - "android-tramsac/tools/vinfast_data.py"
+      - ".github/workflows/du-lieu-vinfast.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tai va rut gon du lieu VinFast
+        run: python3 android-tramsac/tools/vinfast_data.py out
+      - name: Cap nhat ban phat hanh "du-lieu-tram-sac"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view du-lieu-tram-sac >/dev/null 2>&1; then
+            gh release upload du-lieu-tram-sac out/vinfast-tram-sac.json.gz out/vinfast-meta.json --clobber
+          else
+            gh release create du-lieu-tram-sac out/vinfast-tram-sac.json.gz out/vinfast-meta.json \
+              --title "Dữ liệu trạm sạc VinFast" --notes "Cập nhật tự động mỗi ngày cho app HUD Trạm sạc." --prerelease
+          fi
