@@ -46,6 +46,8 @@ class MainActivity : Activity() {
     private lateinit var tList: TextView
     private lateinit var bRun: Button
     private lateinit var bHud: Button
+    private lateinit var bClear: Button
+    private lateinit var tHead: TextView
     private lateinit var eKey: EditText
     private lateinit var eUrl: EditText
     private lateinit var eRadius: EditText
@@ -56,6 +58,34 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         setContentView(build())
+        handleLink(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLink(intent)
+    }
+
+    /** evcarhud-tramsac://gui?id=..&name=..&lat=..&lon=..&kw=..&ports=.. tu nut "Gui len HUD" tren web. */
+    private fun handleLink(i: Intent?) {
+        val u = i?.data ?: return
+        if (u.scheme != "evcarhud-tramsac" || u.host != "gui") return
+        i.data = null                                    // xoay man hinh khong xu ly lai
+        val lat = u.getQueryParameter("lat")?.toDoubleOrNull()
+        val lon = u.getQueryParameter("lon")?.toDoubleOrNull()
+        if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
+            AlertDialog.Builder(this).setMessage("Liên kết trạm sạc không hợp lệ.").setPositiveButton("OK", null).show()
+            return
+        }
+        val name = (u.getQueryParameter("name") ?: "").trim().take(120).ifBlank { "Trạm sạc" }
+        val kw = u.getQueryParameter("kw")?.toDoubleOrNull()?.toInt()?.coerceIn(0, 2000) ?: 0
+        val ports = u.getQueryParameter("ports")?.toIntOrNull()?.coerceIn(0, 999) ?: 0
+        prefs.target = Station(name, lat, lon, "", kw, ports)
+        render()
+        withPerms {
+            if (prefs.hudMac.isBlank()) pickHud { TramSacService.start(this) } else TramSacService.start(this)
+        }
     }
 
     override fun onResume() {
@@ -95,12 +125,19 @@ class MainActivity : Activity() {
             setPadding(dp(16), dp(14), dp(16), dp(16))
             background = GradientDrawable().apply { setColor(Color.parseColor("#14351F")); cornerRadius = dp(14).toFloat() }
         }
-        card.addView(text(13f, true, Color.parseColor("#7FD8A4")).apply { text = "TRẠM SẠC GẦN NHẤT" })
+        tHead = text(13f, true, Color.parseColor("#7FD8A4"))
+        card.addView(tHead)
         tName = text(22f, true).apply { setPadding(0, dp(6), 0, 0) }
         tDist = text(34f, true, Color.parseColor("#4CE08A"))
         tInfo = text(14f, color = Color.parseColor("#C9D3DC"))
         card.addView(tName); card.addView(tDist); card.addView(tInfo)
         col.addView(card)
+
+        bClear = Button(this).apply {
+            text = "Bỏ chọn trạm đích (về trạm gần nhất)"
+            setOnClickListener { prefs.target = null; render(); if (AppState.running) TramSacService.start(this@MainActivity) }
+        }
+        col.addView(bClear, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
 
         bRun = Button(this).apply { setOnClickListener { toggleRun() } }
         col.addView(bRun, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
@@ -178,8 +215,14 @@ class MainActivity : Activity() {
         bRun.setBackgroundColor(if (s.running) Color.parseColor("#5A2A2A") else green)
         bRun.setTextColor(Color.WHITE)
         bHud.text = if (prefs.hudMac.isBlank()) "Chọn HUD" else "HUD: ${prefs.hudName.ifBlank { "?" }} (${prefs.hudMac})"
+        val tgt = prefs.target
+        tHead.text = if (tgt != null) "TRẠM ĐÍCH (CHỌN TỪ WEB)" else "TRẠM SẠC GẦN NHẤT"
+        bClear.visibility = if (tgt != null) View.VISIBLE else View.GONE
         val p = s.picked
-        if (p == null) {
+        if (p == null && tgt != null) {
+            tName.text = tgt.name
+            tDist.text = "—"; tInfo.text = if (s.running) "Đang chờ GPS…" else "Bấm Bắt đầu để gửi lên HUD"
+        } else if (p == null) {
             tName.text = if (s.running) "Đang tìm…" else "Bấm Bắt đầu"
             tDist.text = "—"; tInfo.text = ""
         } else {

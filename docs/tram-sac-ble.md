@@ -46,3 +46,15 @@ Ví dụ: `T1|VinFast Vincom Thảo Điền|850|R|35|60|4|12`
 - Gửi khi trạm/khoảng cách/phía thay đổi (tối đa ~1 lần / 1,5 giây) và nhắc lại mỗi 30 giây.
 - HUD nên coi dữ liệu là cũ sau **90 giây** không nhận được bản tin nào và ẩn ô trạm sạc.
 - Nút "Gửi thử" trong app gửi trạm giả `Trạm thử EVCarHUD`, 850 m, bên phải, giữ 15 giây.
+
+## Chọn trạm đích từ web (deep link)
+
+Nút "Gửi lên HUD" trên evcarhud.com/tram-sac mở app bằng:
+
+```
+evcarhud-tramsac://gui?id=<id>&name=<tên, url-encode>&lat=<lat>&lon=<lon>&kw=<kW, 0 nếu chưa rõ>&ports=<số cổng>
+```
+
+Trên Android web gọi bằng Intent URL với `package=com.evcarhud.tramsac` (fallback về link tải APK).
+App lưu trạm này làm **trạm đích**: thay vì trạm gần nhất, HUD luôn nhận trạm đích (vẫn bản tin `T1|…`, khoảng cách
+và trái/phải tính theo vị trí xe) cho tới khi người dùng bấm "Bỏ chọn trạm đích" trong app.

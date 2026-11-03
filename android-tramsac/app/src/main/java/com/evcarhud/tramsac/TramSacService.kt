@@ -197,7 +197,8 @@ class TramSacService : Service() {
     private fun recompute() {
         val l = last ?: return
         val ranked = Geo.rank(l.latitude, l.longitude, heading, stations)
-        val p = Geo.pick(ranked)
+        val tgt = prefs.target
+        val p = if (tgt != null) Geo.rank(l.latitude, l.longitude, heading, listOf(tgt)).first() else Geo.pick(ranked)
         picked = p
         AppState.update { this.ranked = ranked.take(8); this.picked = p }
         push(force = false)
@@ -218,7 +219,7 @@ class TramSacService : Service() {
 
     /** Gui tram dang chon xuong HUD khi doi (khoang cach lam tron 10 m) hoac khi force. */
     private fun push(force: Boolean) {
-        val n = picked.takeIf { stations.isNotEmpty() }
+        val n = picked.takeIf { stations.isNotEmpty() || prefs.target != null }
         val rounded = n?.copy(distM = if (n.distM < 1000) n.distM / 10 * 10 else n.distM / 100 * 100)
         val payload = HudProto.encode(rounded, stations.size)
         val s = String(payload, Charsets.UTF_8)

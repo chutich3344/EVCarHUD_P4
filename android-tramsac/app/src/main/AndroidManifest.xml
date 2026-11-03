@@ -31,6 +31,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Nut "Gui len HUD" tren evcarhud.com/tram-sac:
+                 evcarhud-tramsac://gui?id=..&name=..&lat=..&lon=..&kw=..&ports=.. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="evcarhud-tramsac" android:host="gui" />
+            </intent-filter>
         </activity>
 
         <service

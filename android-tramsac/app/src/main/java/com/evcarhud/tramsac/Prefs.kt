@@ -26,6 +26,20 @@ class Prefs(ctx: Context) {
     var customUrl: String
         get() = (sp.getString("custom_url", "") ?: "").ifBlank { DEFAULT_URL }
         set(v) = sp.edit().putString("custom_url", v.trim()).apply()
+    /** Tram dich chon tu web (nut "Gui len HUD"); null = tu chon tram gan nhat. */
+    var target: Station?
+        get() {
+            val s = sp.getString("target", "") ?: ""
+            val p = s.split('\u0001')
+            if (p.size < 5) return null
+            val lat = p[1].toDoubleOrNull() ?: return null
+            val lon = p[2].toDoubleOrNull() ?: return null
+            return Station(p[0], lat, lon, "", p[3].toIntOrNull() ?: 0, p[4].toIntOrNull() ?: 0)
+        }
+        set(v) = sp.edit().putString(
+            "target", v?.let { listOf(it.name, it.lat, it.lon, it.maxKw, it.ports).joinToString("\u0001") } ?: ""
+        ).apply()
+
     /** Ban kinh tim tram (km). */
     var radiusKm: Int
         get() = sp.getInt("radius_km", 15)
