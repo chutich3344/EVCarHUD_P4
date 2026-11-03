@@ -27,6 +27,7 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
     private var busy = false
     private var pending: ByteArray? = null
     private var stopped = true
+    private var refreshed = false
 
     val ready get() = chr != null
 
@@ -121,12 +122,21 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
             main.post {
                 if (g != gatt) return@post
                 val c = g.getService(HudProto.SERVICE)?.getCharacteristic(HudProto.STATION)
+                if (c == null && !refreshed) {
+                    // Android co the con nho danh sach dich vu cua firmware cu: xoa bo nho dem roi doc lai 1 lan
+                    refreshed = true
+                    try { g.javaClass.getMethod("refresh").invoke(g) } catch (_: Exception) {}
+                    main.postDelayed({ if (g == gatt) g.discoverServices() }, 600)
+                    return@post
+                }
                 if (c == null) {
+                    refreshed = false
                     // HUD chua co dich vu tram sac (firmware cu): thu lai cham, khong lam phien ket noi Waze/GOFA
                     dropAndRetry("HUD chưa có dịch vụ Trạm sạc (cần firmware mới)", 60000)
                     return@post
                 }
                 chr = c
+                refreshed = false
                 onState("Đã kết nối HUD")
                 flush()
             }

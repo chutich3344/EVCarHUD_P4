@@ -170,7 +170,7 @@ class TramSacService : Service() {
         AppState.update { data = "Đang tải danh sách trạm…" }
         io.execute {
             try {
-                val list = Sources.fetch(prefs, lat, lon, radiusM)
+                val list = Sources.fetch(this, prefs, lat, lon, radiusM)
                 main.post {
                     fetching = false
                     stations = list; fetchLat = lat; fetchLon = lon; fetchedAt = SystemClock.elapsedRealtime()
@@ -189,7 +189,9 @@ class TramSacService : Service() {
     private fun srcName() = when (prefs.source) {
         Sources.OCM -> "OpenChargeMap"
         Sources.CUSTOM -> "máy chủ riêng"
-        else -> "OpenStreetMap"
+        Sources.VF -> "VinFast"
+        Sources.OSM -> "OpenStreetMap"
+        else -> "VinFast + OSM"
     }
 
     private fun recompute() {

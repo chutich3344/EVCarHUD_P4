@@ -2,6 +2,7 @@ package com.evcarhud.tramsac
 
 import org.json.JSONArray
 import org.json.JSONObject
+import android.content.Context
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -9,6 +10,8 @@ import kotlin.math.roundToInt
 
 /** Nguon du lieu tram sac. Moi ham chay tren luong nen, nem loi khi that bai. */
 object Sources {
+    const val VF_OSM = "vf_osm"   // mac dinh: VinFast + OpenStreetMap (bo trung)
+    const val VF = "vf"
     const val OSM = "osm"
     const val OCM = "ocm"
     const val CUSTOM = "custom"
@@ -16,10 +19,28 @@ object Sources {
     private const val UA = "EVCarHUD-TramSac/0.1 (Android)"
 
     /** Lay tram trong ban kinh radiusM quanh (lat, lon) theo nguon da chon trong cai dat. */
-    fun fetch(p: Prefs, lat: Double, lon: Double, radiusM: Int): List<Station> = when (p.source) {
+    fun fetch(ctx: Context, p: Prefs, lat: Double, lon: Double, radiusM: Int): List<Station> = when (p.source) {
         OCM -> openChargeMap(p.ocmKey, lat, lon, radiusM)
         CUSTOM -> custom(p.customUrl, lat, lon, radiusM)
-        else -> overpass(lat, lon, radiusM)
+        OSM -> overpass(lat, lon, radiusM)
+        VF -> VinFast.near(ctx, lat, lon, radiusM)
+        else -> {
+            // VinFast la chinh; OSM bo sung cac hang khac. Mot nguon loi van dung nguon con lai.
+            var err: Exception? = null
+            val vf = try { VinFast.near(ctx, lat, lon, radiusM) } catch (e: Exception) { err = e; emptyList() }
+            val osm = try { overpass(lat, lon, radiusM) } catch (e: Exception) { if (err != null) throw err; emptyList() }
+            merge(vf, osm)
+        }
+    }
+
+    /** Gop 2 danh sach, bo tram OSM nam trong 80 m quanh mot tram VinFast (cung mot tram). */
+    fun merge(primary: List<Station>, extra: List<Station>): List<Station> {
+        val out = ArrayList(primary)
+        for (s in extra) {
+            val dup = primary.firstOrNull { Geo.distM(it.lat, it.lon, s.lat, s.lon) < 80 }
+            if (dup == null) out.add(s)
+        }
+        return out
     }
 
     private fun get(url: String, post: String? = null): String {

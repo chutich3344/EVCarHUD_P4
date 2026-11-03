@@ -120,7 +120,9 @@ class MainActivity : Activity() {
         col.addView(label("Nguồn dữ liệu trạm sạc"))
         val rg = RadioGroup(this)
         val opts = listOf(
-            Sources.OSM to "OpenStreetMap (miễn phí, không cần khóa)",
+            Sources.VF_OSM to "VinFast + OpenStreetMap (khuyên dùng)",
+            Sources.VF to "Chỉ trạm VinFast",
+            Sources.OSM to "Chỉ OpenStreetMap",
             Sources.OCM to "OpenChargeMap (cần khóa API miễn phí)",
             Sources.CUSTOM to "Máy chủ riêng (vd. máy chủ trung gian GOFA)",
         )

@@ -12,8 +12,8 @@ class Prefs(ctx: Context) {
         get() = sp.getString("hud_name", "") ?: ""
         set(v) = sp.edit().putString("hud_name", v).apply()
     var source: String
-        get() = sp.getString("source", Sources.OSM) ?: Sources.OSM
-        set(v) = sp.edit().putString("source", v).apply()
+        get() = sp.getString("source2", Sources.VF_OSM) ?: Sources.VF_OSM
+        set(v) = sp.edit().putString("source2", v).apply()
     var ocmKey: String
         get() = sp.getString("ocm_key", "") ?: ""
         set(v) = sp.edit().putString("ocm_key", v.trim()).apply()
