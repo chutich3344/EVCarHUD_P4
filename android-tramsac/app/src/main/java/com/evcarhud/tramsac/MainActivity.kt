@@ -296,8 +296,30 @@ class MainActivity : Activity() {
         afterPerms = null
     }
 
+    /** Xin bo toi uu pin 1 lan: khong thi nhieu may (Xiaomi, Oppo...) dung app khi tat man hinh. */
+    @SuppressLint("BatteryLife")
+    private fun askBattery() {
+        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        val sp = getSharedPreferences("tramsac", MODE_PRIVATE)
+        if (sp.getBoolean("asked_battery", false)) return
+        sp.edit().putBoolean("asked_battery", true).apply()
+        AlertDialog.Builder(this)
+            .setTitle("Chạy khi tắt màn hình")
+            .setMessage("Để HUD vẫn nhận trạm khi tắt màn hình điện thoại, cho app chạy nền không bị giới hạn pin.")
+            .setPositiveButton("Cho phép") { _, _ ->
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+                } catch (_: Exception) {
+                    try { startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
+                }
+            }
+            .setNegativeButton("Để sau", null).show()
+    }
+
     private fun toggleRun() {
         if (AppState.running) { TramSacService.stop(this); return }
+        askBattery()
         withPerms {
             if (prefs.hudMac.isBlank()) pickHud { TramSacService.start(this) } else TramSacService.start(this)
         }

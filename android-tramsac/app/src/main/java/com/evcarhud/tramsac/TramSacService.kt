@@ -52,6 +52,7 @@ class TramSacService : Service() {
     private lateinit var prefs: Prefs
     private lateinit var lm: LocationManager
     private lateinit var ble: HudBle
+    private var wake: android.os.PowerManager.WakeLock? = null
 
     private var stations: List<Station> = emptyList()
     private var fetchLat = 0.0
@@ -95,6 +96,11 @@ class TramSacService : Service() {
         }
         if (!AppState.running) {
             AppState.update { running = true; gps = "Đang chờ GPS…"; data = "—" }
+            // Tat man hinh: may ngu sau thi bo dem 30 giay khong chay, GPS dung yen khong bao -> HUD mat tram.
+            wake = (getSystemService(POWER_SERVICE) as android.os.PowerManager)
+                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EVCarHUD:tramsac").apply {
+                    setReferenceCounted(false); acquire(12 * 3600_000L)
+                }
             startGps()
             ble.start(prefs.hudMac)
             main.postDelayed(tick, RESEND_MS)
@@ -108,6 +114,8 @@ class TramSacService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
+        try { wake?.release() } catch (_: Exception) {}
+        wake = null
         try { lm.removeUpdates(loc) } catch (_: Exception) {}
         ble.send(HudProto.encode(null, 0))  // xoa o tram sac tren HUD (neu con noi), cho ghi xong roi moi ngat
         val b = ble
@@ -130,7 +138,7 @@ class TramSacService : Service() {
     private fun startGps() {
         try {
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER))
-                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, loc, Looper.getMainLooper())
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 0f, loc, Looper.getMainLooper())
             if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
                 lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 10000L, 20f, loc, Looper.getMainLooper())
             (lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
