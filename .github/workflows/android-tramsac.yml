@@ -12,6 +12,11 @@ on:
 permissions:
   contents: write
 
+# Hai lan day gan nhau: huy ban cu, de ban phat hanh luon la commit moi nhat
+concurrency:
+  group: app-tram-sac
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
