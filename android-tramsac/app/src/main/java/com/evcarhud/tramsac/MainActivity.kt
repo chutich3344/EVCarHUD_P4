@@ -39,6 +39,17 @@ import org.json.JSONObject
 class MainActivity : Activity() {
     companion object {
         const val HUB = "https://evcarhud.com/tram-sac"
+        /** Bat bam vao nut Trang chu (icon nha) tren trang tram-sac -> ve man HUD cua app. */
+        private const val HOME_JS = """(function(){ if (window.__hudHome) return; window.__hudHome = 1;
+  document.addEventListener('click', function(e){
+    var a = e.target.closest && e.target.closest('a,button'); if (!a) return;
+    var l = (a.getAttribute('aria-label') || a.textContent || '').trim().toLowerCase();
+    var h = a.getAttribute('href') || '';
+    if (l == 'trang chủ' || l == 'trang chu' || l == 'về trang chủ' || h == '#/' || h == '#/home') {
+      e.preventDefault(); e.stopPropagation(); if (window.AndroidHub) AndroidHub.home();
+    }
+  }, true);
+})();"""
         private val SOURCES = listOf(
             Sources.VF_OSM to "VinFast + OSM",
             Sources.VF to "Chỉ VinFast",
@@ -210,7 +221,15 @@ class MainActivity : Activity() {
                     cb.invoke(origin, ok, false)
                 }
             }
+            // Nut "Trang chu" cua trang web: quay ve man HUD cua app (chi co 1 ham, vo hai)
+            w.addJavascriptInterface(object {
+                @JavascriptInterface fun home() = ui { closeHub() }
+            }, "AndroidHub")
             w.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(v: WebView, url: String) {
+                    v.evaluateJavascript(HOME_JS, null)
+                }
+
                 override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                     val u = r.url
                     if (u.scheme == "evcarhud-tramsac") { handleLink(Intent(Intent.ACTION_VIEW, u)); return true }
