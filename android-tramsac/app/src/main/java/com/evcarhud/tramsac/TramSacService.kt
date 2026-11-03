@@ -230,7 +230,7 @@ class TramSacService : Service() {
     private fun push(force: Boolean) {
         val n = picked.takeIf { stations.isNotEmpty() || prefs.target != null }
         val rounded = n?.copy(distM = if (n.distM < 1000) n.distM / 10 * 10 else n.distM / 100 * 100)
-        val payload = HudProto.encode(rounded, stations.size)
+        val payload = HudProto.encode(rounded, stations.size, prefs.target != null)
         val s = String(payload, Charsets.UTF_8)
         val now = SystemClock.elapsedRealtime()
         if (now < testUntil) return

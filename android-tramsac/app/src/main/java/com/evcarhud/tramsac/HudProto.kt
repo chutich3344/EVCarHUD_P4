@@ -16,13 +16,14 @@ object HudProto {
     private const val NAME_MAX_BYTES = 60
 
     /**
-     * T1|<ten>|<khoang cach m>|<phia A/R/L/B/?>|<goc lech do, rong neu chua biet>|<kW>|<so cong>|<so tram trong ban kinh>
+     * T1|<ten>|<khoang cach m>|<phia A/R/L/B/?>|<goc lech do, rong neu chua biet>|<kW>|<so cong>|<so tram trong ban kinh>|<che do>
+     * che do: D = tram dich nguoi dung chon (HUD chuyen sang man dan duong), N = tram gan nhat tu dong (dai nho).
      * "T1|" (khong co gi them) = khong co tram nao -> HUD xoa o tram sac.
      */
-    fun encode(n: Nearby?, count: Int): ByteArray {
+    fun encode(n: Nearby?, count: Int, target: Boolean = false): ByteArray {
         if (n == null) return "T1|".toByteArray()
         val name = cutUtf8(n.st.name.replace('|', '/').replace('\n', ' ').trim(), NAME_MAX_BYTES)
-        val s = "T1|$name|${n.distM}|${n.side}|${n.relDeg ?: ""}|${n.st.maxKw}|${n.st.ports}|$count"
+        val s = "T1|$name|${n.distM}|${n.side}|${n.relDeg ?: ""}|${n.st.maxKw}|${n.st.ports}|$count|${if (target) 'D' else 'N'}"
         return s.toByteArray(Charsets.UTF_8)
     }
 

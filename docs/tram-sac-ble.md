@@ -24,7 +24,7 @@ Nếu MTU nhỏ, Android tự chia thành "prepare write", nên HUD cần ghép 
 ## Bản tin (UTF-8, ngăn bằng `|`)
 
 ```
-T1|<tên>|<khoảng cách m>|<phía>|<góc lệch độ>|<kW>|<số cổng>|<số trạm trong bán kính>
+T1|<tên>|<khoảng cách m>|<phía>|<góc lệch độ>|<kW>|<số cổng>|<số trạm trong bán kính>|<chế độ>
 ```
 
 | Trường | Ý nghĩa |
@@ -36,10 +36,11 @@ T1|<tên>|<khoảng cách m>|<phía>|<góc lệch độ>|<kW>|<số cổng>|<s�
 | kW | Công suất lớn nhất, 0 = không rõ |
 | số cổng | 0 = không rõ |
 | số trạm | Số trạm tìm thấy quanh xe |
+| chế độ | `D` = trạm đích người dùng bấm "Gửi lên HUD" (HUD chuyển sang màn dẫn đường tới trạm, hiện cả khi đứng yên), `N` = trạm gần nhất tự động (dải nhỏ). Thiếu trường = `N` |
 
 `T1|` (không có trường nào khác) = không có trạm: HUD xoá ô trạm sạc.
 
-Ví dụ: `T1|VinFast Vincom Thảo Điền|850|R|35|60|4|12`
+Ví dụ: `T1|VinFast Vincom Thảo Điền|850|R|35|60|4|12|D`
 
 ## Nhịp gửi
 
