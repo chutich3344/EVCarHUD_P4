@@ -20,6 +20,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      HUD_KEYSTORE_BASE64: ${{ secrets.HUD_KEYSTORE_BASE64 }}
     defaults:
       run:
         working-directory: android-tramsac
@@ -44,6 +46,31 @@ jobs:
         with:
           name: hud-tram-sac-${{ env.SHORT }}
           path: hud-tram-sac-${{ env.SHORT }}.apk
+
+      # Ban AAB cho Google Play: chi chay khi da them khoa tai len vao Secrets cua repo
+      # (HUD_KEYSTORE_BASE64, HUD_KEYSTORE_PASSWORD, HUD_KEY_ALIAS, HUD_KEY_PASSWORD - xem docs/phat-hanh-google-play.md).
+      # Khi co khoa, APK o tren cung duoc ky bang khoa nay.
+      - name: Build AAB cho Google Play
+        id: aab
+        if: env.HUD_KEYSTORE_BASE64 != ''
+        env:
+          HUD_KEYSTORE_BASE64: ${{ secrets.HUD_KEYSTORE_BASE64 }}
+          HUD_KEYSTORE_PASSWORD: ${{ secrets.HUD_KEYSTORE_PASSWORD }}
+          HUD_KEY_ALIAS: ${{ secrets.HUD_KEY_ALIAS }}
+          HUD_KEY_PASSWORD: ${{ secrets.HUD_KEY_PASSWORD }}
+        run: |
+          echo "$HUD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          export HUD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          ./gradlew --no-daemon bundleRelease assembleRelease
+          cp app/build/outputs/bundle/release/app-release.aab "../hud-tram-sac-$SHORT.aab"
+          cp app/build/outputs/apk/release/app-release.apk "../hud-tram-sac-$SHORT.apk"
+          rm -f "$RUNNER_TEMP/upload.jks"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.aab.outcome == 'success'
+        with:
+          name: hud-tram-sac-play-${{ env.SHORT }}
+          path: hud-tram-sac-${{ env.SHORT }}.aab
 
       - name: Cap nhat ban phat hanh "app-tram-sac"
         working-directory: .

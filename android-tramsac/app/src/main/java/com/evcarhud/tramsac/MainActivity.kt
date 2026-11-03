@@ -76,6 +76,13 @@ class MainActivity : Activity() {
         window.navigationBarColor = Color.parseColor("#06110b")
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
         root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#06110b")) }
+        // Android 15 (targetSdk 35) luon ve tran vien: chua cho thanh trang thai/dieu huong va ban phim
+        if (Build.VERSION.SDK_INT >= 35) root.setOnApplyWindowInsetsListener { v, ins ->
+            val b = ins.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.ime()
+                or android.view.WindowInsets.Type.displayCutout())
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            ins
+        }
         web = WebView(this).apply {
             setBackgroundColor(Color.parseColor("#06110b"))
             settings.javaScriptEnabled = true
