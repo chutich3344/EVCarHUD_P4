@@ -21,7 +21,9 @@ object Sources {
     /** Lay tram trong ban kinh radiusM quanh (lat, lon) theo nguon da chon trong cai dat. */
     fun fetch(ctx: Context, p: Prefs, lat: Double, lon: Double, radiusM: Int): List<Station> = when (p.source) {
         OCM -> openChargeMap(p.ocmKey, lat, lon, radiusM)
-        CUSTOM -> custom(p.customUrl, lat, lon, radiusM)
+        CUSTOM -> if (p.customUrl != Prefs.DEFAULT_URL) custom(p.customUrl, lat, lon, radiusM) else
+            // CSDL cong dong: file offline tai mot lan; may chu chua co file thi quay ve API theo vi tri
+            try { Community.near(ctx, lat, lon, radiusM) } catch (e: Exception) { custom(p.customUrl, lat, lon, radiusM) }
         OSM -> overpass(lat, lon, radiusM)
         VF -> VinFast.near(ctx, lat, lon, radiusM)
         else -> {
