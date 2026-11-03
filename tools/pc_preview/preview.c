@@ -195,6 +195,10 @@ int main(int argc, char **argv)
     ui_set_station("VinFast Vincom Thảo Điền", 1800, 'L', -95, 60, 4, 12, 'D');
     run(800);
     snprintf(p, sizeof p, "%s/tram_sac_dich_xa.bmp", dir); save_bmp(p);
+    ui_set_station("VinFast Vincom Thảo Điền", 20, 'R', 80, 60, 4, 12, 'D');
+    run(600);
+    snprintf(p, sizeof p, "%s/den_noi_tram.bmp", dir); save_bmp(p);
+    lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_layer_top(), -1), -1), LV_EVENT_CLICKED, NULL);
     ui_set_station(NULL, 0, '?', UI_TS_NO_ANGLE, 0, 0, 0, 'N');
     run(600);
     ui_set_nav(true, 2, 2500, 0, "Nguyễn Hữu Thọ", 0);

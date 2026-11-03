@@ -127,7 +127,8 @@ static lv_timer_t *blink_tmr, *toast_tmr;
 
 /* ---------------- trang thai ---------------- */
 static int speed = -2, limit = -1, level = -1;
-static bool nav_on, has_route, wz_on;                        /* wz_on: Waze dang co lenh re */
+static bool nav_is_ts;                                       /* man dan duong dang dan toi tram sac */
+static bool nav_on, has_route, wz_on, wz_hold;   /* wz_hold: giu dan duong khi dien thoai tam ngung gui */                        /* wz_on: Waze dang co lenh re */
 static void apply_nav(void);
 static int clk_h = -1, clk_m = -1, day = -1, month = -1, wday = -1;
 static int screen = -1;
@@ -138,6 +139,9 @@ static int al_n;
 static const ui_alert_t *ev_now;            /* canh bao (su kien) gan nhat */
 static const ui_alert_t *sign_now;          /* bien bao tren duong gan nhat */
 static int ev_code, ev_start;
+static uint32_t ev_new_tick;                                     /* lan cuoi co canh bao MOI (da tit) */
+#define ALERT_BLINK_MS 8000                                      /* chi chop 8 giay dau, sau do dung yen */
+static bool ev_fresh(void) { return ev_new_tick && lv_tick_elaps(ev_new_tick) < ALERT_BLINK_MS; }
 static int turn_now = -1, dist_now = -1, turn_start, exit_now, turn2_now;
 static char eta_txt[8], street_now[64], street_nav[96];
 static int eta_rm, eta_rmin;
@@ -608,7 +612,7 @@ static void strip_alert(strip_t *s, const ui_alert_t *a)
     else d[0] = 0;
     bool urg = urgent_alert(a->code);
     strip_fill(s, sign_for_alert(a->code), alert_name(a->code), d, bg, bd, fg, urg && snd_on,
-               a->dist >= 0 && a->code != 8 ? progress(ev_start, a->dist) : -1, urg);
+               a->dist >= 0 && a->code != 8 ? progress(ev_start, a->dist) : -1, urg && ev_fresh());
 }
 
 static void strip_over(strip_t *s)                               /* vuot toc do: dai do chop */
@@ -627,7 +631,10 @@ static void strip_blink_cb(lv_timer_t *t)
     strip_t *all[] = {&c_st, &a_st, &n_st};
     for (size_t i = 0; i < sizeof all / sizeof all[0]; i++)
         if (!all[i]->box || !all[i]->blink) continue;
-        else if (all[i]->blink == 1) lv_obj_set_style_opa(all[i]->box, blink_dim ? 89 : LV_OPA_COVER, 0);
+        else if (all[i]->blink == 1 && !ev_fresh()) {              /* het 8 giay: thoi chop */
+            all[i]->blink = 0;
+            lv_obj_set_style_opa(all[i]->box, LV_OPA_COVER, 0);
+        } else if (all[i]->blink == 1) lv_obj_set_style_opa(all[i]->box, blink_dim ? 89 : LV_OPA_COVER, 0);
         else {
             lv_color_t c = lv_color_hex(blink_dim ? 0x5A0C12 : 0xE11D2A);   /* do tuoi / do sam, chu trang */
             lv_obj_set_style_bg_color(all[i]->box, c, 0);
@@ -666,7 +673,7 @@ static void render_top(void)
     lv_obj_set_style_text_color(t_clock, th->fg, 0);
     lv_obj_set_style_bg_color(top_line, th->border, 0);
 
-    bool tsd = screen == SCR_NAV && nav_on && !wz_on;              /* dan toi tram sac: luon hien ten tram */
+    bool tsd = screen == SCR_NAV && nav_on && nav_is_ts;              /* dan toi tram sac: luon hien ten tram */
     const char *st = tsd ? street_nav : !waze ? "Chỉ có GPS" : screen == SCR_NAV && street_nav[0] ? street_nav : street_now;
     lv_label_set_text(t_street, st);
     lv_obj_set_style_text_color(t_street, th->fg, 0);
@@ -763,6 +770,7 @@ static void render_alert_parts(void)                             /* dai canh bao
 static char ts_name[64];
 static int ts_dist, ts_kw, ts_ports, ts_ang = TS_NO_ANGLE;
 static char ts_side = '?', ts_mode = 'N';
+static char ts_done[64];                                          /* tram dich nguoi dung da bam "Ket thuc" */
 static uint32_t ts_tick;
 static lv_timer_t *ts_tmr;
 
@@ -961,7 +969,7 @@ static void build_nav(void)
 #define NAV_NEAR_M 1000                    /* re con xa hon 1 km: an 3 o re, so + bien to ra */
 static void render_nav(void)
 {
-    bool calm = wz_on && (dist_now < 0 || dist_now > NAV_NEAR_M);   /* da qua cho re, lan re sau con xa (tram sac: luon hien) */
+    bool calm = !nav_is_ts && (dist_now < 0 || dist_now > NAV_NEAR_M);   /* da qua cho re, lan re sau con xa (tram sac: luon hien) */
     morph_to(&n_t, &n_want, calm);
     render_head2(&n_hd, n_t);
     for (int i = 0; i < 3; i++) fade_part(n_cell[i], T_MAX - n_t);
@@ -1055,7 +1063,7 @@ static void set_screen(int s)
 static void update_screen(void)
 {
     int s;
-    if (nav_on && !wz_on) s = SCR_NAV;                           /* dan toi tram sac: ca khi dung yen */
+    if (nav_on && (nav_is_ts || wz_hold)) s = SCR_NAV;              /* dan toi tram sac / dang giu dan duong: ca khi mat tin hieu */
     else if (!sig_ok || (!nav_on && !moving)) s = SCR_STANDBY;
     else if (nav_on) s = SCR_NAV;
     else if (ev_now && ev_now->dist <= ALERT_M) s = SCR_CRUISE;   /* man Toc do o co nho + dai canh bao */
@@ -2160,12 +2168,14 @@ static void apply_nav(void)
 {
     int turn, dist, exit_n = 0, turn2 = 0;
     char st[96];
-    if (wz_on) {
+    nav_is_ts = false;
+    if (wz_on && !(wz_hold && ts_dest_on())) {                    /* Waze dang dan (giu tam thi nhuong tram sac) */
         turn = wz_turn; dist = wz_dist; exit_n = wz_exit; turn2 = wz_turn2;
         snprintf(st, sizeof st, "%s", wz_street);
     } else if (ts_dest_on()) {
         turn = ts_turn(); dist = ts_dist;
         ts_title(st, sizeof st);
+        nav_is_ts = true;
     } else {
         nav_on = false;
         snprintf(street_now, sizeof street_now, "%s", wz_street);
@@ -2191,11 +2201,99 @@ static void apply_nav(void)
     render_all();
 }
 
+/* Giu dan duong khi dien thoai tam ngung gui (tat man hinh, Waze chay nen, mat Bluetooth): giu lenh re cuoi 2 phut.
+ * Toi noi (lenh re 17 "den noi" con <= 30 m, hoac het dan duong ngay sau lenh den noi): bang "Ban da den noi" nam yen
+ * cho toi khi nguoi dung cham "Ket thuc" (hoac Waze bat dau lo trinh moi). */
+#define NAV_HOLD_MS 120000
+#define ARRIVE_M 30
+static uint32_t wz_lost_tick;
+static lv_obj_t *arr_box, *arr_sub;
+static lv_timer_t *nav_tmr;
+
+static void arrive_close(void)
+{
+    if (arr_box) { lv_obj_delete(arr_box); arr_box = NULL; }
+}
+
+static void arrive_end_cb(lv_event_t *e)
+{
+    (void)e;
+    arrive_close();
+    wz_on = wz_hold = false;
+    if (ts_dest_on()) {                                           /* nho tram da ket thuc: app gui lai thi khong dan nua */
+        snprintf(ts_done, sizeof ts_done, "%s", ts_name);
+        ts_name[0] = 0;
+    }
+    apply_nav();
+}
+
+static void arrive_show(const char *title, const char *sub)
+{
+    if (arr_box) { lv_label_set_text(arr_sub, sub); return; }
+    beep(1);
+    arr_box = mk_fill(lv_layer_top(), 0, 0, UI_W, UI_H, 0);
+    lv_obj_set_style_bg_color(arr_box, lv_color_hex(0x020617), 0);
+    lv_obj_set_style_bg_opa(arr_box, LV_OPA_90, 0);
+    lv_obj_add_flag(arr_box, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *im = mk_image(arr_box, (UI_W - 72) / 2, 44, 72, 64);
+    lv_image_set_src(im, &arrow_arrive);
+    lv_obj_set_style_image_recolor(im, lv_color_hex(0x22C55E), 0);
+    lv_obj_set_style_image_recolor_opa(im, LV_OPA_COVER, 0);
+    lv_obj_t *t = mk_label_w(arr_box, &ui_font_txt20, 0, 132, UI_W, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(t, title);
+    lv_obj_set_style_text_color(t, lv_color_white(), 0);
+    arr_sub = mk_label_w(arr_box, &ui_font_txt16, 16, 164, UI_W - 32, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(arr_sub, sub);
+    lv_obj_set_style_text_color(arr_sub, lv_color_hex(0x86EFAC), 0);
+    lv_obj_t *b = mk_fill(arr_box, (UI_W - 240) / 2, 220, 240, 52, 26);
+    lv_obj_set_style_bg_color(b, lv_color_hex(0x16A34A), 0);
+    lv_obj_set_style_bg_color(b, lv_color_hex(0x22C55E), LV_STATE_PRESSED);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(b, 12);
+    lv_obj_add_event_cb(b, arrive_end_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *bl = mk_label(b, &ui_font_txt16, 0, 0, "Kết thúc dẫn đường");
+    lv_obj_set_style_text_color(bl, lv_color_white(), 0);
+    lv_obj_center(bl);
+}
+
+static const char *arrive_side(char side)
+{
+    return side == 'R' ? "Điểm đến ở bên tay phải" : side == 'L' ? "Điểm đến ở bên tay trái"
+         : side == 'B' ? "Điểm đến ở phía sau" : "Điểm đến ở ngay phía trước";
+}
+
+static void nav_hold_cb(lv_timer_t *t)
+{
+    (void)t;
+    if (wz_hold && !arr_box && lv_tick_elaps(wz_lost_tick) > NAV_HOLD_MS) {   /* 2 phut khong co lai: bo */
+        wz_on = wz_hold = false;
+        apply_nav();
+    }
+}
+
 void ui_set_nav(bool active, int turn, int dist_m, int exit_n, const char *street, int turn2)
 {
-    wz_on = active && arrow_for_turn(turn);
-    wz_turn = turn; wz_dist = dist_m; wz_exit = exit_n; wz_turn2 = turn2;
-    snprintf(wz_street, sizeof wz_street, "%s", street ? street : "");
+    if (!nav_tmr) nav_tmr = lv_timer_create(nav_hold_cb, 1000, NULL);
+    bool a = active && arrow_for_turn(turn);
+    if (a) {
+        if (arr_box && turn != 17) arrive_close();                /* lo trinh moi */
+        wz_on = true;
+        wz_hold = false;
+        wz_turn = turn; wz_dist = dist_m; wz_exit = exit_n; wz_turn2 = turn2;
+        snprintf(wz_street, sizeof wz_street, "%s", street ? street : "");
+        if (turn == 17 && dist_m >= 0 && dist_m <= ARRIVE_M) arrive_show("Bạn đã đến nơi", arrive_side('A'));
+    } else {
+        if (street && street[0]) snprintf(wz_street, sizeof wz_street, "%s", street);
+        if (wz_on && !wz_hold) {
+            if (wz_turn == 17 && wz_dist <= 300) {                /* het dan duong ngay khi sap toi: da toi noi */
+                wz_dist = 0;
+                arrive_show("Bạn đã đến nơi", arrive_side('A'));
+            }
+            wz_hold = true;                                       /* giu man dan duong, cho dien thoai gui lai */
+            wz_lost_tick = lv_tick_get();
+        }
+        if (!wz_on) snprintf(wz_street, sizeof wz_street, "%s", street ? street : "");
+    }
     apply_nav();
 }
 
@@ -2208,10 +2306,36 @@ void ui_set_route(const char *eta, int remaining_m, int remaining_min)
     if (screen == SCR_NAV) render_all();
 }
 
+/* Nho cac canh bao da tit: cung loai, khoang cach khong tang qua 200 m, trong 2 phut = cung mot canh bao.
+ * Tranh tit lai khi danh sach Waze dao thu tu / mat 1 nhip / hai canh bao xen nhau. */
+static struct { int code, dist; uint32_t tick; } al_seen[8];
+static bool alert_seen(int code, int dist)
+{
+    int old = 0;
+    for (int i = 0; i < 8; i++) {
+        if (al_seen[i].code == code && lv_tick_elaps(al_seen[i].tick) < 120000 &&
+            (dist < 0 || al_seen[i].dist < 0 || dist <= al_seen[i].dist + 200)) {
+            al_seen[i].dist = dist;
+            al_seen[i].tick = lv_tick_get();
+            return true;
+        }
+        if (al_seen[i].tick < al_seen[old].tick) old = i;
+    }
+    al_seen[old].code = code;
+    al_seen[old].dist = dist;
+    al_seen[old].tick = lv_tick_get() | 1;
+    return false;
+}
+
 void ui_set_alerts(const ui_alert_t *alerts, int n)
 {
     al_n = 0;
-    for (int i = 0; alerts && i < n && al_n < (int)(sizeof al_list / sizeof al_list[0]); i++) al_list[al_n++] = alerts[i];
+    for (int i = 0; alerts && i < n && al_n < (int)(sizeof al_list / sizeof al_list[0]); i++) {
+        bool dup = false;                                         /* cung loai, cach nhau < 150 m: trung */
+        for (int k = 0; k < al_n; k++)
+            if (al_list[k].code == alerts[i].code && abs(al_list[k].dist - alerts[i].dist) < 150) dup = true;
+        if (!dup) al_list[al_n++] = alerts[i];
+    }
     ev_now = sign_now = NULL;
     for (int i = 0; i < al_n; i++) {
         if (is_road_sign(al_list[i].code)) {
@@ -2221,7 +2345,10 @@ void ui_set_alerts(const ui_alert_t *alerts, int n)
         }
     }
     int code = ev_now ? ev_now->code : 0;
-    if (code && code != ev_code) beep(urgent_alert(code) ? 2 : 1);  /* canh bao moi: nguy hiem / camera / CSGT tit tit */
+    if (code && !alert_seen(code, ev_now->dist)) {                /* canh bao MOI that su: tit + chop 8 giay */
+        beep(urgent_alert(code) ? 2 : 1);
+        ev_new_tick = lv_tick_get() | 1;
+    }
     if (ev_now && (code != ev_code || ev_now->dist > ev_start)) ev_start = ev_now->dist;
     ev_code = code;
     update_screen();
@@ -2317,6 +2444,8 @@ void ui_set_station(const char *name, int dist_m, char side, int angle, int kw, 
 {
     (void)count;
     bool was_dest = ts_dest_on();
+    if (!name || !name[0]) ts_done[0] = 0;                        /* "T1|": quen tram da ket thuc */
+    else if (mode == 'D' && !strcmp(name, ts_done)) mode = 'N';   /* da toi + bam Ket thuc: chi con dai tram gan */
     snprintf(ts_name, sizeof ts_name, "%s", name ? name : "");
     ts_dist = dist_m;
     ts_side = side;
@@ -2326,6 +2455,11 @@ void ui_set_station(const char *name, int dist_m, char side, int angle, int kw, 
     ts_mode = mode == 'D' ? 'D' : 'N';
     ts_tick = lv_tick_get();
     if (!ts_tmr) ts_tmr = lv_timer_create(ts_cb, 2000, NULL);
+    if (ts_dest_on() && dist_m >= 0 && dist_m <= ARRIVE_M && (!wz_on || wz_hold)) {
+        char t[96];
+        snprintf(t, sizeof t, "Đã tới %s", ts_name);
+        arrive_show(t, arrive_side(side));
+    }
     if (was_dest || ts_dest_on()) apply_nav();
     else if (screen == SCR_CRUISE) render_cruise();
 }
