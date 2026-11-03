@@ -56,6 +56,6 @@ Nút "Gửi lên HUD" trên evcarhud.com/tram-sac mở app bằng:
 evcarhud-tramsac://gui?id=<id>&name=<tên, url-encode>&lat=<lat>&lon=<lon>&kw=<kW, 0 nếu chưa rõ>&ports=<số cổng>
 ```
 
-Trên Android web gọi bằng Intent URL với `package=com.evcarhud.tramsac` (fallback về link tải APK).
+Trên Android web gọi bằng Intent URL với `package=com.evcarhud.charge` (fallback về link tải APK).
 App lưu trạm này làm **trạm đích**: thay vì trạm gần nhất, HUD luôn nhận trạm đích (vẫn bản tin `T1|…`, khoảng cách
 và trái/phải tính theo vị trí xe) cho tới khi người dùng bấm "Bỏ chọn trạm đích" trong app.

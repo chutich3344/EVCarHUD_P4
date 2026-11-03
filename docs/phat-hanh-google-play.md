@@ -1,6 +1,6 @@
 # Phát hành HUD Trạm sạc lên Google Play
 
-App: **HUD Trạm sạc** · gói `com.evcarhud.tramsac` (cố định vĩnh viễn sau lần tải lên đầu tiên) · minSdk 26 · targetSdk 35.
+App: **EVCarHUD Charge** (HUD Trạm sạc) · gói `com.evcarhud.charge` (cố định vĩnh viễn sau lần tải lên đầu tiên) · minSdk 26 · targetSdk 35.
 
 Các bước có dấu 👤 là việc bạn tự làm (cần tài khoản hoặc khoá ký). Phần còn lại đã có sẵn trong repo.
 
@@ -33,7 +33,7 @@ Lưu ý: từ đây APK trong release `app-tram-sac` cũng ký bằng khoá mớ
 
 ## 3. 👤 Tạo app trên Play Console
 
-All apps → **Create app** → tên "HUD Trạm sạc", ngôn ngữ mặc định Tiếng Việt, App, Miễn phí. Đây là app riêng, khác app `com.evcarhud.app` đang có.
+All apps → **Create app** → tên "EVCarHUD Charge", package `com.evcarhud.charge`, ngôn ngữ mặc định Tiếng Việt, App, Miễn phí. Đây là app riêng, khác app `com.evcarhud.app` đang có.
 
 ## 4. 👤 Khai báo trong mục "App content"
 

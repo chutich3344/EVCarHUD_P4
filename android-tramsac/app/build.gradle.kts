@@ -8,7 +8,8 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.evcarhud.tramsac"
+        // Package tren Google Play theo chuoi EVCarHUD (namespace code giu nguyen)
+        applicationId = "com.evcarhud.charge"
         minSdk = 26
         // Google Play bat buoc app moi nham Android 15 (API 35) tu 31/8/2025
         targetSdk = 35

@@ -1,7 +1,7 @@
 # Nội dung trang Google Play – HUD Trạm sạc
 
 ## Tên ứng dụng (≤ 30 ký tự)
-HUD Trạm sạc – EVCarHUD
+EVCarHUD Charge – Trạm sạc
 
 ## Mô tả ngắn (≤ 80 ký tự)
 Tìm trạm sạc ô tô điện gần nhất và hiện thẳng lên màn hình HUD trên xe.
