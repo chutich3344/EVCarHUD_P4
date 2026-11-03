@@ -13,8 +13,10 @@ android {
         minSdk = 26
         // Google Play bat buoc app moi nham Android 15 (API 35) tu 31/8/2025
         targetSdk = 35
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+        // Google Play khong nhan lai versionCode da dung: cong 1000 de luon lon hon cac ban da tai len
+        val run = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInt()
+        versionCode = 1000 + run
+        versionName = "1.0.$run"
     }
 
     // Khoa tai len (upload key) cho Google Play: GitHub Actions giai ma tu Secrets ra file roi dat bien moi truong.
