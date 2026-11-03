@@ -1,5 +1,5 @@
 # Build app Android "HUD Tram sac" (thu muc android-tramsac/) tren GitHub, khong can cai Android Studio.
-# Moi lan day code -> build APK, dat vao ban phat hanh "app-tram-sac" de tai thang tren dien thoai.
+# Moi lan day code -> build APK, dat vao ban phat hanh "app-tram-sac-thu" de tai thang tren dien thoai.
 name: Build app Tram sac
 
 on:
@@ -14,7 +14,7 @@ permissions:
 
 # Hai lan day gan nhau: huy ban cu, de ban phat hanh luon la commit moi nhat
 concurrency:
-  group: app-tram-sac
+  group: app-tram-sac-thu
   cancel-in-progress: true
 
 jobs:
@@ -45,12 +45,12 @@ jobs:
           name: hud-tram-sac-${{ env.SHORT }}
           path: hud-tram-sac-${{ env.SHORT }}.apk
 
-      - name: Cap nhat ban phat hanh "app-tram-sac"
+      - name: Cap nhat ban phat hanh "app-tram-sac-thu" (rieng, khong de len ban Play)
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete app-tram-sac --yes --cleanup-tag || true
-          gh release create app-tram-sac "hud-tram-sac-$SHORT.apk" --target "$GITHUB_SHA" \
+          gh release delete app-tram-sac-thu --yes --cleanup-tag || true
+          gh release create app-tram-sac-thu "hud-tram-sac-$SHORT.apk" --target "$GITHUB_SHA" \
             --title "App HUD Trạm sạc ($SHORT)" \
             --notes "APK build tự động từ commit $SHORT (nhánh ${GITHUB_REF_NAME}). Tải về điện thoại Android rồi cài." --prerelease
