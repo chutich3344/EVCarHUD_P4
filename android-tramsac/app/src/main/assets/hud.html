@@ -36,10 +36,12 @@ button{border:0;background:none;padding:0;cursor:pointer}
 .nav button{width:56px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:rgba(225,245,232,.66);font-size:10.5px;font-weight:600}
 .nav button.on{color:#f0fdf4}
 .hud{border-radius:22px;padding:10px;background:linear-gradient(160deg,rgba(255,255,255,.16),rgba(255,255,255,.03));border:1px solid rgba(255,255,255,.16);box-shadow:0 20px 40px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.25)}
-.hudscr{aspect-ratio:3/2;border-radius:14px;background:#000;display:flex;align-items:center;gap:16px;padding:0 18px;box-shadow:inset 0 0 30px rgba(74,222,128,.12)}
-.ring{width:84px;height:84px;border-radius:50%;border:2px solid rgba(74,222,128,.35);display:flex;align-items:center;justify-content:center;color:var(--acc);flex:none}
+.hudscr{border-radius:14px;background:#000;display:flex;align-items:center;gap:16px;padding:16px 18px;box-shadow:inset 0 0 30px rgba(74,222,128,.12)}
+.ring{width:66px;height:66px;border-radius:50%;border:2px solid rgba(74,222,128,.35);display:flex;align-items:center;justify-content:center;color:var(--acc);flex:none}
 #arrow{transition:transform .4s ease}
 .hide{display:none!important}
+.tag{font-size:11px;font-weight:700;padding:4px 9px;border-radius:99px;background:rgba(74,222,128,.14);color:#bbf7d0;white-space:nowrap}
+.tag.w{background:rgba(255,255,255,.10);color:rgba(255,255,255,.8)}
 .row.sel{background:rgba(74,222,128,.14);border-radius:18px;box-shadow:inset 0 0 0 1.5px var(--acc)}
 .chips.scroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -20px;padding:2px 20px}
 .chips.scroll::-webkit-scrollbar{display:none}
@@ -60,7 +62,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
     </button>
   </div>
 
-  <!-- Xem truoc HUD -->
+  <!-- Xem truoc HUD: khung gon, chieu cao vua noi dung -->
   <div class="glass" style="border-radius:28px;padding:14px;margin-top:18px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin:2px 4px 10px">
       <span class="mut" style="font-size:11.5px;font-weight:700;letter-spacing:.04em" id="head">TRẠM SẠC GẦN NHẤT</span>
@@ -68,18 +70,16 @@ button{border:0;background:none;padding:0;cursor:pointer}
     </div>
     <div class="hud">
       <div class="hudscr">
-        <div class="ring"><svg id="arrow" width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 5 21l7-4 7 4z"></path></svg></div>
+        <div class="ring"><svg id="arrow" width="34" height="34" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 5 21l7-4 7 4z"></path></svg></div>
         <div style="min-width:0;flex:1">
-          <div style="font-size:11px;color:rgba(255,255,255,.6);font-weight:600" class="ell" id="meta">TRẠM SẠC</div>
-          <div style="font-size:34px;font-weight:800;color:#fff;line-height:1.1;font-variant-numeric:tabular-nums" id="dist">—</div>
-          <div style="font-size:13px;color:var(--acc);font-weight:700" class="ell" id="name">Bấm Bắt đầu</div>
+          <div style="font-size:30px;font-weight:800;color:#fff;line-height:1.05;font-variant-numeric:tabular-nums" id="dist">—</div>
+          <div style="font-size:13.5px;color:var(--acc);font-weight:700;margin-top:3px" class="ell" id="name">Bấm Bắt đầu</div>
+          <div class="chips" style="margin-top:8px;gap:6px" id="tags"></div>
         </div>
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;margin:12px 2px 0">
-      <div class="mut" style="font-size:11.5px;flex:1" id="side">Khoảng cách đường chim bay</div>
-      <button class="btn3d pill" id="sendBtn" style="padding:10px 16px;display:flex;align-items:center;gap:6px" onclick="A.sendNow()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"></path><path d="M22 2 11 13"></path></svg>Gửi lên HUD</button>
-    </div>
+    <div class="mut" style="font-size:11px;margin:10px 4px 0" id="side">Khoảng cách đường chim bay</div>
+    <button class="btn3d big" id="sendBtn" style="margin-top:12px;padding:13px;font-size:15px" onclick="A.sendNow()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"></path><path d="M22 2 11 13"></path></svg>Gửi lên HUD</button>
     <div style="font-size:11.5px;color:var(--acc);font-weight:600;margin:6px 4px 0" class="hide" id="sent"></div>
   </div>
 
@@ -202,13 +202,16 @@ function render(s){
   if (p) {
     $('name').textContent = p.name; $('dist').textContent = p.dist == null ? '—' : km(p.dist);
     if (p.dist == null) $('side').textContent = 'Đang chờ GPS để tính khoảng cách';
-    var m = ['TRẠM SẠC']; if (p.kw) m.push(p.kw + ' kW'); if (p.ports) m.push(p.ports + ' cổng'); if (p.op && p.op != p.name) m.push(p.op);
-    $('meta').textContent = m.join(' · ');
+    var T = [];
+    if (p.side && p.side != '?') T.push('<span class="tag">' + SIDE[p.side].replace(/^./, function(c){return c.toUpperCase()}) + '</span>');
+    if (p.kw) T.push('<span class="tag w">' + p.kw + ' kW</span>'); if (p.ports) T.push('<span class="tag w">' + p.ports + ' cổng</span>');
+    if (p.op && p.op != p.name) T.push('<span class="tag w">' + esc(p.op) + '</span>');
+    $('tags').innerHTML = T.join('');
     $('arrow').style.transform = 'rotate(' + (p.rel == null ? 0 : p.rel) + 'deg)';
-    if (p.dist != null) $('side').textContent = (p.side ? SIDE[p.side] + ' · ' : '') + 'khoảng cách đường chim bay';
+    if (p.dist != null) $('side').textContent = p.side == '?' ? 'Chưa biết hướng xe (xe đứng yên) · khoảng cách đường chim bay' : 'Khoảng cách đường chim bay';
   } else {
     $('name').textContent = s.running ? 'Đang tìm trạm…' : 'Bấm Bắt đầu'; $('dist').textContent = '—';
-    $('meta').textContent = 'TRẠM SẠC'; $('arrow').style.transform = 'rotate(0deg)';
+    $('tags').innerHTML = ''; $('arrow').style.transform = 'rotate(0deg)';
   }
   S = s; draw();
   $('src').innerHTML = s.sources.map(function(o){
