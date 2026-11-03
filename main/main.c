@@ -204,15 +204,7 @@ void app_main(void)
     ui_set_sound_hook(on_sound);
     ui_set_source(settings_get_source());
     ui_set_source_hook(on_source);
-    {
-        uint8_t a[6];
-        if (esp_read_mac(a, ESP_MAC_BT) == ESP_OK) {                 /* MAC Bluetooth (= MAC WiFi + 2): dang ky tren GOFA */
-            char t[20];
-            snprintf(t, sizeof t, "%02X:%02X:%02X:%02X:%02X:%02X", a[0], a[1], a[2], a[3], a[4], a[5]);
-            ui_set_mac(t);
-            ESP_LOGI(TAG, "MAC Bluetooth: %s", t);
-        }
-    }
+    /* MAC Bluetooth (cua chip C6) dien vao trang Ket noi khi Bluetooth san sang (ble_link.c on_sync) */
     ui_set_rotate_hook(on_rotate);
     ui_set_rotated(settings_get_rotated());
     {

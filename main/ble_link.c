@@ -172,10 +172,11 @@ static const struct ble_gatt_svc_def s_gofa_svcs[] = {
 
 static int hexv(char c) { return c >= '0' && c <= '9' ? c - '0' : (c | 0x20) >= 'a' && (c | 0x20) <= 'f' ? (c | 0x20) - 'a' + 10 : -1; }
 
-static void gofa_setup(void)                                       /* ten + UUID dinh danh tu MAC Bluetooth */
+/* Ten + UUID dinh danh tu MAC Bluetooth THAT. Board P4: song Bluetooth la cua chip C6 nen MAC phai lay tu NimBLE sau khi
+ * dong bo (on_sync), khong phai esp_read_mac(ESP_MAC_BT) cua P4 (P4 khong co Bluetooth, MAC do sai -> GOFA khong nhan HUD).
+ * mac[] theo thu tu doc AA:BB:CC:DD:EE:FF. */
+static void gofa_setup(const uint8_t mac[6])
 {
-    uint8_t mac[6] = {0};
-    esp_read_mac(mac, ESP_MAC_BT);
     snprintf(s_gofa_name, sizeof s_gofa_name, "HUD_%02X%02X", mac[4], mac[5]);
     uint8_t be[16] = {0};                                          /* UUID theo thu tu doc (big endian) */
     const char *p = CONFIG_EVCARHUD_GOFA_UUID_PREFIX;
@@ -331,6 +332,16 @@ static void on_sync(void)
     if (ble_hs_id_copy_addr(BLE_ADDR_PUBLIC, m, NULL) != 0) memcpy(m, a, sizeof m);
     printf("EVCARHUD_BT_MAC=%02X:%02X:%02X:%02X:%02X:%02X\n", m[5], m[4], m[3], m[2], m[1], m[0]);
     fflush(stdout);
+    uint8_t be[6] = {m[5], m[4], m[3], m[2], m[1], m[0]};
+    if (s_gofa) {                                                  /* ten HUD_xxxx + UUID dinh danh theo MAC that cua C6 */
+        gofa_setup(be);
+        ble_svc_gap_device_name_set(s_gofa_name);
+    }
+    char t[20];
+    snprintf(t, sizeof t, "%02X:%02X:%02X:%02X:%02X:%02X", be[0], be[1], be[2], be[3], be[4], be[5]);
+    board_ui_lock();
+    ui_set_mac(t);                                                 /* trang Ket noi: MAC dung de dang ky GOFA */
+    board_ui_unlock();
     advertise();
 }
 
@@ -410,7 +421,10 @@ static bool bt_up(void)
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc == 0) rc = ble_gatts_add_svcs(s_svcs);
     s_gofa = settings_get_source() == UI_SRC_GOFA;
-    if (s_gofa) gofa_setup();
+    if (s_gofa) {                                                  /* ten tam; on_sync dat lai theo MAC that */
+        static const uint8_t z[6] = {0};
+        gofa_setup(z);
+    }
     if (s_gofa && rc == 0) rc = ble_gatts_count_cfg(s_gofa_svcs);
     if (s_gofa && rc == 0) rc = ble_gatts_add_svcs(s_gofa_svcs);
     if (rc == 0) rc = ble_svc_gap_device_name_set(s_gofa ? s_gofa_name : CONFIG_EVCARHUD_BLE_NAME);
