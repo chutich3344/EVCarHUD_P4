@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -92,6 +93,41 @@ static int chr_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+/* ===== Tram sac (app android-tramsac, docs/tram-sac-ble.md): dang ky o ca che do Waze va GOFA, khong quang ba =====
+ * UUID 4556d00X-8c2a-4b7e-9d3f-5a1c0e7b2f10. Ghi "T1|ten|met|A/R/L/B/?|goc|kW|cong|so tram" ("T1|" = xoa); doc INFO = "TRAMSAC1". */
+#define TS_UUID(n) BLE_UUID128_INIT(0x10, 0x2f, 0x7b, 0x0e, 0x1c, 0x5a, 0x3f, 0x9d, 0x7e, 0x4b, 0x2a, 0x8c, (n), 0xd0, 0x56, 0x45)
+static const ble_uuid128_t UUID_TS_SVC = TS_UUID(0x01), UUID_TS_STA = TS_UUID(0x02), UUID_TS_INFO = TS_UUID(0x03);
+
+static int ts_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn; (void)attr; (void)arg;
+    if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR)
+        return os_mbuf_append(ctxt->om, "TRAMSAC1", 8) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    char b[200];
+    uint16_t n = 0;
+    if (OS_MBUF_PKTLEN(ctxt->om) >= sizeof b) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    if (ble_hs_mbuf_to_flat(ctxt->om, b, sizeof b - 1, &n) != 0) return BLE_ATT_ERR_UNLIKELY;
+    b[n] = 0;
+    ESP_LOGI(TAG, "tram sac: %s", b);
+    if (strncmp(b, "T1|", 3) != 0) return 0;                      /* phien ban khac: bo qua */
+    char *f[8] = {0};
+    int k = 0;
+    for (char *p = b + 3; k < 7; ) {
+        f[k++] = p;
+        char *q = strchr(p, '|');
+        if (!q) break;
+        *q = 0;
+        p = q + 1;
+    }
+    board_ui_lock();
+    if (!f[0] || !f[0][0] || k < 3) ui_set_station(NULL, 0, '?', 0, 0, 0);
+    else ui_set_station(f[0], atoi(f[1]), f[2][0] ? f[2][0] : '?', k > 4 ? atoi(f[4]) : 0, k > 5 ? atoi(f[5]) : 0,
+                        k > 6 ? atoi(f[6]) : 0);
+    board_ui_unlock();
+    return 0;
+}
+
 static const struct ble_gatt_svc_def s_svcs[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -100,6 +136,15 @@ static const struct ble_gatt_svc_def s_svcs[] = {
             {.uuid = &UUID_TX.u, .access_cb = chr_access, .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
             {.uuid = &UUID_RX.u, .access_cb = chr_access, .flags = BLE_GATT_CHR_F_NOTIFY, .val_handle = &s_rx_handle},
             {.uuid = &UUID_CAPS.u, .access_cb = chr_access, .flags = BLE_GATT_CHR_F_READ},
+            {0},
+        },
+    },
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &UUID_TS_SVC.u,
+        .characteristics = (struct ble_gatt_chr_def[]) {
+            {.uuid = &UUID_TS_STA.u, .access_cb = ts_access, .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
+            {.uuid = &UUID_TS_INFO.u, .access_cb = ts_access, .flags = BLE_GATT_CHR_F_READ},
             {0},
         },
     },

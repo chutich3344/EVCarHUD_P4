@@ -82,7 +82,10 @@ void ui_set_signal(bool ok);                           /* false: chua co du lieu
 void ui_set_phone(bool connected);                     /* dien thoai noi Bluetooth (man cho: "Da ket noi dien thoai") */
 void ui_set_waze(bool on);                             /* false: chi co toc do GPS, chua co du lieu Waze */
 void ui_set_gps(int level);
-void ui_set_hint(const char *text);                    /* bo qua: man cho tu hien "Cho ket noi Waze..." */
+void ui_set_hint(const char *text);
+/* Tram sac gan (app Tram sac qua BLE): name NULL = xoa. side 'A' truoc, 'R' phai, 'L' trai, 'B' sau, '?' chua biet.
+ * Hien o dai giua man Bien toc do khi khong co canh bao; tu an sau 90 giay khong co ban tin. */
+void ui_set_station(const char *name, int dist_m, char side, int kw, int ports, int count);                    /* bo qua: man cho tu hien "Cho ket noi Waze..." */
 
 /* --- Ngay / Dem ---
  * Tu dong: theo cam bien anh sang neu board co (ui_set_ambient), khong thi theo gio (6:00-18:00 la ngay).

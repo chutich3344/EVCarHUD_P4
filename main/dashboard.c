@@ -749,11 +749,39 @@ static void render_alert_parts(void)                             /* dai canh bao
     a_cells_n = k;
 }
 
+/* Tram sac gan (app Tram sac): dai xanh ngoc o man Bien toc do khi khong co canh bao / vuot toc do. */
+#define TS_HOLD_MS 90000
+static char ts_name[64];
+static int ts_dist, ts_kw;
+static char ts_side = '?';
+static uint32_t ts_tick;
+static lv_timer_t *ts_tmr;
+
+static bool station_on(void) { return ts_name[0] && lv_tick_elaps(ts_tick) < TS_HOLD_MS; }
+
+static void station_fill(strip_t *s)
+{
+    char d[16], t[96];
+    fmt_dist(d, sizeof d, ts_dist);
+    const char *sd = ts_side == 'R' ? " · bên phải" : ts_side == 'L' ? " · bên trái" : ts_side == 'B' ? " · phía sau" : "";
+    snprintf(t, sizeof t, "%s%s", ts_name, sd);
+    const lv_image_dsc_t *ic = ts_side == 'R' ? &arrow_right : ts_side == 'L' ? &arrow_left
+                             : ts_side == 'A' ? &arrow_straight : ts_side == 'B' ? &arrow_uturn : NULL;
+    strip_fill(s, ic, t, d, lv_color_hex(night ? 0x0B2A2A : 0xCCFBF1), lv_color_hex(0x14B8A6),
+               lv_color_hex(night ? 0x5EEAD4 : 0x0F766E), false, -1, 0);
+    if (ic) {
+        lv_image_set_scale(s->img, 30 * 256 / 64);                /* mui ten 64 px (bien bao 48 px) */
+        lv_obj_set_style_image_recolor(s->img, lv_color_hex(night ? 0x5EEAD4 : 0x0F766E), 0);
+        lv_obj_set_style_image_recolor_opa(s->img, LV_OPA_COVER, 0);
+    }
+}
+
 static void render_cruise(void)
 {
     bool near = ev_now && ev_now->dist <= ALERT_M;
     bool over = level == UI_LEVEL_OVER;
-    bool strip = !near && (over || ev_now);                        /* dai 40 px: vuot toc do / canh bao xa */
+    bool st = station_on();
+    bool strip = !near && (over || ev_now || st);                  /* dai 40 px: vuot toc do / canh bao xa / tram sac */
     morph_to(&d_t, &d_want, !near);
     if (!near && !strip && d_t < T_MAX) {                          /* het canh bao, duong thoang: di thang toi co to */
         lv_anim_delete(&c_t, NULL);
@@ -763,9 +791,13 @@ static void render_cruise(void)
 
     if (near) render_alert_parts();
     if (strip) {
+        lv_obj_set_style_image_recolor_opa(c_st.img, LV_OPA_TRANSP, 0);
+        lv_image_set_scale(c_st.img, 30 * 256 / 48);
         if (over) {
             strip_over(&c_st);
             lv_obj_set_style_text_align(c_st.txt, LV_TEXT_ALIGN_LEFT, 0);
+        } else if (!ev_now) {
+            station_fill(&c_st);
         } else {
             char d[16];
             fmt_dist(d, sizeof d, ev_now->dist);
@@ -2215,3 +2247,24 @@ void ui_set_level_hook(void (*cb)(int)) { level_cb = cb; }
 void ui_set_rotate_hook(void (*cb)(void)) { rotate_cb = cb; }
 
 bool ui_settings_shown(void) { return set_scr && shown(set_scr); }
+
+static void ts_cb(lv_timer_t *t)
+{
+    (void)t;
+    if (ts_name[0] && !station_on()) {                            /* 90 giay khong co ban tin: an */
+        ts_name[0] = 0;
+        if (screen == SCR_CRUISE) render_cruise();
+    }
+}
+
+void ui_set_station(const char *name, int dist_m, char side, int kw, int ports, int count)
+{
+    (void)ports; (void)count;
+    snprintf(ts_name, sizeof ts_name, "%s", name ? name : "");
+    ts_dist = dist_m;
+    ts_side = side;
+    ts_kw = kw;
+    ts_tick = lv_tick_get();
+    if (!ts_tmr) ts_tmr = lv_timer_create(ts_cb, 2000, NULL);
+    if (screen == SCR_CRUISE) render_cruise();
+}
