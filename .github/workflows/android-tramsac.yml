@@ -47,6 +47,19 @@ jobs:
           print('keys', sorted(ch[0].keys()) if ch else None)
           PY
 
+      - name: Kiem tra ban do Google My Maps (chi in ra)
+        continue-on-error: true
+        run: |
+          curl -sSL -A "Mozilla/5.0" -o /tmp/m.kml "https://www.google.com/maps/d/kml?mid=1BXlfFotk3L2rxJybz_QDggi4yYpMy50&forcekml=1"
+          ls -la /tmp/m.kml; head -c 400 /tmp/m.kml; echo
+          python3 - <<'PY'
+          import re
+          t = open('/tmp/m.kml', encoding='utf-8', errors='replace').read()
+          print('placemark', t.count('<Placemark'))
+          for f in re.findall(r'<Folder>\s*<name>(.*?)</name>', t, re.S): print('folder:', f, )
+          for pm in re.findall(r'<Placemark>(.*?)</Placemark>', t, re.S)[:4]: print(pm[:700]); print('----')
+          PY
+
       - name: Build APK
         run: |
           chmod +x gradlew
