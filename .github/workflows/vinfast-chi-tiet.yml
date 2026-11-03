@@ -1,0 +1,27 @@
+# Moi ngay lay danh sach tram sac o to VinFast kem dia chi, trang thai, phi gui xe
+# va dat vao ban phat hanh "du-lieu-tram-sac" (file vinfast-chi-tiet.json.gz) cho CSDL tram sac evcarhud.com.
+name: Du lieu tram sac VinFast (chi tiet)
+
+on:
+  schedule:
+    - cron: "37 21 * * *"          # 4h37 sang gio Viet Nam (chi chay khi workflow nam tren nhanh mac dinh)
+  push:
+    paths:
+      - "tools/vinfast_chi_tiet.py"
+      - ".github/workflows/vinfast-chi-tiet.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tai du lieu VinFast
+        run: python3 tools/vinfast_chi_tiet.py out
+      - name: Cap nhat ban phat hanh "du-lieu-tram-sac"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload du-lieu-tram-sac out/vinfast-chi-tiet.json.gz --clobber -R ${{ github.repository }}
