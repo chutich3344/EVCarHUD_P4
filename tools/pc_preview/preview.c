@@ -184,6 +184,11 @@ int main(int argc, char **argv)
     ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'N');
     run(600);
     snprintf(p, sizeof p, "%s/tram_sac.bmp", dir); save_bmp(p);
+    ui_set_waze(false);
+    ui_set_station("Vincom Center Đồng Khởi - VinFast", 590, '?', UI_TS_NO_ANGLE, 0, 0, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich_gps.bmp", dir); save_bmp(p);
+    ui_set_waze(true);
     ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'D');
     run(800);
     snprintf(p, sizeof p, "%s/tram_sac_dich.bmp", dir); save_bmp(p);

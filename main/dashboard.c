@@ -77,6 +77,7 @@ static const theme_t *th = &TH_NIGHT;
 /* ---------------- doi tuong ---------------- */
 static lv_obj_t *scr, *page[SCR_N];
 /* thanh tren (dung chung cac man dang chay) */
+static lv_obj_t *t_bolt;
 static lv_obj_t *top, *top_line, *t_clock, *t_street, *t_badge, *t_gps_dot, *t_src, *t_src_l;
 /* Phan tren cac man chay: toc do (so to, khung rong co dinh can phai) + "km/h" | bien gioi han, chia doi man hinh */
 #define HLV 3                                 /* so co cua phan tren: nho (co dai) -> to (an dai) */
@@ -644,6 +645,7 @@ static void build_top(void)
     lv_obj_set_style_text_color(bl, lv_color_white(), 0);
     lv_obj_center(bl);
     lv_obj_set_width(t_badge, text_w("CAO TỐC", &ui_font_cap12) + 12);
+    t_bolt = mk_label(top, &lv_font_montserrat_14, 0, (TOP_H - lv_font_montserrat_14.line_height) / 2, LV_SYMBOL_CHARGE);
     t_street = mk_label_w(top, &ui_font_txt14, 0, (TOP_H - ui_font_txt14.line_height) / 2, 260, LV_TEXT_ALIGN_CENTER);
     t_src = mk_fill(top, 0, (TOP_H - 18) / 2, 40, 18, 5);          /* o nguon du lieu: "waze" / "GOFA" */
     t_src_l = mk_label(t_src, &ui_font_cap12, 6, (18 - ui_font_cap12.line_height) / 2, "waze");
@@ -664,18 +666,23 @@ static void render_top(void)
     lv_obj_set_style_text_color(t_clock, th->fg, 0);
     lv_obj_set_style_bg_color(top_line, th->border, 0);
 
-    const char *st = !waze ? "Chỉ có GPS" : screen == SCR_NAV && street_nav[0] ? street_nav : street_now;
+    bool tsd = screen == SCR_NAV && nav_on && !wz_on;              /* dan toi tram sac: luon hien ten tram */
+    const char *st = tsd ? street_nav : !waze ? "Chỉ có GPS" : screen == SCR_NAV && street_nav[0] ? street_nav : street_now;
     lv_label_set_text(t_street, st);
     lv_obj_set_style_text_color(t_street, th->fg, 0);
     bool hw = screen == SCR_HIGHWAY;
     show(t_badge, hw);
+    show(t_bolt, tsd);
     lv_obj_set_style_bg_color(t_badge, th->hw, 0);
+    lv_obj_set_style_text_color(t_bolt, lv_color_hex(night ? 0x5EEAD4 : 0x0F766E), 0);
+    int pre = hw ? lv_obj_get_width(t_badge) + 6 : tsd ? text_w(LV_SYMBOL_CHARGE, &lv_font_montserrat_14) + 6 : 0;
     int sw = text_w(st, &ui_font_txt14);
-    int maxw = 300 - (hw ? lv_obj_get_width(t_badge) + 6 : 0);
+    int maxw = 300 - pre;
     if (sw > maxw) sw = maxw;
-    int total = sw + (hw ? lv_obj_get_width(t_badge) + 6 : 0), x0 = (UI_W - total) / 2;
+    int total = sw + pre, x0 = (UI_W - total) / 2;
     if (hw) lv_obj_set_x(t_badge, x0);
-    lv_obj_set_x(t_street, x0 + (hw ? lv_obj_get_width(t_badge) + 6 : 0));
+    if (tsd) lv_obj_set_x(t_bolt, x0);
+    lv_obj_set_x(t_street, x0 + pre);
     lv_obj_set_width(t_street, sw + 2);
 
     bool g = src == UI_SRC_GOFA;
