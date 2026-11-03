@@ -145,8 +145,7 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        val h = hub
-        if (h != null) { if (h.canGoBack()) h.goBack() else closeHub(); return }
+        if (hub != null) { hubBack(); return }
         @Suppress("DEPRECATION") super.onBackPressed()
     }
 
@@ -265,6 +264,9 @@ class MainActivity : Activity() {
             }
             hub = w
             root.addView(w, ViewGroup.LayoutParams(-1, -1))
+            // Android 13+ (bat buoc tu targetSdk 36): onBackPressed khong con duoc goi, phai dang ky callback
+            if (Build.VERSION.SDK_INT >= 33) onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCb as android.window.OnBackInvokedCallback)
         }
         h.visibility = View.VISIBLE
         hubLeftHome = path.isNotEmpty() && path != "#/"
@@ -274,6 +276,18 @@ class MainActivity : Activity() {
     private fun closeHub() {
         hub?.let { root.removeView(it); it.destroy() }
         hub = null
+        if (Build.VERSION.SDK_INT >= 33) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backCb as android.window.OnBackInvokedCallback)
+    }
+
+    /** Nut/vuot Quay lai khi dang mo trang tram-sac: lui trang, het trang thi dong ve man HUD. */
+    private fun hubBack() {
+        val h = hub ?: return
+        if (h.canGoBack()) h.goBack() else closeHub()
+    }
+
+    // Kieu Any de khong nap lop OnBackInvokedCallback tren Android < 13
+    private val backCb: Any? by lazy {
+        if (Build.VERSION.SDK_INT >= 33) android.window.OnBackInvokedCallback { hubBack() } else null
     }
 
     // ---------------- Quyen ----------------
