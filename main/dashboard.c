@@ -169,7 +169,8 @@ static int turn_now = -1, dist_now = -1, turn_start, exit_now, turn2_now;
 static char eta_txt[8], street_now[64], street_nav[96];
 static int eta_rm, eta_rmin;
 static int mode = UI_MODE_AUTO, ambient = -1;
-static bool night;
+static bool night, boot_night = true;
+void ui_set_boot_night(bool n) { boot_night = n; }
 static void (*mode_cb)(int);
 static void (*night_cb)(bool);
 static void (*level_cb)(int);
@@ -1304,12 +1305,23 @@ static void update_night(void)
     if (mode == UI_MODE_DAY) n = false;
     else if (mode == UI_MODE_NIGHT) n = true;
     else if (ambient >= 0) n = ambient != 0;
-    else n = clk_h >= 0 && (clk_h < 6 || clk_h >= 18);            /* chua co gio: de ban ngay */
+    else if (clk_h >= 0) n = clk_h < 6 || clk_h >= 18;
+    else n = boot_night;                                           /* chua co gio: giu theme luc bat may (lan cuoi) */
     const theme_t *want = n ? &TH_NIGHT : &TH_DAY;
     if (want == th) return;
+    lv_color_t old_bg = th ? th->bg : want->bg;
+    bool fade = th && scr;
     night = n;
     th = want;
     apply_theme();
+    if (fade) {                                                    /* doi theme khi dang chay: phu mau nen cu roi mo dan 0,5 s */
+        lv_obj_t *v = mk_box(lv_layer_top(), 0, 0, UI_W, UI_H);
+        lv_obj_set_style_bg_color(v, old_bg, 0);
+        lv_obj_set_style_bg_opa(v, LV_OPA_COVER, 0);
+        lv_obj_move_background(v);
+        lv_obj_fade_out(v, 500, 0);
+        lv_obj_delete_delayed(v, 520);
+    }
     if (night_cb) night_cb(night);
 }
 
@@ -2106,7 +2118,7 @@ extern const lv_image_dsc_t ui_logo_icon;
 #define SP_WORD_Y (SP_LOGO_Y + SP_ICON + 10)
 #define SP_ROW_Y  (SP_WORD_Y + 52)
 
-static bool sp_night(void) { return !scr || night; }            /* chua co bang dieu khien: ban dem */
+static bool sp_night(void) { return scr ? night : boot_night; }            /* chua co bang dieu khien: ban dem */
 static lv_color_t sp_fg(void) { return sp_night() ? lv_color_white() : lv_color_hex(0x14112B); }
 static const uint32_t *sp_acc(void) { static const uint32_t n[2] = {0xFFA23A, 0xFF4560}, d[2] = {0xFF3D3D, 0xFFA23A}; return sp_night() ? n : d; }
 

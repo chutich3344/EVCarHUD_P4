@@ -84,6 +84,9 @@ void settings_set_tz(int tz_min)
     nvs_close(h);
 }
 
+bool settings_get_last_night(void) { return get_u8("last_night", 1) != 0; }
+void settings_set_last_night(bool night) { set_u8("last_night", night ? 1 : 0); }
+
 bool settings_get_wifi_on(void) { return get_u8("wifi_on", 1) != 0; }
 void settings_set_wifi_on(bool on) { set_u8("wifi_on", on ? 1 : 0); }
 

@@ -31,7 +31,16 @@
 static const char *TAG = "evcarhud";
 
 /* --- giao dien -> phan cung --- */
-static void on_night(bool night) { board_set_backlight(night ? CONFIG_EVCARHUD_BL_NIGHT : CONFIG_EVCARHUD_BL_DAY); }
+static void on_night(bool night)
+{
+    board_set_backlight(night ? CONFIG_EVCARHUD_BL_NIGHT : CONFIG_EVCARHUD_BL_DAY);
+    static int saved = -1;                                   /* nho theme lan cuoi (chi ghi NVS khi doi) */
+    if (saved < 0) saved = settings_get_last_night();
+    if (saved != night) {
+        settings_set_last_night(night);
+        saved = night;
+    }
+}
 
 static void on_mode(int mode) { settings_set_mode(mode); }
 
@@ -50,10 +59,31 @@ static void on_clock(int64_t unix_s, int tz_min, int src)
 
 /* Luc bat may: khong doan gio. Dong ho trong chip con gio (day sau ngu sau / khoi dong lai mem) -> dung; khong thi doc
  * module DS3231 (neu gan). Khong co gi: man cho hien "--:--" cho Wi-Fi (NTP) hoac dien thoai. */
+static bool ds_inited;
+static void ds_init_once(void)
+{
+    if (!ds_inited) has_ds3231 = ds3231_init(board_i2c_bus());
+    ds_inited = true;
+}
+
+/* Theme cho man khoi dong (va Tu dong khi chua co gio): Ngay / Dem da chon; Tu dong: gio trong chip hoac DS3231
+ * (6:00-18:00 la ngay), khong co gio thi theme lan cuoi da dung (NVS). */
+static bool boot_is_night(void)
+{
+    int m = settings_get_mode();
+    if (m == UI_MODE_DAY) return false;
+    if (m == UI_MODE_NIGHT) return true;
+    int64_t t = time(NULL);
+    ds_init_once();
+    if (t <= 1700000000 && !(has_ds3231 && ds3231_read(&t))) return settings_get_last_night();
+    int h = (int)(((t + settings_get_tz() * 60) % 86400 + 86400) % 86400 / 3600);
+    return h < 6 || h >= 18;
+}
+
 static void clock_boot(void)
 {
     int tz = settings_get_tz();
-    has_ds3231 = ds3231_init(board_i2c_bus());
+    ds_init_once();
     time_t now = time(NULL);
     int64_t t;
     if (now > 1700000000) {
@@ -144,10 +174,12 @@ static void color_test(void)
 static void splash(void)
 {
     const esp_app_desc_t *ad = esp_app_get_description();
+    bool bn = boot_is_night();
     board_ui_lock();
+    ui_set_boot_night(bn);
     lv_screen_load(ui_splash_create(ad ? ad->version : "", settings_get_source()));
     board_ui_unlock();
-    board_set_backlight(CONFIG_EVCARHUD_BL_DAY);
+    board_set_backlight(bn ? CONFIG_EVCARHUD_BL_NIGHT : CONFIG_EVCARHUD_BL_DAY);
     vTaskDelay(pdMS_TO_TICKS(SPLASH_MS));
 }
 

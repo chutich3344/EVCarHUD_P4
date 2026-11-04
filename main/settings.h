@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+bool settings_get_last_night(void);  /* giao dien Dem lan cuoi (Tu dong, chua co gio luc bat may) */
+void settings_set_last_night(bool night);
 int settings_get_mode(void);          /* UI_MODE_*: Tu dong / Ngay / Dem */
 void settings_set_mode(int mode);
 bool settings_get_demo(void);         /* che do trinh dien (du lieu gia) */

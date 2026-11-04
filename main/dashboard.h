@@ -37,6 +37,8 @@ enum { UI_LEVEL_OK = 0, UI_LEVEL_NEAR = 1, UI_LEVEL_OVER = 2 };   /* toc do so v
 void dashboard_create(lv_obj_t *screen);
 lv_obj_t *ui_screen(void);                               /* man bang dieu khien (dashboard_create) */
 enum { UI_SRC_WAZE = 0, UI_SRC_GOFA = 1 };              /* nguon du lieu dan duong (chon trong cai dat > Ket noi) */
+/* Ngay/Dem luc bat may (truoc ui_splash_create): man khoi dong dung theme nay; Tu dong ma chua co gio cung giu theme nay */
+void ui_set_boot_night(bool night);
 lv_obj_t *ui_splash_create(const char *version, int source);   /* man chao: logo + "Ket noi voi" Waze/GOFA (chua nap) */
 lv_obj_t *ui_partner_tile(lv_obj_t *parent, int source, int size);   /* o logo Waze / GOFA */
 
