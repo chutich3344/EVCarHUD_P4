@@ -18,6 +18,7 @@ gen() {  # ten co ho do_dam bo_ky_tu(full|digits|ascii)
     num)    args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x2C) ;;
     numpct) args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x2C,0x25) ;;
     dist)   args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x2C,0x6B,0x6D,0x2F,0x68) ;;
+    logo)   args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x45,0x56,0x43,0x61,0x72,0x48,0x55,0x44,0x20) ;;
     clock)  args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x3A) ;;
   esac
   npx lv_font_conv --bpp 4 --size $size --format lvgl --no-compress --lv-include lvgl.h \
@@ -32,6 +33,7 @@ gen ui_font_mono14  14 jetbrains-mono 700 full
 gen ui_font_dist24  24 jetbrains-mono 700 ascii
 # giao dien A (dan duong) + C (chay thuong): so to, it chu
 gen ui_font_unit22  22 inter 700 ascii
+gen ui_font_logo34  34 inter 800 logo
 # ban P4 3.5" (480x320): so to hon, van la Inter
 gen ui_font_sign64  64 inter 700 digits
 gen ui_font_num40   40 inter 700 numpct

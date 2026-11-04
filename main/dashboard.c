@@ -2095,23 +2095,45 @@ void ui_set_weather(int kind, const char *text)
 #include "dashboard_wifi.inc"
 
 /* ======================= man khoi dong / ket noi ======================= */
-/* Theo bo man mau "Khoi dong · Logo": logo that (vong dong ho vach cyan, 2 vach cuoi do, kim trang, chu EVCar + HUD cyan,
- * ui_logo.c sinh tu tools/logo), nen 0x020617.
- *  - Khoi dong: logo, thanh tien trinh, "Dang khoi dong..."
- *  - Ket noi Waze / GOFA: logo, "KET NOI VOI", o nguon + ten nguon, dong trang thai duoi. */
-extern const lv_image_dsc_t ui_logo;
-#define SP_BG     0x020617
+/* Theo bo man Gradient "Khoi dong": nen #1E2235 (dem) / #ECEDF1 (ngay), bieu tuong logo that 96 px (ui_logo_icon.c sinh tu
+ * tools/logo), chu "EVCar" + "HUD" to mau chuyen cam -> do.
+ *  - Khoi dong: logo, thanh tien trinh mau chuyen trong ranh, "Dang khoi dong..."
+ *  - Ket noi Waze / GOFA: logo, "KET NOI VOI", o nguon + ten nguon, dong trang thai duoi.
+ * Man khoi dong hien truoc khi biet che do Ngay/Dem: dung ban dem; man "Da ket noi" theo che do dang chay. */
+extern const lv_image_dsc_t ui_logo_icon;
+#define SP_ICON   96
 #define SP_LOGO_Y 46
-#define SP_ROW_Y  (SP_LOGO_Y + 136 + 6)
+#define SP_WORD_Y (SP_LOGO_Y + SP_ICON + 10)
+#define SP_ROW_Y  (SP_WORD_Y + 52)
+
+static bool sp_night(void) { return !scr || night; }            /* chua co bang dieu khien: ban dem */
+static lv_color_t sp_fg(void) { return sp_night() ? lv_color_white() : lv_color_hex(0x14112B); }
+static const uint32_t *sp_acc(void) { static const uint32_t n[2] = {0xFFA23A, 0xFF4560}, d[2] = {0xFF3D3D, 0xFFA23A}; return sp_night() ? n : d; }
+
+static void sp_buf_free_cb(lv_event_t *e) { lv_draw_buf_destroy((lv_draw_buf_t *)lv_event_get_user_data(e)); }
 
 static lv_obj_t *mk_splash_base(lv_obj_t *s)
 {
     lv_obj_remove_flag(s, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(s, lv_color_hex(SP_BG), 0);
+    lv_obj_set_style_bg_color(s, lv_color_hex(sp_night() ? 0x1E2235 : 0xECEDF1), 0);
     lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_grad_dir(s, LV_GRAD_DIR_NONE, 0);
     lv_obj_t *img = lv_image_create(s);
-    lv_image_set_src(img, &ui_logo);
-    lv_obj_set_pos(img, (UI_W - (int)ui_logo.header.w) / 2, SP_LOGO_Y);
+    lv_image_set_src(img, &ui_logo_icon);
+    lv_obj_set_pos(img, (UI_W - SP_ICON) / 2, SP_LOGO_Y);
+    /* chu EVCar (mau chu) + HUD (mau chuyen) */
+    const lv_font_t *f = &ui_font_logo34;
+    int ls = -1, w1 = lv_text_get_width("EVCar", 5, f, ls), w2 = lv_text_get_width("HUD", 3, f, ls) + 2;
+    int x0 = (UI_W - w1 - w2) / 2;
+    lv_obj_t *l = mk_label(s, f, x0, SP_WORD_Y, "EVCar");
+    lv_obj_set_style_text_letter_space(l, ls, 0);
+    lv_obj_set_style_text_color(l, sp_fg(), 0);
+    gtext_t g;
+    gtext_init(&g, s, x0 + w1 + ls, SP_WORD_Y, w2, f->line_height);
+    lv_obj_add_event_cb(g.cv, sp_buf_free_cb, LV_EVENT_DELETE, g.db);
+    const uint32_t *c = sp_acc();
+    int ct = baseline(f) - CAP_H(34);                              /* dinh chu hoa */
+    gtext_set(&g, "HUD", f, ls, LV_TEXT_ALIGN_LEFT, w2, c[0], c[1], 0, w2, ct, CAP_H(34));
     return img;
 }
 
@@ -2122,25 +2144,26 @@ static lv_obj_t *mk_connect_row(lv_obj_t *s, int source)
     lv_obj_t *cap = mk_label_w(box, &ui_font_cap12, 0, 0, UI_W, LV_TEXT_ALIGN_CENTER);
     lv_label_set_text(cap, "KẾT NỐI VỚI");
     lv_obj_set_style_text_letter_space(cap, 2, 0);
-    lv_obj_set_style_text_color(cap, lv_color_hex(0x94A3B8), 0);
+    lv_obj_set_style_text_color(cap, sp_fg(), 0);
     bool g = source == UI_SRC_GOFA;
     const char *nm = g ? "GOFA" : "Waze Mod";
     int tw = 44 + 12 + text_w(nm, &ui_font_unit22), x0 = (UI_W - tw) / 2;
     lv_obj_t *tile = ui_partner_tile(box, source, 44);
     lv_obj_set_pos(tile, x0, 24);
     lv_obj_t *n = mk_label(box, &ui_font_unit22, x0 + 56, 24 + (44 - ui_font_unit22.line_height) / 2, nm);
-    lv_obj_set_style_text_color(n, lv_color_hex(0xE2E8F0), 0);
+    lv_obj_set_style_text_color(n, sp_fg(), 0);
     return box;
 }
 
-/* dong duoi cung: cham mau + chu, can giua */
+/* dong duoi cung: cham mau chuyen + chu, can giua */
 static void mk_status_line(lv_obj_t *s, bool dot, lv_color_t col, const char *txt)
 {
     const lv_font_t *f = &ui_font_sm12;
     int w = text_w(txt, f) + (dot ? 13 : 0), x0 = (UI_W - w) / 2, y = UI_H - 12 - f->line_height;
     if (dot) {
         lv_obj_t *d = mk_fill(s, x0, y + (f->line_height - 7) / 2, 7, 7, LV_RADIUS_CIRCLE);
-        lv_obj_set_style_bg_color(d, lv_color_hex(0x22C55E), 0);
+        const uint32_t *c = sp_acc();
+        hgrad(d, lv_color_hex(c[0]), lv_color_hex(c[1]));
     }
     lv_obj_t *l = mk_label(s, f, x0 + (dot ? 13 : 0), y, txt);
     lv_obj_set_style_text_color(l, col, 0);
@@ -2174,12 +2197,13 @@ lv_obj_t *ui_splash_create(const char *version, int source)
     lv_obj_add_event_cb(s, sp_deleted_cb, LV_EVENT_DELETE, NULL);
     sp_boot = mk_box(s, 0, SP_ROW_Y + 8, UI_W, 40);
     lv_obj_t *bar = mk_fill(sp_boot, (UI_W - 200) / 2, 0, 200, 6, 3);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(0x1E293B), 0);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(sp_night() ? 0x161A2A : 0x23253A), 0);
     sp_fill = mk_fill(bar, 0, 0, 6, 6, 3);
-    lv_obj_set_style_bg_color(sp_fill, lv_color_hex(0x22D3EE), 0);
+    const uint32_t *c = sp_acc();
+    hgrad(sp_fill, lv_color_hex(c[0]), lv_color_hex(c[1]));
     lv_obj_t *l = mk_label_w(sp_boot, &ui_font_sm12, 0, 14, UI_W, LV_TEXT_ALIGN_CENTER);
     lv_label_set_text(l, "Đang khởi động…");
-    lv_obj_set_style_text_color(l, lv_color_hex(0x94A3B8), 0);
+    lv_obj_set_style_text_color(l, sp_fg(), 0);
     lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_var(&a, sp_fill);
@@ -2195,7 +2219,7 @@ lv_obj_t *ui_splash_create(const char *version, int source)
     char b[64];
     if (version && version[0]) snprintf(b, sizeof b, "ESP32-P4 · 3.5 inch · %s", version);
     else snprintf(b, sizeof b, "ESP32-P4 · 3.5 inch");
-    mk_status_line(s, false, lv_color_hex(0x64748B), b);
+    mk_status_line(s, false, sp_fg(), b);
     return s;
 }
 
@@ -2233,7 +2257,7 @@ static void show_connected(void)
     lv_obj_add_event_cb(conn_ov, conn_click_cb, LV_EVENT_CLICKED, NULL);
     mk_splash_base(conn_ov);
     mk_connect_row(conn_ov, src);
-    mk_status_line(conn_ov, true, lv_color_hex(0x86EFAC), "Đã kết nối điện thoại");
+    mk_status_line(conn_ov, true, lv_color_hex(sp_night() ? 0xFF8A70 : 0xC2410C), "Đã kết nối điện thoại");
     lv_obj_fade_in(conn_ov, 250, 0);
     conn_tmr = lv_timer_create(conn_tmr_cb, 2500, NULL);
     lv_timer_set_repeat_count(conn_tmr, 1);

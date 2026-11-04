@@ -9,6 +9,7 @@ extern const lv_font_t ui_font_txt16;    /* Inter Bold 16: ten duong, ten canh b
 extern const lv_font_t ui_font_mono14;   /* JetBrains Mono Bold 14: khoang cach canh bao, quang duong con lai */
 extern const lv_font_t ui_font_dist24;   /* JetBrains Mono Bold 24, chi ASCII: khoang cach re */
 /* giao dien A (dan duong) + C (chay thuong) */
+extern const lv_font_t ui_font_logo34;   /* Inter ExtraBold 34, chi chu "EVCarHUD": man khoi dong */
 extern const lv_font_t ui_font_unit22;   /* Inter Bold 22, chi ASCII: don vi m / km, so loi ra vong xuyen */
 /* ban P4 3.5" (480x320) */
 extern const lv_font_t ui_font_sign64;   /* Inter Bold 64, chu so va "-": so trong bien gioi han to */

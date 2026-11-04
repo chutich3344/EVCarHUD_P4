@@ -3,8 +3,9 @@ idf_component_register(
          "dashboard.c" "dashboard_hlp.c" "dashboard_signs.c" "hlp.c" "gofa.c" "rtc_ds3231.c" "wifi_link.c"
          "ui_font_cap12.c" "ui_font_sm12.c" "ui_font_txt14.c" "ui_font_txt16.c" "ui_font_mono14.c"
          "ui_font_dist24.c"
-         "ui_logo.c"
          "ui_font_unit22.c"
+         "ui_font_logo34.c"
+         "ui_logo_icon.c"
          "ui_font_sign64.c" "ui_font_num40.c" "ui_font_clk18.c" "ui_font_clock120.c" "ui_font_txt20.c"
         
          "ui_font_d150.c" "ui_font_d120.c" "ui_font_d104.c" "ui_font_d96.c" "ui_font_r76.c" "ui_font_r50.c" "ui_font_r44.c" "ui_font_r36.c" "ui_font_dist26.c" "ui_font_dist30.c" "ui_font_r92.c"
