@@ -19,7 +19,8 @@ import java.util.zip.GZIPInputStream
  */
 object Community {
     private const val URL_OFFLINE = "https://evcarhud.com/api/stations-offline"
-    private const val CHECK_MS = 30 * 60_000L
+    private const val CDN = "https://data.evcarhud.com/tram-sac/"   // R2 cong khai, mien phi; loi thi ve URL_OFFLINE
+    private const val CHECK_MS = 10 * 60_000L
     private const val UA = "EVCarHUD-TramSac/0.3 (Android)"
 
     @Volatile private var cache: List<Station>? = null
@@ -43,6 +44,18 @@ object Community {
         val now = System.currentTimeMillis()
         val have = cache
         if (have != null && now - checkedAt < CHECK_MS) return have
+        // 1) R2: meta.json {v}; khac ban dang luu moi tai offline.json?v=
+        try {
+            val v = org.json.JSONObject(String(open(CDN + "meta.json").use { it.readBytes() }, Charsets.UTF_8)).get("v").toString()
+            val tag = "\"$v\""
+            if (have != null && verF.exists() && verF.readText() == tag) { checkedAt = now; return have }
+            val list = open(CDN + "offline.json?v=" + v).use { parse(it) }
+            if (list.isEmpty()) throw RuntimeException("File trạm trống")
+            writeCache(f, list); verF.writeText(tag)
+            cache = list; checkedAt = now
+            return list
+        } catch (_: Exception) {}
+        // 2) Du phong: API cu co ETag
         val c = URL(URL_OFFLINE).openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 15000
@@ -68,6 +81,14 @@ object Community {
         } finally {
             c.disconnect()
         }
+    }
+
+    private fun open(url: String): java.io.InputStream {
+        val c = URL(url).openConnection() as HttpURLConnection
+        c.connectTimeout = 10000; c.readTimeout = 60000
+        c.setRequestProperty("User-Agent", UA)
+        if (c.responseCode !in 200..299) { c.disconnect(); throw RuntimeException("HTTP ${c.responseCode}") }
+        return c.inputStream                      // HttpURLConnection tu giai nen gzip khi khong dat Accept-Encoding
     }
 
     /** Doc tung dong, khong nap ca file thanh chuoi. Thu tu cot lay theo "cols". */
