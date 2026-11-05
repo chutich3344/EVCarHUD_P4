@@ -31,7 +31,20 @@ menu "EVCarHUD"
         range 10 90
         depends on EVCARHUD_DETECT
         help
-            Chi dung de xac dinh "lan cua minh" (hinh thang giua anh, hep dan ve phia chan troi).
+            Gia tri ban dau; bat "chan troi tu chinh" thi firmware tu doi theo cac xe nhin thay.
+
+    config EVCARHUD_ADAS_AUTO_HORIZON
+        bool "Chan troi tu chinh theo cac xe nhin thay (doc, xe chui dau, camera lap lech)"
+        default y
+        depends on EVCARHUD_DETECT
+
+    config EVCARHUD_ADAS_CAM_H_CM
+        int "Camera: do cao so voi mat duong (cm)"
+        default 130
+        range 50 300
+        depends on EVCARHUD_DETECT
+        help
+            Dung de ve vung lan cua minh va tu chinh chan troi. Xe con gan sau guong chieu hau ~130 cm, SUV ~150 cm.
 
     menu "Man hinh"
         config EVCARHUD_LCD_SPI_MHZ

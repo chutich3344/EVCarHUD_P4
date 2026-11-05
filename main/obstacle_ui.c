@@ -22,7 +22,8 @@ static lv_timer_t *s_tmr;
 static int s_level, s_cls, s_dist;
 static float s_ttc;
 static bool s_dim;
-static uint32_t s_beep_tick, s_off_tick;
+static uint32_t s_beep_tick, s_off_tick, s_end_tick;
+static bool s_city;
 
 static void vis(lv_obj_t *o, bool on)
 {
@@ -138,7 +139,7 @@ static void tick_cb(lv_timer_t *tm)
     (void)tm;
     if (s_level == OBS_NONE) return;
     s_dim = !s_dim;
-    uint32_t every = s_level == OBS_CRITICAL ? 1000 : s_level == OBS_DANGER ? 2500 : 0;
+    uint32_t every = s_level == OBS_CRITICAL ? 1000 : (s_level == OBS_DANGER && !s_city) ? 4000 : 0;
     if (every && lv_tick_elaps(s_beep_tick) >= every) {
         s_beep_tick = lv_tick_get();
         board_beep(s_level == OBS_CRITICAL ? 3 : 2);
@@ -201,8 +202,9 @@ void obstacle_ui_init(void)
     s_tmr = lv_timer_create(tick_cb, 250, NULL);             /* chop 2 Hz */
 }
 
-void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s)
+void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city)
 {
+    s_city = city;
     if (!s_strip) return;
     if (ui_settings_shown()) level = OBS_NONE;               /* dang mo cai dat: khong de len */
     if (level == OBS_NONE && s_level != OBS_NONE) {          /* het vat can: giu them HOLD_MS */
@@ -211,10 +213,17 @@ void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s)
     } else {
         s_off_tick = 0;
     }
-    if (level > s_level) {                                   /* len muc: tit ngay */
-        s_beep_tick = lv_tick_get();
-        board_beep(level >= OBS_CRITICAL ? 3 : level);
+    if (level > s_level) {                                   /* len muc: Khan cap luon tit; Nguy hiem tit neu khong o pho / vua bao */
+        bool again = s_end_tick && lv_tick_elaps(s_end_tick) < 5000;
+        if (level >= OBS_CRITICAL) {
+            s_beep_tick = lv_tick_get();
+            board_beep(3);
+        } else if (level == OBS_DANGER && !city && !again) {
+            s_beep_tick = lv_tick_get();
+            board_beep(2);
+        }
     }
+    if (level == OBS_NONE && s_level != OBS_NONE) s_end_tick = lv_tick_get();
     s_level = level;
     if (level != OBS_NONE) {
         s_cls = cls;

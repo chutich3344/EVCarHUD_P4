@@ -3,8 +3,12 @@
  * /mnt/project-files/layout-hud/vat-can/gia-lap-canh-bao-vat-can.html:
  *   khan cap : TTC < 1,5 s
  *   nguy hiem: gan hon 1/2 khoang cach 2 giay, hoac TTC < 2,7 s
- *   chu y    : gan hon khoang cach 2 giay (toc do / 3,6 x 2, toi thieu 10 m), hoac nguoi di bo trong lan < 30 m
- *   khong bao: xe minh < 5 km/h (ket xe, dung den do). Chua biet toc do (chua noi dien thoai): coi nhu 30 km/h. */
+ *   chu y    : gan hon khoang cach 2 giay (toc do / 3,6 x 2, toi thieu 10 m), hoac nguoi di bo trong lan < 20 m
+ *   khong bao: xe minh < 5 km/h (ket xe, dung den do). Chua biet toc do (chua noi dien thoai): coi nhu 30 km/h.
+ * Chong keu pho dong (5..25 km/h): chi bao khi that su sap cham (xe < 4 m dang lai gan, nguoi trong lan < 8 m, TTC < 1,5 s).
+ * Mot muc phai thay lien tiep 3 lan nhan dien (khan cap: 2) moi hien.
+ * Chi xet vat trong "lan cua minh": hinh thang tu chan troi, nua be rong tai hang y = (y - chan_troi) x 1,6 m / do cao camera.
+ * Chan troi tu chinh: tu moi xe con / xe lon ro rang giua anh: chan_troi = y_day - f x do_cao_camera / khoang_cach_theo_be_rong. */
 #include "sdkconfig.h"
 #include "adas_feed.h"
 
@@ -28,6 +32,9 @@ static const char *TAG = "adas";
 #define MIN_DIST_M 1.5f
 #define JUMP_FRAMES 2
 #define MAX_CLOSING 25.0f
+#define CAM_H_M ((float)CONFIG_EVCARHUD_ADAS_CAM_H_CM / 100.0f)
+#define LANE_HALF_M 1.6f              /* tam vat lech khoi giua lan it hon the nay moi tinh la cung lan */
+#define CITY_KMH 25
 
 static const float k_width_m[DET_CLS_N] = {1.80f, 2.50f, 0.75f, 0.55f};
 static const char *const k_name[DET_CLS_N] = {"o to", "xe lon", "xe 2 banh", "nguoi"};
@@ -37,6 +44,25 @@ static int s_ttc_streak, s_jump_n, s_lead_cls;
 static float s_jump_d;
 static int64_t s_log_us;
 static int s_shown_lv = -1, s_shown_m = -1, s_shown_t10 = -1;
+static float s_hor = -1.0f;                  /* chan troi uoc luong (hang diem anh) */
+static int s_img_w = 320, s_img_h = 240;
+static int s_cand = 0, s_cand_n = 0, s_level = 0;
+
+float adas_feed_horizon(void) { return s_hor >= 0 ? s_hor : (float)s_img_h * CONFIG_EVCARHUD_ADAS_HORIZON_PCT / 100.0f; }
+float adas_feed_lane_half(float y)
+{
+    float h = adas_feed_horizon();
+    if (y <= h) return 0.0f;
+    return (y - h) * LANE_HALF_M / CAM_H_M + (float)s_img_w * 0.02f;
+}
+
+static bool in_lane(const adas_box_t *b)
+{
+    float cx = 0.5f * (b->x1 + b->x2);
+    float yb = b->y2 < (float)s_img_h ? b->y2 : (float)s_img_h;
+    float half = adas_feed_lane_half(yb);
+    return half > 0.0f && fabsf(cx - 0.5f * (float)s_img_w) <= half;
+}
 
 static float jump_tol(float d)
 {
@@ -44,20 +70,27 @@ static float jump_tol(float d)
     return t < 2.0f ? 2.0f : t;
 }
 
-static int calc_level(int cls, float dist, float ttc)
+static int calc_level(int cls, float dist, float ttc, float closing, bool *city)
 {
     int v = ui_get_speed();
     if (v < 0) v = 30;
+    *city = v < CITY_KMH;
     if (v < 5) return OBS_NONE;
+    if (v < CITY_KMH) {                                        /* pho dong / bo ket xe: chi khi sap cham */
+        if (ttc > 0.0f && ttc < 1.5f && dist < 12.0f) return OBS_CRITICAL;
+        if ((cls != DET_CLS_PERSON && dist < 4.0f && closing < -1.0f) || (cls == DET_CLS_PERSON && dist < 8.0f)) return OBS_DANGER;
+        return OBS_NONE;
+    }
     float safe = (float)v / 3.6f * 2.0f;
     if (safe < 10.0f) safe = 10.0f;
     if (ttc > 0.0f && ttc < 1.5f) return OBS_CRITICAL;
     if (dist < safe * 0.5f || (ttc > 0.0f && ttc < 2.7f)) return OBS_DANGER;
-    if (dist < safe || (cls == DET_CLS_PERSON && dist < 30.0f)) return OBS_CAUTION;
+    if (cls == DET_CLS_PERSON) return dist < 20.0f ? OBS_CAUTION : OBS_NONE;
+    if (dist < safe) return OBS_CAUTION;
     return OBS_NONE;
 }
 
-static void show(int lv, int cls, int m, float ttc)
+static void show(int lv, int cls, int m, float ttc, bool city)
 {
     int t10 = (int)(ttc * 10.0f + 0.5f);
     if (lv == s_shown_lv && m == s_shown_m && t10 == s_shown_t10) return;
@@ -65,7 +98,7 @@ static void show(int lv, int cls, int m, float ttc)
     s_shown_m = m;
     s_shown_t10 = t10;
     board_ui_lock();
-    obstacle_ui_set(lv, cls, m, ttc);
+    obstacle_ui_set(lv, cls, m, ttc, city);
     board_ui_unlock();
 }
 
@@ -78,11 +111,15 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
     adas_cam_t cam = {
         .f_px = (float)w * 0.5f / tanf((float)CONFIG_EVCARHUD_ADAS_HFOV_DEG * 0.5f * 3.14159265f / 180.0f),
         .cam_h_m = 0.0f,                                       /* chua hieu chuan do cao: chi do theo be rong khung */
-        .horizon_y = (float)h * (float)CONFIG_EVCARHUD_ADAS_HORIZON_PCT / 100.0f,
+        .horizon_y = 0.0f,
         .veh_w_m = 1.8f,
         .img_w = w,
         .img_h = h,
     };
+    s_img_w = w;
+    s_img_h = h;
+    if (s_hor < 0) s_hor = (float)h * (float)CONFIG_EVCARHUD_ADAS_HORIZON_PCT / 100.0f;
+    cam.horizon_y = s_hor;
     adas_box_t ab[DET_BOX_MAX];
     for (int i = 0; i < n; i++) {
         int c = bx[i].cls;
@@ -100,9 +137,37 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
         }
     }
 
+#if CONFIG_EVCARHUD_ADAS_AUTO_HORIZON
+    /* chan troi tu chinh (doc, xe chui dau, camera lap lech): moi xe con / xe lon ro rang, gan giua anh, khong bi cat day */
+    for (int i = 0; i < n; i++) {
+        int c = bx[i].cls;
+        float bw = ab[i].x2 - ab[i].x1, cx = 0.5f * (ab[i].x1 + ab[i].x2);
+        if ((c != DET_CLS_CAR && c != DET_CLS_BIG) || ab[i].score < 0.5f || bw < 14.0f || ab[i].y2 >= (float)h - 2.0f ||
+            fabsf(cx - 0.5f * (float)w) > 0.3f * (float)w) continue;
+        float zw = adas_dist_width_m(&cam, bw, ab[i].w_m);
+        if (zw < 4.0f || zw > 60.0f) continue;
+        float est = ab[i].y2 - cam.f_px * CAM_H_M / zw;
+        s_hor += (est - s_hor) * 0.05f;
+    }
+    if (s_hor < 0.25f * (float)h) s_hor = 0.25f * (float)h;
+    if (s_hor > 0.65f * (float)h) s_hor = 0.65f * (float)h;
+#endif
+
     uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
     float d = 0.0f;
-    int lead = n > 0 ? adas_pick_lead(&cam, ab, n, MIN_SCORE, &d) : -1;
+    int lead = -1;
+    {                                                          /* vat gan nhat trong lan minh (khoang cach theo be rong khung) */
+        float bd = 1e9f;
+        for (int i = 0; i < n; i++) {
+            if (!ab[i].is_vehicle || ab[i].score < MIN_SCORE || !in_lane(&ab[i])) continue;
+            float di = adas_dist_width_m(&cam, ab[i].x2 - ab[i].x1, ab[i].w_m);
+            if (di > 0.0f && di < bd) {
+                bd = di;
+                lead = i;
+            }
+        }
+        if (lead >= 0) d = bd;
+    }
     bool used = false;
     if (lead < 0) {
         s_jump_n = 0;
@@ -129,7 +194,8 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
         if (s_trk.closing < -MAX_CLOSING) s_trk.closing = -MAX_CLOSING;
     }
 
-    int m = 0, lv = OBS_NONE;
+    int m = 0, raw = OBS_NONE;
+    bool city = false;
     float ttc = 0.0f;
     if (s_trk.valid) {
         m = (int)(s_trk.dist + 0.5f);
@@ -140,19 +206,31 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
             s_lead_cls = bx[lead].cls;
         }
         if (s_ttc_streak >= TTC_STREAK) ttc = s_trk.ttc;
-        lv = calc_level(s_lead_cls, s_trk.dist, ttc);
+        raw = calc_level(s_lead_cls, s_trk.dist, ttc, s_trk.closing, &city);
     } else {
         s_ttc_streak = 0;
     }
-    show(lv, s_lead_cls, m, ttc);
+    /* len muc phai thay lien tiep 3 lan (khan cap: 2); xuong muc: obstacle_ui giu them 0,7 s */
+    if (raw == s_cand) s_cand_n++;
+    else {
+        s_cand = raw;
+        s_cand_n = 1;
+    }
+    if (raw > s_level) {
+        if (s_cand_n >= (raw >= OBS_CRITICAL ? 2 : 3)) s_level = raw;
+    } else {
+        s_level = raw;
+    }
+    int lv = s_level;
+    show(lv, s_lead_cls, m, ttc, city);
 
     int64_t us = esp_timer_get_time();
     if (us - s_log_us >= 3000000) {                            /* 3 giay mot dong: de hieu chuan goc nhin camera */
         s_log_us = us;
         if (lead >= 0) {
-            ESP_LOGI(TAG, "phia truoc: %s, khung rong %d px (anh %d px) -> %.1f m, tiep can %.1f m/s, TTC %.1f s, muc %d (%d km/h)",
+            ESP_LOGI(TAG, "phia truoc: %s, khung rong %d px (anh %d px) -> %.1f m, tiep can %.1f m/s, TTC %.1f s, muc %d (%d km/h), chan troi %d%%",
                      k_name[bx[lead].cls], bx[lead].x2 - bx[lead].x1, w, (double)d, (double)s_trk.closing, (double)ttc, lv,
-                     ui_get_speed());
+                     ui_get_speed(), (int)(s_hor * 100.0f / (float)h));
         } else {
             ESP_LOGI(TAG, "phia truoc: khong co vat nao trong lan (%d vat trong anh)", n);
         }
@@ -164,12 +242,15 @@ void adas_feed_lost(void)
     adas_track_reset(&s_trk);
     s_ttc_streak = 0;
     s_jump_n = 0;
-    show(OBS_NONE, 0, 0, 0.0f);
+    s_level = s_cand = s_cand_n = 0;
+    show(OBS_NONE, 0, 0, 0.0f, false);
 }
 
 #else
 
 void adas_feed(detect_box_t *bx, int n, int w, int h) { (void)bx; (void)n; (void)w; (void)h; }
 void adas_feed_lost(void) {}
+float adas_feed_horizon(void) { return 0.0f; }
+float adas_feed_lane_half(float y) { (void)y; return 0.0f; }
 
 #endif

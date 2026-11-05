@@ -366,9 +366,22 @@ static void process_frame(void)
         s_det_ms_sum += ms;
         adas_feed(bx, nb, PV_W, PV_H);
         if (!s_hidden) {
+            /* vung lan minh (xanh) + chan troi tu chinh (cam): chi vat trong vung xanh moi duoc canh bao */
+            int hz = (int)adas_feed_horizon();
+            if (hz > 0 && hz < PV_H) {
+                for (int x = 0; x < PV_W; x += 2) dst[hz * PV_W + x] = 0xFD20;
+                for (int y = hz + 1; y < PV_H; y++) {
+                    int half = (int)adas_feed_lane_half((float)y);
+                    int xl = PV_W / 2 - half, xr = PV_W / 2 + half;
+                    for (int k = 0; k < 2; k++) {
+                        if (xl + k >= 0 && xl + k < PV_W) dst[y * PV_W + xl + k] = 0x07E0;
+                        if (xr - k >= 0 && xr - k < PV_W) dst[y * PV_W + xr - k] = 0x07E0;
+                    }
+                }
+            }
             for (int i = 0; i < nb; i++) {
-                /* vang: vat dang canh bao (xe phia truoc), xanh: vat khac */
-                draw_rect(dst, bx[i].x1, bx[i].y1, bx[i].x2, bx[i].y2, bx[i].dist_m > 0 ? 0xFFE0 : 0x07E0);
+                /* vang: vat dang canh bao (xe phia truoc), xam: vat khac */
+                draw_rect(dst, bx[i].x1, bx[i].y1, bx[i].x2, bx[i].y2, bx[i].dist_m > 0 ? 0xFFE0 : 0xC618);
             }
         }
     }
