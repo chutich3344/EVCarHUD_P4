@@ -16,7 +16,7 @@ extern const lv_image_dsc_t obs_ico_car64, obs_ico_moto64, obs_ico_person64;
 #define ST_Y (UI_H - 12 - ST_H)
 #define HOLD_MS 700                 /* het vat can: giu them chut cho khoi nhap nhay */
 
-static lv_obj_t *s_frame, *s_strip, *s_ibox, *s_icon, *s_name, *s_sub, *s_dist;
+static lv_obj_t *s_frame, *s_strip, *s_ibox, *s_icon, *s_name, *s_sub, *s_dlbl;
 static lv_obj_t *s_crit, *s_cicon, *s_ctitle, *s_cdist;
 static lv_timer_t *s_tmr;
 static int s_level, s_cls, s_dist;
@@ -114,8 +114,8 @@ static void paint(void)
         lv_obj_set_style_text_color(s_name, txt, 0);
         lv_label_set_text(s_sub, sub);
         lv_obj_set_style_text_color(s_sub, txt, 0);
-        lv_label_set_text(s_dist, d);
-        lv_obj_set_style_text_color(s_dist, fg, 0);
+        lv_label_set_text(s_dlbl, d);
+        lv_obj_set_style_text_color(s_dlbl, fg, 0);
         lv_obj_move_foreground(s_strip);
     }
     if (danger) {
@@ -177,8 +177,8 @@ void obstacle_ui_init(void)
     lv_label_set_long_mode(s_name, LV_LABEL_LONG_DOT);
     s_sub = label(s_strip, &ui_font_txt14);
     lv_obj_set_pos(s_sub, 66, 36);
-    s_dist = label(s_strip, &ui_font_dist30);
-    lv_obj_align(s_dist, LV_ALIGN_RIGHT_MID, -14, 0);
+    s_dlbl = label(s_strip, &ui_font_dist30);
+    lv_obj_align(s_dlbl, LV_ALIGN_RIGHT_MID, -14, 0);
 
     s_crit = box(top);
     lv_obj_set_size(s_crit, UI_W, UI_H);
