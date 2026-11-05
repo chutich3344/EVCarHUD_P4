@@ -104,7 +104,8 @@ typedef struct {
 #define HLV 3                                 /* so co cua phan tren: nho (co dai) -> to (an dai) */
 typedef struct {
     const lv_font_t *f2, *f3, *r2, *r3;      /* f2: 1-2 chu so, f3: 3 chu so; r: so trong bien */
-    int sz2, sz3, rs;                        /* co chu so, duong kinh bien */
+    int sz2, sz3, rs;                        /* co chu so (hien thi), duong kinh bien */
+    int n2, nrs;                             /* co goc cua font f2 / co bien ma r2,r3 thiet ke cho (0: bang sz2 / rs) */
 } hlev_t;
 typedef struct {
     int n;
@@ -519,6 +520,7 @@ static void alert_value(const ui_alert_t *a, char *num, size_t nc, const char **
 #define CAP_H(sz) ((sz) * 727 / 1000)                 /* chieu cao chu so Inter */
 #define HALF_W    ((UI_W - 2 * PAD) / 2)
 
+#define UNIT_GAP(sz) (6 + (sz) / 40)                    /* so -> km/h: 8-9 px (ban ve 6 px + du cho so tron 8, 6, 9) */
 static head_t mk_head(lv_obj_t *p, int n, const hlev_t *lv)
 {
     head_t h = {.n = n};
@@ -531,14 +533,18 @@ static head_t mk_head(lv_obj_t *p, int n, const hlev_t *lv)
     int uw = text_w("km/h", &ui_font_txt16), gw = 0, gh = 0;
     for (int i = 0; i < n; i++) {
         h.lv[i] = lv[i];
-        int bw = lv_text_get_width("88", 2, lv[i].f2, -lv[i].sz2 * 4 / 100), b3 = lv_text_get_width("188", 3, lv[i].f3, -lv[i].sz3 * 4 / 100);
-        bw = (b3 > bw ? b3 : bw) + 4;
-        int ug = 8 + lv[i].sz2 * 7 / 100;
-        int x0 = PAD + (HALF_W - bw - ug - uw) / 2;
+        int n2 = lv[i].n2 ? lv[i].n2 : lv[i].sz2;
+        int b2 = lv_text_get_width("88", 2, lv[i].f2, -n2 * 4 / 100) * lv[i].sz2 / n2;   /* be rong hien thi */
+        int b3 = lv_text_get_width("188", 3, lv[i].f3, -lv[i].sz3 * 4 / 100);
+        int bv = (b3 > b2 ? b3 : b2) + 4;                          /* khung so co dinh (hien thi), can phai */
+        int bw = lv_text_get_width("88", 2, lv[i].f2, -n2 * 4 / 100) + 4;
+        if (b3 + 4 > bw) bw = b3 + 4;                               /* khung goc (font chua thu nho) */
+        int ug = UNIT_GAP(lv[i].sz2);
+        int x0 = PAD + (HALF_W - bv - ug - uw) / 2;                /* khoi so + km/h can giua nua trai */
         if (x0 < 4) x0 = 4;
-        h.num[i] = mk_label_w(p, lv[i].f2, x0, 0, bw, LV_TEXT_ALIGN_RIGHT);   /* can phai trong khung co dinh: so khong nhay */
+        h.num[i] = mk_label_w(p, lv[i].f2, x0 + bv - bw, 0, bw, LV_TEXT_ALIGN_RIGHT);   /* mep phai khung = mep phai so */
         lv_label_set_long_mode(h.num[i], LV_LABEL_LONG_CLIP);
-        h.unit[i] = mk_label(p, &ui_font_txt16, x0 + bw + ug, 0, "km/h");
+        h.unit[i] = mk_label(p, &ui_font_txt16, x0 + bv + ug, 0, "km/h");
         show(h.num[i], false);
         if (bw > gw) gw = bw;
     }
@@ -571,8 +577,9 @@ static void render_head(head_t *h, const int *w)
     for (int i = 0; i < h->n; i++) {
         const hlev_t *L = &h->lv[i];
         const lv_font_t *f = three ? L->f3 : L->f2;
-        int s_i = three ? L->sz3 : L->sz2;
-        int tw = lv_text_get_width(b, bl, f, -s_i * 4 / 100);
+        int s_i = three ? L->sz3 : L->sz2;                         /* co hien thi */
+        int n_i = three ? L->sz3 : (L->n2 ? L->n2 : L->sz2);       /* co goc cua font */
+        int tw = lv_text_get_width(b, bl, f, -n_i * 4 / 100);
         int c_i = lv_obj_get_x(h->num[i]) + lv_obj_get_width(h->num[i]) - tw / 2;   /* tam chu so (can phai) */
         cy += h->cy[i] * w[i];
         rs += L->rs * w[i];
@@ -586,7 +593,7 @@ static void render_head(head_t *h, const int *w)
     for (int i = 0; i < h->n; i++) show(h->unit[i], i == dom);
     const hlev_t *L = &h->lv[dom];
     const lv_font_t *f = three ? L->f3 : L->f2;
-    int s_d = three ? L->sz3 : L->sz2, ls = -s_d * 4 / 100;
+    int s_d = three ? L->sz3 : (L->n2 ? L->n2 : L->sz2), ls = -s_d * 4 / 100;   /* co goc font dang ve */
     int tw = lv_text_get_width(b, bl, f, ls), bw = lv_obj_get_width(h->num[dom]);
     int scale = sz * 256 / s_d;
     lv_obj_t *n = h->gt.cv;
@@ -600,7 +607,7 @@ static void render_head(head_t *h, const int *w)
     lv_obj_set_pos(n, gcx - px, cy - py);
     lv_obj_t *u = h->unit[dom];
     lv_obj_set_style_text_color(u, th->fg, 0);
-    int gap = (8 + s_d * 7 / 100) * scale / 256;                  /* ~18 px o so 150: chu so tron (8, 6, 9) khong bi de */
+    int gap = UNIT_GAP(sz);                                        /* sat so: km/h di cung khoi so */
     lv_obj_set_pos(u, gcx + tw * scale / 512 + gap, cy + CAP_H(s_d) * scale / 512 - baseline(&ui_font_txt16));
 
     lv_obj_set_size(h->ring, rs, rs);
@@ -615,7 +622,7 @@ static void render_head(head_t *h, const int *w)
     lv_label_set_text(h->rlbl, b);
     lv_obj_set_style_transform_pivot_x(h->rlbl, lv_pct(50), 0);
     lv_obj_set_style_transform_pivot_y(h->rlbl, lv_pct(50), 0);
-    lv_obj_set_style_transform_scale(h->rlbl, rs * 256 / L->rs, 0);
+    lv_obj_set_style_transform_scale(h->rlbl, rs * 256 / (L->nrs ? L->nrs : L->rs), 0);
     lv_obj_center(h->rlbl);
 }
 
@@ -875,9 +882,9 @@ static void build_cruise(void)
 {
     lv_obj_t *p = page[SCR_CRUISE] = mk_box(scr, 0, TOP_H, UI_W, BODY_H);
     static const hlev_t lv[3] = {
-        {&ui_font_d104, &ui_font_d96, &ui_font_r44, &ui_font_r36, 104, 96, 100},
-        {&ui_font_d150, &ui_font_d96, &ui_font_r76, &ui_font_sign64, 150, 96, 176},
-        {&ui_font_d150, &ui_font_d96, &ui_font_r92, &ui_font_r76, 150, 96, 202},
+        {&ui_font_d120, &ui_font_d96, &ui_font_r50, &ui_font_r44, 116, 96, 112, 120, 116},
+        {&ui_font_d150, &ui_font_d96, &ui_font_r76, &ui_font_sign64, 150, 96, 176, 0, 0},
+        {&ui_font_d150, &ui_font_d96, &ui_font_r92, &ui_font_r76, 150, 96, 196, 0, 202},
     };
     d_hd = mk_head(p, 3, lv);
     head_area(&d_hd, 1, 0, BODY_H - 12 - C_STRIP_H);
@@ -1025,8 +1032,8 @@ static void build_highway(void)
     lv_obj_t *p = page[SCR_HIGHWAY] = mk_box(scr, 0, TOP_H, UI_W, BODY_H);
     int by = BODY_H - 12 - H_BAR_H, sy = by - 8 - H_ST_H;
     static const hlev_t lv[2] = {
-        {&ui_font_d104, &ui_font_d96, &ui_font_r50, &ui_font_r44, 104, 96, 116},
-        {&ui_font_d120, &ui_font_d96, &ui_font_r76, &ui_font_sign64, 120, 96, 162},
+        {&ui_font_d150, &ui_font_d96, &ui_font_r76, &ui_font_sign64, 136, 96, 140, 150, 162},
+        {&ui_font_d150, &ui_font_d96, &ui_font_r76, &ui_font_sign64, 150, 96, 168, 0, 162},
     };
     h_hd = mk_head(p, 2, lv);
     head_area(&h_hd, 0, 6, sy - 8 - 6);
@@ -1106,8 +1113,8 @@ static void build_nav(void)
     lv_obj_t *p = page[SCR_NAV] = mk_box(scr, 0, TOP_H, UI_W, BODY_H);
     int ey = BODY_H - 12 - N_ETA_H, cy = ey - 8 - N_CELL_H, ew = UI_W - 2 * PAD;
     static const hlev_t lv[2] = {
-        {&ui_font_d120, &ui_font_d96, &ui_font_r50, &ui_font_r44, 120, 96, 116},
-        {&ui_font_d150, &ui_font_d96, &ui_font_r76, &ui_font_sign64, 150, 96, 168},
+        {&ui_font_d150, &ui_font_d96, &ui_font_r76, &ui_font_sign64, 136, 96, 136, 150, 162},
+        {&ui_font_d150, &ui_font_d96, &ui_font_r76, &ui_font_sign64, 150, 96, 168, 0, 162},
     };
     n_hd = mk_head(p, 2, lv);
     head_area(&n_hd, 0, 6, cy - 8 - 6);
