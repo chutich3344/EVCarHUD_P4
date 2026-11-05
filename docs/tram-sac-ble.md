@@ -17,6 +17,7 @@ App Android `android-tramsac/` tìm trạm sạc gần xe và gửi trạm đư�
 | Dịch vụ | `4556d001-8c2a-4b7e-9d3f-5a1c0e7b2f10` | primary |
 | STATION | `4556d002-8c2a-4b7e-9d3f-5a1c0e7b2f10` | write, write without response |
 | INFO | `4556d003-8c2a-4b7e-9d3f-5a1c0e7b2f10` | read, trả `TRAMSAC1` |
+| POS | `4556d004-8c2a-4b7e-9d3f-5a1c0e7b2f10` | write: vị trí xe cho thời tiết (`P1|...`) |
 
 App xin MTU 247 và ghi có phản hồi; mỗi lần ghi là một bản tin trọn vẹn (không có ký tự xuống dòng), tối đa ~140 byte.
 Nếu MTU nhỏ, Android tự chia thành "prepare write", nên HUD cần ghép theo `ble_hs_mbuf_to_flat` (đọc trọn `om`).
