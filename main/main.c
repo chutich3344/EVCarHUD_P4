@@ -24,6 +24,7 @@
 #include "gofa.h"
 #include "rtc_ds3231.h"
 #include "wifi_link.h"
+#include "usb_cam.h"
 #include <sys/time.h>
 #include <time.h>
 #include "ui_fonts.h"
@@ -259,6 +260,7 @@ void app_main(void)
     buttons_start();
     if (!demo) ble_link_start();                             /* cho Waze Mod ket noi qua Bluetooth LE */
     wifi_link_start();                                       /* Wi-Fi da luu: gio NTP + thoi tiet */
+    usb_cam_start();                                         /* camera USB (thu nghiem): xem truoc + FPS */
 #if CONFIG_EVCARHUD_LDR
     xTaskCreate(light_task, "anh_sang", 2560, NULL, 2, NULL);
 #endif

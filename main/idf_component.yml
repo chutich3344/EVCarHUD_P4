@@ -6,3 +6,4 @@ dependencies:
   espressif/esp_hosted: "*"                    # cau noi SDIO P4 <-> C6: Bluetooth LE nam o chip C6
   espressif/esp_wifi_remote: "*"               # esp_hosted can (Wi-Fi tren C6; ban nay chua dung Wi-Fi)
   espressif/esp_codec_dev: "~1.5"              # codec ES8311 + loa: tieng tit canh bao
+  espressif/usb_host_uvc: "^2.4.0"             # camera USB (UVC) o cong OTG: ban thu nhan dien vat can

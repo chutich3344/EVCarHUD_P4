@@ -1,5 +1,12 @@
 menu "EVCarHUD"
 
+    config EVCARHUD_USB_CAM
+        bool "Camera USB (UVC) o cong OTG: khung xem truoc + do FPS (thu nghiem nhan dien vat can)"
+        default y
+        help
+            Cam webcam UVC (MJPEG) vao cong Type-C "USB OTG" cua board: hien khung xem truoc 320x240 noi tren man hinh
+            kem FPS camera, thoi gian giai ma JPEG phan cung, FPS hien thi. Cham khung de an.
+
     menu "Man hinh"
         config EVCARHUD_LCD_SPI_MHZ
             int "Toc do SPI man hinh (MHz)"
