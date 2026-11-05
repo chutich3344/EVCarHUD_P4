@@ -23,7 +23,10 @@
 #include "usb/uvc_host.h"
 #include "driver/jpeg_decode.h"
 
+#include "adas_feed.h"
 #include "board.h"
+#include "detect.h"
+#include "obstacle_ui.h"
 #include "dashboard.h"
 #include "ui_fonts.h"
 
@@ -107,6 +110,9 @@ static volatile bool s_hidden;
 /* so do (task usb_cam ghi, cap nhat nhan moi giay) */
 static int s_frames, s_decoded, s_shown, s_errs;
 static int64_t s_dec_us_sum;
+static int s_det_runs, s_det_ms_sum, s_det_last = -1;
+static int64_t s_shown_since;                    /* luc khung xem truoc hien (tu an sau PREVIEW_S giay) */
+#define PREVIEW_S 20
 
 /* ---------------- USB ---------------- */
 static bool frame_cb(const uvc_host_frame_t *frame, void *ctx)
@@ -204,7 +210,7 @@ static void ui_create(void)
 {
     s_box = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_box);
-    lv_obj_set_size(s_box, PV_W + 8, PV_H + 8 + 44);
+    lv_obj_set_size(s_box, PV_W + 8, PV_H + 8 + 50);
     lv_obj_align(s_box, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_color(s_box, lv_color_hex(0x10131E), 0);
     lv_obj_set_style_bg_opa(s_box, LV_OPA_COVER, 0);
@@ -227,6 +233,7 @@ static void ui_create(void)
     lv_obj_set_style_text_font(s_info, &ui_font_sm12, 0);
     lv_obj_set_style_text_color(s_info, lv_color_hex(0xE5E7EB), 0);
     lv_label_set_text(s_info, "Camera USB: đang chờ ảnh...\nChạm để ẩn");
+    lv_obj_set_style_text_line_space(s_info, -1, 0);
     lv_obj_add_flag(s_box, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -235,6 +242,7 @@ static void ui_show(bool on)
     board_ui_lock();
     if (on) {
         s_hidden = false;
+        s_shown_since = esp_timer_get_time();
         lv_obj_remove_flag(s_box, LV_OBJ_FLAG_HIDDEN);
         lv_obj_move_foreground(s_box);
     } else {
@@ -251,14 +259,19 @@ static void stats_tick(void)
     if (now - last < 1000000) return;
     float sec = (now - last) / 1e6f;
     int dec_ms = s_decoded ? (int)(s_dec_us_sum / s_decoded / 1000) : 0;
-    char txt[160];
-    snprintf(txt, sizeof txt, "Camera %ux%u MJPEG · nhận %.0f khung/s\nGiải mã %d ms · hiển thị %.0f khung/s · lỗi %d",
-             s_fmt_w, s_fmt_h, s_frames / sec, dec_ms, s_shown / sec, s_errs);
+    char txt[200];
+    int det_ms = s_det_runs ? s_det_ms_sum / s_det_runs : 0;
+    snprintf(txt, sizeof txt, "Camera %ux%u · nhận %.0f khung/s · giải mã %d ms\nNhận diện %d ms (%.0f lần/s) · %d vật · lỗi %d\nChạm để ẩn",
+             s_fmt_w, s_fmt_h, s_frames / sec, dec_ms, det_ms, s_det_runs / sec, s_det_last < 0 ? 0 : s_det_last, s_errs);
     ESP_LOGI(TAG, "%s", txt);
     board_ui_lock();
     lv_label_set_text(s_info, txt);
+    if (!s_hidden && s_shown_since && now - s_shown_since > PREVIEW_S * 1000000LL) {   /* dang chay xe: tu an */
+        s_hidden = true;
+        lv_obj_add_flag(s_box, LV_OBJ_FLAG_HIDDEN);
+    }
     board_ui_unlock();
-    s_frames = s_decoded = s_shown = 0;
+    s_frames = s_decoded = s_shown = s_det_runs = s_det_ms_sum = 0;
     s_dec_us_sum = 0;
     last = now;
 }
@@ -273,15 +286,36 @@ static void downscale(const uint16_t *src, unsigned w, unsigned h, uint16_t *dst
     }
 }
 
-/* Xu ly 1 khung: chep (+ chen DHT) -> giai ma -> thu nho -> doi bo dem canvas. */
-static void handle_frame(const uvc_host_frame_t *f)
+/* Ve khung chu nhat 2 diem anh len anh xem truoc */
+static void draw_rect(uint16_t *img, int x1, int y1, int x2, int y2, uint16_t c)
+{
+    if (x1 < 0) x1 = 0;
+    if (y1 < 0) y1 = 0;
+    if (x2 > PV_W - 1) x2 = PV_W - 1;
+    if (y2 > PV_H - 1) y2 = PV_H - 1;
+    if (x2 - x1 < 3 || y2 - y1 < 3) return;
+    for (int t = 0; t < 2; t++) {
+        for (int x = x1; x <= x2; x++) {
+            img[(y1 + t) * PV_W + x] = c;
+            img[(y2 - t) * PV_W + x] = c;
+        }
+        for (int y = y1; y <= y2; y++) {
+            img[y * PV_W + x1 + t] = c;
+            img[y * PV_W + x2 - t] = c;
+        }
+    }
+}
+
+/* Chep khung MJPEG (+ chen DHT) vao bo dem cua bo giai ma; false neu khung hong / qua lon. Sau ham nay tra khung ngay. */
+static size_t s_need;
+static bool copy_frame(const uvc_host_frame_t *f)
 {
     size_t n = f->data_len;
     size_t pos = dht_insert_pos(f->data, n);
-    size_t need = n + (pos ? sizeof k_dht : 0);
-    if (need > s_in_cap) {
+    s_need = n + (pos ? sizeof k_dht : 0);
+    if (s_need > s_in_cap || n < 4) {
         s_errs++;
-        return;
+        return false;
     }
     if (pos) {
         memcpy(s_in, f->data, pos);
@@ -290,21 +324,26 @@ static void handle_frame(const uvc_host_frame_t *f)
     } else {
         memcpy(s_in, f->data, n);
     }
+    return true;
+}
 
+/* Giai ma -> thu nho 320x240 -> nhan dien vat can -> canh bao; neu khung xem truoc dang hien: ve khung + doi bo dem canvas. */
+static void process_frame(void)
+{
     jpeg_decode_picture_info_t info;
-    if (jpeg_decoder_get_info(s_in, need, &info) != ESP_OK || !info.width || !info.height ||
-        (size_t)info.width * info.height * 2 > s_rgb_cap) {
+    if (jpeg_decoder_get_info(s_in, s_need, &info) != ESP_OK || !info.width || !info.height ||
+        (size_t)((info.width + 15) & ~15u) * ((info.height + 15) & ~15u) * 2 > s_rgb_cap) {
         s_errs++;
         return;
     }
     jpeg_decode_cfg_t dcfg = {
         .output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
-        .rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,     /* RGB565 little-endian = dung dinh dang LVGL */
+        .rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR,     /* RGB565 little-endian = dinh dang LVGL; ESP-DL: RGB565LE */
         .conv_std = JPEG_YUV_RGB_CONV_STD_BT601,
     };
     uint32_t out_len = 0;
     int64_t t0 = esp_timer_get_time();
-    esp_err_t err = jpeg_decoder_process(s_jpeg, &dcfg, s_in, need, (uint8_t *)s_rgb, s_rgb_cap, &out_len);
+    esp_err_t err = jpeg_decoder_process(s_jpeg, &dcfg, s_in, s_need, (uint8_t *)s_rgb, s_rgb_cap, &out_len);
     if (err != ESP_OK) {
         s_errs++;
         return;
@@ -316,6 +355,26 @@ static void handle_frame(const uvc_host_frame_t *f)
     unsigned stride_w = (info.width + 15) & ~15u;
     uint16_t *dst = s_pv[s_pv_back];
     downscale(s_rgb, stride_w, info.height, dst);
+
+#if CONFIG_EVCARHUD_DETECT
+    detect_box_t bx[DET_BOX_MAX];
+    int ms = 0;
+    int nb = detect_run_rgb565((const uint8_t *)dst, PV_W, PV_H, bx, DET_BOX_MAX, &ms);
+    s_det_last = nb;
+    if (nb >= 0) {
+        s_det_runs++;
+        s_det_ms_sum += ms;
+        adas_feed(bx, nb, PV_W, PV_H);
+        if (!s_hidden) {
+            for (int i = 0; i < nb; i++) {
+                /* vang: vat dang canh bao (xe phia truoc), xanh: vat khac */
+                draw_rect(dst, bx[i].x1, bx[i].y1, bx[i].x2, bx[i].y2, bx[i].dist_m > 0 ? 0xFFE0 : 0x07E0);
+            }
+        }
+    }
+#endif
+
+    if (s_hidden) return;
     board_ui_lock();
     lv_canvas_set_buffer(s_canvas, dst, PV_W, PV_H, LV_COLOR_FORMAT_RGB565);
     lv_obj_invalidate(s_canvas);
@@ -347,12 +406,14 @@ static void cam_task(void *arg)
             uvc_host_frame_t *f;
             if (xQueueReceive(s_q, &f, pdMS_TO_TICKS(500)) == pdPASS) {
                 s_frames++;
-                if (!s_hidden) handle_frame(f);
-                if (s_stream) uvc_host_frame_return(s_stream, f);
+                bool ok = copy_frame(f);
+                if (s_stream) uvc_host_frame_return(s_stream, f);   /* tra khung ngay: camera nap tiep trong luc giai ma */
+                if (ok) process_frame();
             }
             stats_tick();
         }
         ui_show(false);
+        adas_feed_lost();
     }
 }
 
@@ -373,6 +434,7 @@ void usb_cam_start(void)
 
     board_ui_lock();
     ui_create();
+    obstacle_ui_init();
     board_ui_unlock();
 
     usb_host_config_t host_cfg = {
@@ -397,7 +459,7 @@ void usb_cam_start(void)
         ESP_LOGE(TAG, "khong cai duoc driver UVC");
         return;
     }
-    xTaskCreatePinnedToCore(cam_task, "usb_cam", 6144, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(cam_task, "usb_cam", 16384, NULL, 5, NULL, 0);   /* stack lon: ESP-DL chay trong task nay */
     ESP_LOGI(TAG, "cho camera USB o cong OTG...");
 }
 #endif /* CONFIG_EVCARHUD_USB_CAM */

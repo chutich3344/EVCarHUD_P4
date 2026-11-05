@@ -2354,6 +2354,7 @@ void ui_set_speed(int kmh)
 }
 
 int ui_get_speed(void) { return speed; }
+bool ui_is_night(void) { return night; }
 
 lv_obj_t *ui_screen(void) { return scr; }
 

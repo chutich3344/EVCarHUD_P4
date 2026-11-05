@@ -47,6 +47,7 @@ void ui_set_speed(int kmh);
 void ui_set_speed_limit(int kmh);                 /* 0 = chua biet: an bien, khong canh bao */
 void ui_set_time(int hour, int minute, int wday); /* wday: 0 = Chu nhat ... 6 = Thu bay, -1 = chua biet */
 int ui_get_speed(void);
+bool ui_is_night(void);                          /* giao dien dang Dem (canh bao vat can lay mau theo) */
 void ui_set_date(int day, int month);
 bool ui_get_clock(int *h, int *m);                /* false: chua co gio */
 enum { UI_TSRC_NONE = 0, UI_TSRC_RTC = 1, UI_TSRC_PHONE = 2, UI_TSRC_NTP = 3 };   /* nguon gio, thap -> cao */
