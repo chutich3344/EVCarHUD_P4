@@ -1,0 +1,306 @@
+/* Chup anh giao dien 480x320 tren PC (khong can board): chay che do trinh dien qua bo giai ma HLP that
+ * va luu vai khung hinh ra file BMP. Xem tools/pc_preview/build.sh. */
+#include "lvgl.h"
+#include "dashboard.h"
+#include "demo.h"
+#include "gofa.h"
+#include <string.h>
+#include "dashboard_hlp.h"
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+static uint16_t fb[UI_W * UI_H];
+static uint32_t now_ms;
+static uint32_t tick_cb(void) { return now_ms; }
+
+static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
+{
+    const uint16_t *src = (const uint16_t *)px;
+    for (int y = a->y1; y <= a->y2; y++)
+        for (int x = a->x1; x <= a->x2; x++) fb[y * UI_W + x] = *src++;
+    lv_display_flush_ready(d);
+}
+
+static void run(int ms)
+{
+    for (int t = 0; t < ms; t += 10) {
+        now_ms += 10;
+        lv_timer_handler();
+    }
+}
+
+static void save_bmp(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    int row = UI_W * 3, size = 54 + row * UI_H;
+    uint8_t h[54] = {'B', 'M'};
+    memcpy(h + 2, &size, 4);
+    h[10] = 54; h[14] = 40;
+    int w = UI_W, hh = -UI_H;                       /* chieu cao am: tu tren xuong */
+    memcpy(h + 18, &w, 4); memcpy(h + 22, &hh, 4);
+    h[26] = 1; h[28] = 24;
+    fwrite(h, 1, 54, f);
+    for (int i = 0; i < UI_W * UI_H; i++) {
+        uint16_t c = fb[i];
+        uint8_t bgr[3] = {(uint8_t)((c & 0x1F) << 3), (uint8_t)(((c >> 5) & 0x3F) << 2), (uint8_t)((c >> 11) << 3)};
+        fwrite(bgr, 1, 3, f);
+    }
+    fclose(f);
+    printf("da luu %s\n", path);
+}
+
+int main(int argc, char **argv)
+{
+    const char *dir = argc > 1 ? argv[1] : ".";
+    char p[256];
+    lv_init();
+    lv_tick_set_cb(tick_cb);
+    lv_display_t *d = lv_display_create(UI_W, UI_H);
+    static uint16_t buf[UI_W * UI_H];
+    lv_display_set_buffers(d, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_cb(d, flush_cb);
+
+    int force = argc > 2 ? (!strcmp(argv[2], "day") ? UI_MODE_DAY : UI_MODE_NIGHT) : -1;   /* ./preview out_ngay day */
+    if (force >= 0) ui_set_boot_night(force == UI_MODE_NIGHT);   /* tren board: main.c doc che do da luu */
+    lv_screen_load(ui_splash_create("v1.1", UI_SRC_WAZE));          /* man chao logo */
+    run(800);
+    snprintf(p, sizeof p, "%s/00_man_chao.bmp", dir); save_bmp(p);
+    run(1400);
+    snprintf(p, sizeof p, "%s/00b_man_chao_waze.bmp", dir); save_bmp(p);
+    lv_screen_load(ui_splash_create("v1.1", UI_SRC_GOFA));
+    run(2200);
+    snprintf(p, sizeof p, "%s/00c_man_chao_gofa.bmp", dir); save_bmp(p);
+
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+    dashboard_create(scr);
+    hlp_dash_init(NULL, NULL);                     /* tren board: link_init() goi */
+    if (force >= 0) ui_set_mode(force);
+    run(400);
+
+    /* Man cho chua co gio + trang Wi-Fi */
+    ui_wifi_set_state(UI_WIFI_IDLE, NULL);
+    run(300);
+    snprintf(p, sizeof p, "%s/cho_1_chua_co_gio.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTING, "EVCar-Garage");
+    run(300);
+    snprintf(p, sizeof p, "%s/cho_2_tu_ket_noi.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_IDLE, "");
+    ui_open_wifi();
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_1_dang_do.bmp", dir); save_bmp(p);
+    {
+        ui_wifi_ap_t aps[5] = {{"iPhone của Kevin", -48, true}, {"EVCar-Garage", -60, true},
+                               {"VNPT_5G_A2F1", -72, true}, {"Highlands Coffee", -84, false}, {"", -50, true}};
+        ui_wifi_scan_done(aps, 5);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_2_danh_sach.bmp", dir); save_bmp(p);
+    ui_wifi_test_pass("iPhone của Kevin", "", true);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_3_mat_khau_loi.bmp", dir); save_bmp(p);
+    ui_wifi_test_pass("iPhone của Kevin", "evcar2026", false);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_4_mat_khau.bmp", dir); save_bmp(p);
+    ui_wifi_test_join();
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_5_dang_ket_noi.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTED, "iPhone của Kevin");
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_6_da_ket_noi.bmp", dir); save_bmp(p);
+    hlp_dash_set_clock(1793578500LL, 7 * 60, UI_TSRC_NTP);       /* 02/11/2026 07:15 (UTC+7) */
+    ui_set_weather(UI_WX_SUN, "TP. Hồ Chí Minh · 31°C · Nắng");
+    run(2400);
+    snprintf(p, sizeof p, "%s/cho_3_co_gio_wifi.bmp", dir); save_bmp(p);
+    ui_open_wifi();
+    ui_wifi_scan_done((ui_wifi_ap_t[]){{"iPhone của Kevin", -48, true}, {"EVCar-Garage", -60, true}}, 2);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_7_da_luu.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_OFF, "");
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_8_tat.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTED, "iPhone của Kevin");
+    lv_obj_add_flag(lv_obj_get_child(lv_layer_top(), -1), LV_OBJ_FLAG_HIDDEN);
+    run(300);
+
+    /* Kich ban chay thu giong trang web (che do trinh dien): chup cuoi moi muc, khi chu ten muc da tat */
+    demo_start();                                   /* vao thang muc 1 (logo da chup o tren) */
+    for (int i = 1; demo_step_ms(i) > 0; i++) {
+        run(demo_step_ms(i) - 300);
+        snprintf(p, sizeof p, "%s/buoc_%02d.bmp", dir, i); save_bmp(p);
+        run(300);
+    }
+
+    demo_stop();
+    if (force >= 0) ui_set_mode(force);
+    run(400);
+    /* Man Cao toc + man Canh bao khong co o phu (khong co trong kich ban trinh dien) */
+    ui_set_signal(true);
+    ui_set_phone(true);
+    ui_set_waze(true);
+    run(300);
+    snprintf(p, sizeof p, "%s/ket_noi_waze.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "", 0);             /* dien thoai xac nhan khong dan duong: bo man dan duong giu tam (3 s) */
+    run(3600);
+    ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
+    ui_set_speed(112);
+    ui_set_speed_limit(120);
+    {
+        ui_alert_t a[3] = {{12, 24000, -1}, {19, 18000, -1}, {2, 2400, -1}};
+        ui_set_alerts(a, 3);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/cao_toc.bmp", dir); save_bmp(p);
+    ui_set_speed_limit(60);
+    ui_set_speed(72);
+    {
+        ui_alert_t a[1] = {{59, 250, -1}};
+        ui_set_alerts(a, 1);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/canh_bao_mot.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_alerts(NULL, 0);
+    ui_set_speed_limit(50);
+    ui_set_speed(68);
+    run(300);
+    snprintf(p, sizeof p, "%s/toc_do_vuot.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{1, 1200, -1}};
+        ui_set_speed(45);
+        ui_set_alerts(a, 1);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/canh_bao_csgt.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{2, 300, -1}};
+        ui_set_speed(45);
+        ui_set_alerts(a, 1);
+    }
+    run(600);
+    snprintf(p, sizeof p, "%s/anim_0_co_dai.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    run(200);
+    snprintf(p, sizeof p, "%s/anim_1_giua.bmp", dir); save_bmp(p);
+    run(400);
+    snprintf(p, sizeof p, "%s/anim_2_an_dai.bmp", dir); save_bmp(p);
+    ui_set_speed(88);
+    ui_set_speed_limit(90);
+    run(300);
+    snprintf(p, sizeof p, "%s/so_88.bmp", dir); save_bmp(p);
+    ui_set_speed(68);
+    ui_set_speed_limit(50);
+    run(300);
+    snprintf(p, sizeof p, "%s/so_68.bmp", dir); save_bmp(p);
+    ui_set_speed(45);
+    ui_set_speed_limit(50);
+    run(300);
+    ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'N');
+    run(600);
+    snprintf(p, sizeof p, "%s/tram_sac.bmp", dir); save_bmp(p);
+    ui_set_waze(false);
+    ui_set_station("Vincom Center Đồng Khởi - VinFast", 590, '?', UI_TS_NO_ANGLE, 0, 0, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich_gps.bmp", dir); save_bmp(p);
+    ui_set_waze(true);
+    ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich.bmp", dir); save_bmp(p);
+    ui_set_station("VinFast Vincom Thảo Điền", 1800, 'L', -95, 60, 4, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich_xa.bmp", dir); save_bmp(p);
+    ui_set_station("VinFast Vincom Thảo Điền", 20, 'R', 80, 60, 4, 12, 'D');
+    run(600);
+    snprintf(p, sizeof p, "%s/den_noi_tram.bmp", dir); save_bmp(p);
+    lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_layer_top(), -1), -1), LV_EVENT_CLICKED, NULL);
+    ui_set_station(NULL, 0, '?', UI_TS_NO_ANGLE, 0, 0, 0, 'N');
+    run(600);
+    ui_set_nav(true, 2, 2500, 0, "Nguyễn Hữu Thọ", 0);
+    ui_set_route("20:05", 6500, 18);
+    run(300);
+    snprintf(p, sizeof p, "%s/re_xa.bmp", dir); save_bmp(p);
+    ui_set_nav(true, 2, 600, 0, "Nguyễn Hữu Thọ", 0);
+    run(600);
+    snprintf(p, sizeof p, "%s/re_gan.bmp", dir); save_bmp(p);
+    {                                               /* kieu C: co canh bao -> hang day len, dai vao cho day */
+        ui_alert_t a[1] = {{2, 300, -1}};
+        ui_set_alerts(a, 1);
+    }
+    run(200);
+    snprintf(p, sizeof p, "%s/re_canh_bao_giua.bmp", dir); save_bmp(p);
+    run(500);
+    snprintf(p, sizeof p, "%s/re_canh_bao.bmp", dir); save_bmp(p);
+    ui_set_speed(104);
+    ui_set_speed_limit(100);
+    run(300);
+    snprintf(p, sizeof p, "%s/re_canh_bao_3so.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    run(200);
+    snprintf(p, sizeof p, "%s/re_qua_canh_bao_giua.bmp", dir); save_bmp(p);
+    run(500);
+    snprintf(p, sizeof p, "%s/re_3so.bmp", dir); save_bmp(p);
+    ui_set_speed(45);
+    ui_set_speed_limit(50);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_alerts(NULL, 0);
+    ui_set_signal(false);
+    ui_set_phone(false);
+    run(300);
+    /* Nut BOOT trong cai dat: 1 lan = muc ke (khung vang), 2 lan = chon */
+    /* Gia lap app Gofa: ban tin protobuf giong tai lieu (so truong = thu tu trong bang) */
+    ui_set_source(UI_SRC_GOFA);
+    gofa_connected(true);
+    run(2600);                                      /* het man "Da ket noi dien thoai" */
+    {
+        char sum[96];
+        static const uint8_t tm[] = {0x0A, 0x06, 0x08, 14, 0x10, 5, 0x18, 9};
+        static const uint8_t spd[] = {0x08, 45};
+        static const uint8_t sg[] = {0x08, 5, 0x10, 33, 0x18, 0xAC, 0x02};
+        uint8_t nav[96];
+        size_t n = 0;
+        const char *a = "Mai Chí Thọ", *b = "Đồng Văn Cống";
+        nav[n++] = 0x08; nav[n++] = 2;
+        nav[n++] = 0x12; nav[n++] = (uint8_t)strlen(a); memcpy(nav + n, a, strlen(a)); n += strlen(a);
+        nav[n++] = 0x1A; nav[n++] = (uint8_t)strlen(b); memcpy(nav + n, b, strlen(b)); n += strlen(b);
+        nav[n++] = 0x20; nav[n++] = 4; nav[n++] = 0x28; nav[n++] = 0x96; nav[n++] = 0x01;
+        gofa_handle(GOFA_CHR_TIME, tm, sizeof tm, sum, sizeof sum); printf("%s\n", sum);
+        gofa_handle(GOFA_CHR_SPEED, spd, sizeof spd, sum, sizeof sum); printf("%s\n", sum);
+        gofa_handle(GOFA_CHR_SIGN, sg, sizeof sg, sum, sizeof sum); printf("%s\n", sum);
+        run(300);
+        snprintf(p, sizeof p, "%s/gofa_cruise.bmp", dir); save_bmp(p);
+        gofa_handle(GOFA_CHR_NAV, nav, n, sum, sizeof sum); printf("%s\n", sum);
+        char last[160];
+        snprintf(last, sizeof last, "%s\n08 02 12 0E 4D 61 69 20", sum);
+        ui_gofa_debug("GOFA: đang nhận dữ liệu", last);
+        run(300);
+        snprintf(p, sizeof p, "%s/gofa_nav.bmp", dir); save_bmp(p);
+        static const uint8_t off[] = {0x08, 0};
+        gofa_handle(GOFA_CHR_NAV, off, sizeof off, sum, sizeof sum);
+        gofa_connected(false);
+        run(7000);
+    }
+    ui_set_source(UI_SRC_WAZE);
+    ui_set_mac("A0:B7:65:2C:4F:A6");
+    ui_open_settings();
+    static const int keys[] = {UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_OK, UI_KEY_NEXT, UI_KEY_OK, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_OK};
+    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+        ui_settings_key(keys[i]);
+        run(200);
+        snprintf(p, sizeof p, "%s/nut_%02d.bmp", dir, (int)i); save_bmp(p);
+    }
+    ui_settings_key(UI_KEY_OK);
+    run(200);
+    snprintf(p, sizeof p, "%s/nut_99.bmp", dir); save_bmp(p);
+    /* tung trang cai dat + man "Da chon GOFA" */
+    for (int pg = 0; pg < 4; pg++) {
+        ui_open_settings_page(pg);
+        run(200);
+        snprintf(p, sizeof p, "%s/cai_dat_%d.bmp", dir, pg); save_bmp(p);
+    }
+    ui_test_switch(UI_SRC_GOFA);
+    run(200);
+    snprintf(p, sizeof p, "%s/cai_dat_doi_nguon.bmp", dir); save_bmp(p);
+    return 0;
+}

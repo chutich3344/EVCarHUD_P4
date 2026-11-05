@@ -1,0 +1,7 @@
+# Flash 16 MB: mot ban firmware duy nhat (giong ban S3: nap file gop o dia chi 0x0, khong can OTA).
+# coredump: hien truong khi board sap (doc bang: idf.py -p COMx coredump-info).
+# Name,   Type, SubType,  Offset,   Size
+nvs,      data, nvs,      0x9000,   0x6000
+phy_init, data, phy,      0xf000,   0x1000
+factory,  app,  factory,  0x10000,  0x600000
+coredump, data, coredump, 0x610000, 0x40000

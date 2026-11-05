@@ -1,0 +1,49 @@
+# --- EVCarHUD: board Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5 (ESP32-P4, flash 16 MB, PSRAM 32 MB) ---
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Board sap (panic): luu hien truong vao vung flash "coredump" (idf.py -p COMx coredump-info)
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+
+# Bluetooth LE cho Waze Mod / GOFA: song Bluetooth nam o chip C6 (esp_hosted qua SDIO), ngan xep NimBLE chay tren P4.
+CONFIG_ESP_HOSTED_HOST_FEAT_BT=y
+CONFIG_BT_ENABLED=y
+CONFIG_BT_CONTROLLER_DISABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_TRANSPORT_UART=n
+# Giong ban P4 cu (da chay that voi firmware C6 xuat xuong): chi tinh nang BLE 4.2
+CONFIG_BT_NIMBLE_42_FEATURE_SUPPORT=y
+CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT=n
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# Phai bat vai tro trung tam: tu ESP-IDF 5.5 GATT client (CONFIG_BT_NIMBLE_GATT_CLIENT) chi co khi bat vai tro nay.
+# Khong co GATT client thi NimBLE vut chi bao Service Changed (op 0x1d) dien thoai gui luc vua ket noi ma khong xac nhan,
+# Android ket o do, khong do duoc dich vu HLP va Waze Mod bao "HLP characteristics missing".
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_GATT_CLIENT=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=247
+# Khong ghep doi/luu khoa (giong ban S3).
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=n
+CONFIG_BT_NIMBLE_NVS_PERSIST=n
+CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
+
+# LVGL 9: mau 16 bit; font la font tu sinh (ui_font_*.c, Inter).
+CONFIG_LV_COLOR_DEPTH_16=y
+# LVGL cap phat bang malloc cua he thong (lon thi vao PSRAM): lop phong to so khi chuyen man can ~150 KB
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+
+# Board Waveshare dang ban dung chip P4 doi cu (v1.x). ESP-IDF 5.5 mac dinh chi chay tren v3.01-v3.99:
+# bootloader thay chip khong khop la dung, man hinh khong len gi.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_0=y
