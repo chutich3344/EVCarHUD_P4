@@ -43,7 +43,7 @@ class MainActivity : Activity() {
         private const val NAV_JS = """(function(){ if (window.__hudNav) return; window.__hudNav = 1;
   function fix(){ var a = document.querySelector('nav.nav a[href="/"]'); if (!a || a.dataset.hud) return;
     a.dataset.hud = 1; a.setAttribute('aria-label', 'HUD'); a.setAttribute('href', '#hud');
-    a.innerHTML = '<i class="fa-solid fa-display"></i>'; }
+    a.innerHTML = '<i class="fa-solid fa-display"></i><span>HUD</span>'; }
   fix(); new MutationObserver(fix).observe(document.body, {childList:true, subtree:true});
   document.addEventListener('click', function(e){
     var a = e.target.closest && e.target.closest('a'); if (!a || !a.dataset.hud) return;
