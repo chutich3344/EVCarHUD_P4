@@ -6,9 +6,13 @@
 #include "gofa.h"
 #include <string.h>
 #include "dashboard_hlp.h"
+#include "obstacle_ui.h"
+#include "detect.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+
+void board_beep(int times) { printf("(tit %d)\n", times); }   /* tren board: loa */
 
 static uint16_t fb[UI_W * UI_H];
 static uint32_t now_ms;
@@ -77,6 +81,7 @@ int main(int argc, char **argv)
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
     dashboard_create(scr);
     hlp_dash_init(NULL, NULL);                     /* tren board: link_init() goi */
+    obstacle_ui_init();                            /* tren board: usb_cam_start() goi */
     if (force >= 0) ui_set_mode(force);
     run(400);
 
@@ -241,6 +246,38 @@ int main(int argc, char **argv)
     snprintf(p, sizeof p, "%s/re_qua_canh_bao_giua.bmp", dir); save_bmp(p);
     run(500);
     snprintf(p, sizeof p, "%s/re_3so.bmp", dir); save_bmp(p);
+    /* Canh bao vat can (phuong an E): o vat can de len cho bien, bien nho o goc */
+    obstacle_ui_set(OBS_CAUTION, DET_CLS_CAR, 19, 2.7f, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/vc_1_re_3so_chu_y.bmp", dir); save_bmp(p);
+    ui_set_speed(58);
+    ui_set_speed_limit(60);
+    run(700);
+    snprintf(p, sizeof p, "%s/vc_2_re_chu_y.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{2, 300, -1}};
+        ui_set_alerts(a, 1);
+    }
+    obstacle_ui_set(OBS_DANGER, DET_CLS_TWO, 9, 1.6f, false);
+    run(700);
+    snprintf(p, sizeof p, "%s/vc_3_re_canh_bao_nguy_hiem.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    run(3600);
+    obstacle_ui_set(OBS_CAUTION, DET_CLS_PERSON, 14, 0, false);
+    run(500);
+    snprintf(p, sizeof p, "%s/vc_4_chay_nguoi.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_DANGER, DET_CLS_CAR, 11, 1.6f, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/vc_5_chay_nguy_hiem.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_CRITICAL, DET_CLS_CAR, 6, 1.1f, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/vc_6_khan_cap.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
+    run(800);
+    obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/vc_7_het.bmp", dir); save_bmp(p);
     ui_set_speed(45);
     ui_set_speed_limit(50);
     ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);

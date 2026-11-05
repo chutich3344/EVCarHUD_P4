@@ -2356,6 +2356,27 @@ void ui_set_speed(int kmh)
 int ui_get_speed(void) { return speed; }
 bool ui_is_night(void) { return night; }
 
+bool ui_sign_slot(lv_area_t *a, int *lim, bool hide)
+{
+    head_t *hs[3] = {&d_hd, &h_hd, &n_hd};
+    const int pg[3] = {SCR_CRUISE, SCR_HIGHWAY, SCR_NAV};
+    bool got = false;
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *r = hs[i]->ring;
+        if (!r) continue;
+        bool cur = !got && scr && lv_screen_active() == scr && page[pg[i]] && shown(page[pg[i]]);
+        lv_opa_t o = cur && hide ? LV_OPA_TRANSP : LV_OPA_COVER;
+        if (lv_obj_get_style_opa(r, 0) != o) lv_obj_set_style_opa(r, o, 0);
+        if (!cur) continue;
+        int x = lv_obj_get_style_x(r, 0), y = lv_obj_get_style_y(r, 0) + TOP_H;
+        int w = lv_obj_get_style_width(r, 0), h = lv_obj_get_style_height(r, 0);
+        a->x1 = x; a->y1 = y; a->x2 = x + w - 1; a->y2 = y + h - 1;
+        if (lim) *lim = limit;
+        got = true;
+    }
+    return got;
+}
+
 lv_obj_t *ui_screen(void) { return scr; }
 
 void ui_set_speed_limit(int kmh)
