@@ -42,6 +42,7 @@ gen ui_font_clock120 120 inter 700 clock
 gen ui_font_txt20   20 inter 700 full
 # so to hon cho man chi dan / canh bao (gop y sau khi chay tren board that)
 # bo cuc chot 02/11: toc do + bien gioi han chia doi phia tren, Inter ExtraBold (800)
+gen ui_font_d190    190 inter 800 digits
 gen ui_font_d150    150 inter 800 digits
 gen ui_font_d120    120 inter 800 digits
 gen ui_font_d104    104 inter 800 digits

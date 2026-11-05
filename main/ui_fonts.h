@@ -18,7 +18,7 @@ extern const lv_font_t ui_font_clk18;    /* Inter SemiBold 18, chu so ":": gio t
 extern const lv_font_t ui_font_clock120; /* Inter Bold 120, chu so ":": dong ho so man cho */
 extern const lv_font_t ui_font_txt20;    /* Inter Bold 20, day du chu Viet: ten duong, ten canh bao */
 /* Inter ExtraBold (800), chi chu so va "-": bo cuc chot 02/11 (toc do + bien gioi han chia doi) */
-extern const lv_font_t ui_font_d150, ui_font_d120, ui_font_d104, ui_font_d96;   /* so toc do */
+extern const lv_font_t ui_font_d190, ui_font_d150, ui_font_d120, ui_font_d104, ui_font_d96;   /* so toc do */
 extern const lv_font_t ui_font_r76, ui_font_r50, ui_font_r44, ui_font_r36;       /* so trong bien gioi han */
 extern const lv_font_t ui_font_dist26;   /* Inter ExtraBold 26: khoang cach "250 m", "1,2 km" tren dai */
 extern const lv_font_t ui_font_dist30;   /* Inter ExtraBold 30: khoang cach tren dai canh bao */

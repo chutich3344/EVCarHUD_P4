@@ -67,7 +67,7 @@ static void ds_init_once(void)
 }
 
 /* Theme cho man khoi dong (va Tu dong khi chua co gio): Ngay / Dem da chon; Tu dong: gio trong chip hoac DS3231
- * (6:00-18:00 la ngay), khong co gio thi theme lan cuoi da dung (NVS). */
+ * (6:00-18:00 la ngay), khong co gio thi mac dinh Dem (theme lan cuoi co the la ban ngay -> sai luc toi). */
 static bool boot_is_night(void)
 {
     int m = settings_get_mode();
@@ -75,7 +75,7 @@ static bool boot_is_night(void)
     if (m == UI_MODE_NIGHT) return true;
     int64_t t = time(NULL);
     ds_init_once();
-    if (t <= 1700000000 && !(has_ds3231 && ds3231_read(&t))) return settings_get_last_night();
+    if (t <= 1700000000 && !(has_ds3231 && ds3231_read(&t))) return true;   /* chua co gio: mac dinh Dem */
     int h = (int)(((t + settings_get_tz() * 60) % 86400 + 86400) % 86400 / 3600);
     return h < 6 || h >= 18;
 }

@@ -8,7 +8,7 @@ idf_component_register(
          "ui_logo_icon.c"
          "ui_font_sign64.c" "ui_font_num40.c" "ui_font_clk18.c" "ui_font_clock120.c" "ui_font_txt20.c"
         
-         "ui_font_d150.c" "ui_font_d120.c" "ui_font_d104.c" "ui_font_d96.c" "ui_font_r76.c" "ui_font_r50.c" "ui_font_r44.c" "ui_font_r36.c" "ui_font_dist26.c" "ui_font_dist30.c" "ui_font_r92.c"
+         "ui_font_d190.c" "ui_font_d150.c" "ui_font_d120.c" "ui_font_d104.c" "ui_font_d96.c" "ui_font_r76.c" "ui_font_r50.c" "ui_font_r44.c" "ui_font_r36.c" "ui_font_dist26.c" "ui_font_dist30.c" "ui_font_r92.c"
     INCLUDE_DIRS "."
     REQUIRES driver esp_lcd esp_timer nvs_flash bt esp_app_format esp_driver_i2s
              esp_wifi esp_netif esp_event esp_http_client json mbedtls lwip)

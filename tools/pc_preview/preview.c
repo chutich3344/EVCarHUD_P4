@@ -224,6 +224,25 @@ int main(int argc, char **argv)
     ui_set_nav(true, 2, 600, 0, "Nguyễn Hữu Thọ", 0);
     run(600);
     snprintf(p, sizeof p, "%s/re_gan.bmp", dir); save_bmp(p);
+    {                                               /* kieu C: co canh bao -> hang day len, dai vao cho day */
+        ui_alert_t a[1] = {{2, 300, -1}};
+        ui_set_alerts(a, 1);
+    }
+    run(200);
+    snprintf(p, sizeof p, "%s/re_canh_bao_giua.bmp", dir); save_bmp(p);
+    run(500);
+    snprintf(p, sizeof p, "%s/re_canh_bao.bmp", dir); save_bmp(p);
+    ui_set_speed(104);
+    ui_set_speed_limit(100);
+    run(300);
+    snprintf(p, sizeof p, "%s/re_canh_bao_3so.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    run(200);
+    snprintf(p, sizeof p, "%s/re_qua_canh_bao_giua.bmp", dir); save_bmp(p);
+    run(500);
+    snprintf(p, sizeof p, "%s/re_3so.bmp", dir); save_bmp(p);
+    ui_set_speed(45);
+    ui_set_speed_limit(50);
     ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
     ui_set_alerts(NULL, 0);
     ui_set_signal(false);
