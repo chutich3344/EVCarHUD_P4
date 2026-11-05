@@ -26,6 +26,8 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
     private var mac = ""
     private var busy = false
     private var pending: ByteArray? = null
+    private var posChr: BluetoothGattCharacteristic? = null     // firmware cu khong co -> bo qua vi tri
+    private var posPending: ByteArray? = null
     private var stopped = true
     private var refreshed = false
 
@@ -42,9 +44,20 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
     fun stop() {
         stopped = true
         main.removeCallbacksAndMessages(null)
-        chr = null; busy = false; pending = null
+        chr = null; posChr = null; busy = false; pending = null; posPending = null
         gatt?.let { try { it.disconnect(); it.close() } catch (_: Exception) {} }
         gatt = null
+    }
+
+    /** HUD co nhan vi tri (thoi tiet theo GPS) khong. */
+    val hasPos get() = posChr != null
+
+    /** Gui vi tri xe cho thoi tiet; ghi sau ban tin tram neu dang ban. */
+    fun sendPos(data: ByteArray) {
+        val c = posChr
+        val g = gatt
+        if (c == null || g == null || busy) { posPending = data; return }
+        write(g, c, data) { posPending = data }
     }
 
     /** Gui ban tin moi nhat; neu dang ghi thi giu lai ban moi nhat de ghi sau. */
@@ -53,6 +66,10 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
         val g = gatt
         if (c == null || g == null) { pending = data; return }   // gui ngay khi HUD san sang
         if (busy) { pending = data; return }
+        write(g, c, data) { pending = data }
+    }
+
+    private fun write(g: BluetoothGatt, c: BluetoothGattCharacteristic, data: ByteArray, keep: () -> Unit) {
         busy = true
         val ok = if (Build.VERSION.SDK_INT >= 33) {
             g.writeCharacteristic(c, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == 0
@@ -64,13 +81,16 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
             @Suppress("DEPRECATION")
             g.writeCharacteristic(c)
         }
-        if (!ok) { busy = false; pending = data; main.postDelayed({ flush() }, 500) }
+        if (!ok) { busy = false; keep(); main.postDelayed({ flush() }, 500) }
     }
 
     private fun flush() {
-        val p = pending ?: return
-        pending = null
-        send(p)
+        val p = pending
+        if (p != null) { pending = null; send(p); return }
+        val q = posPending ?: return
+        if (posChr == null) return
+        posPending = null
+        sendPos(q)
     }
 
     private fun connect() {
@@ -94,7 +114,7 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
     }
 
     private fun dropAndRetry(msg: String, ms: Long) {
-        chr = null; busy = false
+        chr = null; posChr = null; busy = false
         gatt?.let { try { it.close() } catch (_: Exception) {} }
         gatt = null
         onState(msg)
@@ -136,6 +156,7 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
                     return@post
                 }
                 chr = c
+                posChr = c.service.getCharacteristic(HudProto.POS)
                 refreshed = false
                 onState("Đã kết nối HUD")
                 flush()
