@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include <sys/time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -78,7 +79,52 @@ static void sntp_go(void)
     }
 }
 
-/* --- thoi tiet: vi tri theo IP (ip-api.com) -> Open-Meteo, 30 phut/lan khi co mang --- */
+/* --- thoi tiet: vi tri GPS dien thoai (neu co, moi trong 3 gio) hoac theo IP (ip-api.com) -> Open-Meteo,
+ *     30 phut/lan khi co mang; xe di xa hon 5 km tu cho lay lan truoc thi lay lai ngay --- */
+static int http_get(const char *url, char *buf, int cap);
+static portMUX_TYPE pos_mux = portMUX_INITIALIZER_UNLOCKED;
+static double ph_lat, ph_lon, wx_lat = 999, wx_lon = 999;
+static char ph_name[48];
+static int64_t ph_us;                               /* luc nhan vi tri (esp_timer), 0 = chua co */
+#define PH_FRESH_US (3LL * 3600 * 1000000)
+
+static double km_between(double la1, double lo1, double la2, double lo2)
+{
+    double dy = (la2 - la1) * 111.2, dx = (lo2 - lo1) * 111.2 * cos(la1 * M_PI / 180);
+    return sqrt(dx * dx + dy * dy);
+}
+
+void wifi_set_phone_pos(double lat, double lon, const char *name)
+{
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180 || (lat == 0 && lon == 0)) return;
+    bool first;
+    portENTER_CRITICAL(&pos_mux);
+    first = !ph_us;
+    ph_lat = lat;
+    ph_lon = lon;
+    snprintf(ph_name, sizeof ph_name, "%s", name ? name : "");
+    ph_us = esp_timer_get_time();
+    portEXIT_CRITICAL(&pos_mux);
+    if (wx_task && connected && (first || km_between(wx_lat, wx_lon, lat, lon) > 5)) xTaskNotifyGive(wx_task);
+}
+
+/* ten noi tu toa do (BigDataCloud, khong can khoa) khi app khong gui ten */
+static void place_name(double lat, double lon, char *out, size_t n, char *buf, int cap)
+{
+    char url[160];
+    snprintf(url, sizeof url, "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=%.4f&longitude=%.4f"
+             "&localityLanguage=vi", lat, lon);
+    if (http_get(url, buf, cap) <= 0) return;
+    cJSON *j = cJSON_Parse(buf);
+    if (!j) return;
+    const char *keys[] = {"city", "locality", "principalSubdivision"};
+    for (int i = 0; i < 3; i++) {
+        cJSON *c = cJSON_GetObjectItem(j, keys[i]);
+        if (cJSON_IsString(c) && c->valuestring[0]) { snprintf(out, n, "%s", c->valuestring); break; }
+    }
+    cJSON_Delete(j);
+}
+
 static int http_get(const char *url, char *buf, int cap)
 {
     esp_http_client_config_t c = {.url = url, .timeout_ms = 8000, .crt_bundle_attach = esp_crt_bundle_attach};
@@ -115,15 +161,26 @@ static bool weather_once(void)
     static char buf[2048];
     char city[48] = "";
     double lat, lon;
-    if (http_get("http://ip-api.com/json/?fields=status,city,lat,lon", buf, sizeof buf) <= 0) return false;
-    cJSON *j = cJSON_Parse(buf);
-    if (!j) return false;
-    cJSON *la = cJSON_GetObjectItem(j, "lat"), *lo = cJSON_GetObjectItem(j, "lon"), *ci = cJSON_GetObjectItem(j, "city");
-    bool ok = cJSON_IsNumber(la) && cJSON_IsNumber(lo);
-    if (ok) { lat = la->valuedouble; lon = lo->valuedouble; }
-    if (cJSON_IsString(ci)) snprintf(city, sizeof city, "%s", ci->valuestring);
-    cJSON_Delete(j);
-    if (!ok) return false;
+    bool ok;
+    portENTER_CRITICAL(&pos_mux);
+    bool gps = ph_us && esp_timer_get_time() - ph_us < PH_FRESH_US;
+    if (gps) { lat = ph_lat; lon = ph_lon; snprintf(city, sizeof city, "%s", ph_name); }
+    portEXIT_CRITICAL(&pos_mux);
+    cJSON *j;
+    if (gps) {                                                   /* GPS dien thoai */
+        if (!city[0]) place_name(lat, lon, city, sizeof city, buf, sizeof buf);
+    } else {                                                     /* chua co GPS: uoc theo IP (thuong ra thanh pho cua nha mang) */
+        if (http_get("http://ip-api.com/json/?fields=status,city,lat,lon", buf, sizeof buf) <= 0) return false;
+        j = cJSON_Parse(buf);
+        if (!j) return false;
+        cJSON *la = cJSON_GetObjectItem(j, "lat"), *lo = cJSON_GetObjectItem(j, "lon"), *ci = cJSON_GetObjectItem(j, "city");
+        ok = cJSON_IsNumber(la) && cJSON_IsNumber(lo);
+        if (ok) { lat = la->valuedouble; lon = lo->valuedouble; }
+        if (cJSON_IsString(ci)) snprintf(city, sizeof city, "%s", ci->valuestring);
+        cJSON_Delete(j);
+        if (!ok) return false;
+    }
+    ESP_LOGI(TAG, "thoi tiet theo %s: %.3f, %.3f", gps ? "GPS dien thoai" : "IP", lat, lon);
 
     char url[200];
     snprintf(url, sizeof url, "https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f"
@@ -136,6 +193,8 @@ static bool weather_once(void)
     cJSON *dy = cur ? cJSON_GetObjectItem(cur, "is_day") : NULL;
     ok = cJSON_IsNumber(t) && cJSON_IsNumber(wc);
     if (ok) {
+        wx_lat = lat;
+        wx_lon = lon;
         const char *name;
         int kind = wx_kind_of(wc->valueint, &name, !cJSON_IsNumber(dy) || dy->valueint);
         char txt[96];
