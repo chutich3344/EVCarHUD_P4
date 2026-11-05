@@ -1,0 +1,11 @@
+# Mot lan: thong ke muc cong suat tram sac o to VinFast (xem log)
+name: Thong ke cong suat VinFast
+on:
+  push:
+    paths: [".github/workflows/vinfast-kw.yml", "android-tramsac/tools/vinfast_kw.py"]
+jobs:
+  kw:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 android-tramsac/tools/vinfast_kw.py
