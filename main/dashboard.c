@@ -570,7 +570,7 @@ static void render_head(head_t *h, const int *w)
 {
     char b[12];
     if (speed < 0) snprintf(b, sizeof b, "--");
-    else snprintf(b, sizeof b, "%d", speed % 1000);
+    else snprintf(b, sizeof b, "%02d", speed % 1000);          /* 7 -> "07": so khong nhay ra vao */
     size_t bl = strlen(b);
     bool three = speed >= 100;
     int cy = 0, rs = 0, bd = 0, sz = 0, gcx = 0, dom = 0;
@@ -580,7 +580,8 @@ static void render_head(head_t *h, const int *w)
         int s_i = three ? L->sz3 : L->sz2;                         /* co hien thi */
         int n_i = three ? L->sz3 : (L->n2 ? L->n2 : L->sz2);       /* co goc cua font */
         int tw = lv_text_get_width(b, bl, f, -n_i * 4 / 100);
-        int c_i = lv_obj_get_x(h->num[i]) + lv_obj_get_width(h->num[i]) - tw / 2;   /* tam chu so (can phai) */
+        (void)tw;
+        int c_i = lv_obj_get_x(h->num[i]) + lv_obj_get_width(h->num[i]);   /* mep phai khung so (co dinh) */
         cy += h->cy[i] * w[i];
         rs += L->rs * w[i];
         bd += (L->rs >= 150 ? 19 : L->rs * 12 / 100) * w[i];
@@ -601,14 +602,14 @@ static void render_head(head_t *h, const int *w)
     uint32_t m = lv_color_to_u32(th->mut) & 0xFFFFFF;
     int ctop = baseline(f) - CAP_H(s_d);                          /* dinh chu so trong khung */
     gtext_set(&h->gt, b, f, ls, LV_TEXT_ALIGN_RIGHT, bw, gc ? gc[0] : m, gc ? gc[1] : m, bw - tw, tw, ctop, CAP_H(s_d));
-    int px = bw - tw / 2, py = baseline(f) - CAP_H(s_d) / 2;      /* tam chu so trong khung */
+    int px = bw, py = baseline(f) - CAP_H(s_d) / 2;               /* neo mep phai khung: so phong to sang trai, km/h dung yen */
     lv_image_set_pivot(n, px, py);
     lv_image_set_scale(n, scale);
     lv_obj_set_pos(n, gcx - px, cy - py);
     lv_obj_t *u = h->unit[dom];
     lv_obj_set_style_text_color(u, th->fg, 0);
     int gap = UNIT_GAP(sz);                                        /* sat so: km/h di cung khoi so */
-    lv_obj_set_pos(u, gcx + tw * scale / 512 + gap, cy + CAP_H(s_d) * scale / 512 - baseline(&ui_font_txt16));
+    lv_obj_set_pos(u, gcx + gap, cy + CAP_H(s_d) * scale / 512 - baseline(&ui_font_txt16));
 
     lv_obj_set_size(h->ring, rs, rs);
     lv_obj_set_pos(h->ring, PAD + HALF_W + (HALF_W - rs) / 2, cy - rs / 2);
