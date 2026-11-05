@@ -42,6 +42,20 @@ T1|<tên>|<khoảng cách m>|<phía>|<góc lệch độ>|<kW>|<số cổng>|<s�
 
 Ví dụ: `T1|VinFast Vincom Thảo Điền|850|R|35|60|4|12|D`
 
+## Vị trí cho thời tiết (`4556d004`, ghi)
+
+Firmware từ commit 06c4767 (claude/p4-firmware). HUD tự ước vị trí theo IP nên hay ra sai thành phố; app gửi vị trí GPS để thời tiết đúng nơi xe đang chạy.
+
+```
+P1|<vĩ độ>|<kinh độ>|<tên nơi>
+```
+
+Ví dụ `P1|10.77690|106.70090|TP. Hồ Chí Minh`. Tên nơi có thể để trống, khi đó HUD tự tra BigDataCloud. App lấy tên bằng Android Geocoder (locality, không có thì subAdminArea/adminArea).
+
+- App gửi một lần ngay khi nối HUD (nếu đã có vị trí), sau đó gửi lại mỗi khi xe đi xa hơn 5 km so với lần gửi trước.
+- HUD lấy lại thời tiết khi nhận lần đầu hoặc khi vị trí lệch hơn 5 km. Vị trí còn hiệu lực trong 3 giờ.
+- Firmware cũ không có characteristic này thì app bỏ qua, không báo lỗi.
+
 ## Nhịp gửi
 
 - Gửi khi trạm/khoảng cách/phía thay đổi (tối đa ~1 lần / 1,5 giây) và nhắc lại mỗi 30 giây.

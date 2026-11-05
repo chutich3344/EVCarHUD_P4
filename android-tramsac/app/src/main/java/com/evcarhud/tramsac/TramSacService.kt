@@ -65,6 +65,7 @@ class TramSacService : Service() {
     private var picked: Nearby? = null
     private var lastPayload = ""
     private var lastSentAt = 0L
+    private var posSent: Location? = null      // vi tri da gui HUD (thoi tiet), gui lai khi di xa ~5 km
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -72,7 +73,10 @@ class TramSacService : Service() {
         super.onCreate()
         prefs = Prefs(this)
         lm = getSystemService(LOCATION_SERVICE) as LocationManager
-        ble = HudBle(this) { s -> AppState.update { hud = s }; if (ble.ready) push(force = true) }
+        ble = HudBle(this) { s ->
+            AppState.update { hud = s }
+            if (ble.ready) { push(force = true); posSent = null; last?.let { sendPos(it) } }   // vua noi: gui lai vi tri cho thoi tiet
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -171,6 +175,23 @@ class TramSacService : Service() {
         AppState.update { gps = "Có vị trí$acc"; lastFix = l.latitude to l.longitude; speedKmh = kmh }
         maybeFetch(l)
         recompute()
+        sendPos(l)
+    }
+
+    /** Vi tri cho thoi tiet tren HUD: lan dau sau khi noi, roi moi khi lech > 5 km. Ten noi lay tu Geocoder (neu co). */
+    private fun sendPos(l: Location) {
+        if (!ble.ready || !ble.hasPos) return
+        val p = posSent
+        if (p != null && Geo.distM(p.latitude, p.longitude, l.latitude, l.longitude) < 5000) return
+        posSent = l
+        Thread {
+            val place = try {
+                @Suppress("DEPRECATION")
+                android.location.Geocoder(this, java.util.Locale("vi", "VN")).getFromLocation(l.latitude, l.longitude, 1)
+                    ?.firstOrNull()?.let { a -> a.locality ?: a.subAdminArea ?: a.adminArea }.orEmpty()
+            } catch (_: Exception) { "" }
+            main.post { ble.sendPos(HudProto.encodePos(l.latitude, l.longitude, place)) }
+        }.start()
     }
 
     // ---------------- Tai danh sach tram ----------------

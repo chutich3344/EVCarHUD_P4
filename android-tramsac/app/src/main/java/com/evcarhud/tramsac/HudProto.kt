@@ -13,7 +13,15 @@ object HudProto {
     /** Doc: phien ban giao thuc phia HUD, vd. "TRAMSAC1". */
     val INFO: UUID = UUID.fromString("4556d003-8c2a-4b7e-9d3f-5a1c0e7b2f10")
 
+    /** Ghi: vi tri xe cho thoi tiet tren HUD, "P1|vi do|kinh do|ten noi" (ten co the rong, HUD tu tra). */
+    val POS: UUID = UUID.fromString("4556d004-8c2a-4b7e-9d3f-5a1c0e7b2f10")
+
     private const val NAME_MAX_BYTES = 60
+
+    fun encodePos(lat: Double, lon: Double, place: String): ByteArray {
+        val name = cutUtf8(place.replace('|', '/').replace('\n', ' ').trim(), NAME_MAX_BYTES)
+        return String.format(java.util.Locale.US, "P1|%.5f|%.5f|%s", lat, lon, name).toByteArray(Charsets.UTF_8)
+    }
 
     /**
      * T1|<ten>|<khoang cach m>|<phia A/R/L/B/?>|<goc lech do, rong neu chua biet>|<kW>|<so cong>|<so tram trong ban kinh>|<che do>
