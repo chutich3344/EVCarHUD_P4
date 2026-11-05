@@ -39,6 +39,7 @@ import org.json.JSONObject
 class MainActivity : Activity() {
     companion object {
         const val HUB = "https://evcarhud.com/tram-sac"
+        private const val REQ_LOC = 8
         /** Trang tram-sac la man chinh cua app: doi nut cuoi thanh dieu huong (thong tin EVCarHUD) thanh nut mo man HUD. */
         private const val NAV_JS = """(function(){ if (window.__hudNav) return; window.__hudNav = 1;
   function fix(){ var a = document.querySelector('nav.nav a[href="/"]'); if (!a || a.dataset.hud) return;
@@ -92,6 +93,9 @@ class MainActivity : Activity() {
         root.addView(web, ViewGroup.LayoutParams(-1, -1))
         setContentView(root)
         openHub("")                                      // mo app vao thang trang chu tram sac
+        // Xin vi tri ngay khi mo app de trang chu hien ban do va tram quanh xe (Bluetooth de luc bam Bat dau)
+        if (!hasLoc())
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOC)
         handleLink(intent)
     }
 
@@ -221,8 +225,7 @@ class MainActivity : Activity() {
             w.settings.cacheMode = WebSettings.LOAD_DEFAULT
             w.webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(origin: String, cb: GeolocationPermissions.Callback) {
-                    val ok = origin.startsWith("https://evcarhud.com") &&
-                        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    val ok = origin.startsWith("https://evcarhud.com") && hasLoc()
                     cb.invoke(origin, ok, false)
                 }
             }
@@ -272,6 +275,10 @@ class MainActivity : Activity() {
     private var hubFailed = false
 
     // ---------------- Quyen ----------------
+    /** Vi tri chinh xac hoac gan dung (Android 12+ cho chon "gan dung") deu dung duoc cho trang web. */
+    private fun hasLoc() = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
     private fun neededPerms(): Array<String> {
         val l = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= 31) { l += Manifest.permission.BLUETOOTH_SCAN; l += Manifest.permission.BLUETOOTH_CONNECT }
@@ -290,6 +297,11 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_LOC) {
+            // Vua cho phep vi tri: tai lai trang chu de web lay vi tri that thay vi "dang xem quanh TP.HCM"
+            if (hasLoc()) hub?.reload()
+            return
+        }
         val missing = neededPerms().filter { it != Manifest.permission.POST_NOTIFICATIONS }
         if (missing.isEmpty()) afterPerms?.invoke()
         else AlertDialog.Builder(this)
