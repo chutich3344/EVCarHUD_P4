@@ -286,10 +286,19 @@ int main(int argc, char **argv)
     run(2000);
     printf("sau 2 s khong cap nhat: muc %d (0 = da tat)\n", obstacle_ui_level());
     ui_cam_state(true);
+    ui_cam_status(UI_CAM_CALIB);
     ui_toast("Đã nhận camera · xem ảnh: Cài đặt › Hiển thị");
     run(300);
     snprintf(p, sizeof p, "%s/cam_1_da_nhan.bmp", dir); save_bmp(p);
     run(2500);
+    snprintf(p, sizeof p, "%s/cam_2_dang_chinh.bmp", dir); save_bmp(p);
+    ui_cam_status(UI_CAM_OK);
+    run(300);
+    snprintf(p, sizeof p, "%s/cam_3_san_sang.bmp", dir); save_bmp(p);
+    ui_cam_status(UI_CAM_ERR);
+    run(300);
+    snprintf(p, sizeof p, "%s/cam_4_loi.bmp", dir); save_bmp(p);
+    ui_cam_status(UI_CAM_OK);
     obstacle_ui_set(OBS_CAUTION, DET_CLS_CAR, 18, 0, false);   /* doi man khi dang co o vat can: bien khong duoc lo ra */
     run(400);
     ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);

@@ -45,9 +45,13 @@ static float s_jump_d;
 static int64_t s_log_us;
 static int s_shown_lv = -1, s_shown_m = -1, s_shown_t10 = -1;
 static float s_hor = -1.0f;                  /* chan troi uoc luong (hang diem anh) */
+static int s_hor_n;                          /* so lan da chinh chan troi theo xe phia truoc */
+static float s_hor_ref;                      /* chan troi luc kiem tra on dinh lan truoc */
+static bool s_hor_ok;                        /* chan troi da on dinh (chip CAM xanh) */
 static int s_img_w = 320, s_img_h = 240;
 static int s_cand = 0, s_cand_n = 0, s_level = 0;
 
+bool adas_feed_calibrated(void) { return s_hor_ok; }
 float adas_feed_horizon(void) { return s_hor >= 0 ? s_hor : (float)s_img_h * CONFIG_EVCARHUD_ADAS_HORIZON_PCT / 100.0f; }
 float adas_feed_lane_half(float y)
 {
@@ -168,6 +172,10 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
         if (zw < 4.0f || zw > 60.0f) continue;
         float est = ab[i].y2 - cam.f_px * CAM_H_M / zw;
         s_hor += (est - s_hor) * 0.05f;
+        if (++s_hor_n % 40 == 0) {                           /* moi 40 lan: dich chuyen < 2% chieu cao anh = da on dinh */
+            s_hor_ok = fabsf(s_hor - s_hor_ref) < 0.02f * (float)h;
+            s_hor_ref = s_hor;
+        }
     }
     if (s_hor < 0.25f * (float)h) s_hor = 0.25f * (float)h;
     if (s_hor > 0.65f * (float)h) s_hor = 0.65f * (float)h;
@@ -288,6 +296,7 @@ void adas_feed_lost(void)
 void adas_feed(detect_box_t *bx, int n, int w, int h) { (void)bx; (void)n; (void)w; (void)h; }
 void adas_feed_lost(void) {}
 float adas_feed_horizon(void) { return 0.0f; }
+bool adas_feed_calibrated(void) { return false; }
 float adas_feed_lane_half(float y) { (void)y; return 0.0f; }
 
 #endif

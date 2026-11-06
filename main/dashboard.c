@@ -189,6 +189,8 @@ static lv_obj_t *set_scr, *set_tab[PG_N], *set_page_obj[PG_N], *set_close, *set_
 static lv_obj_t *mode_card[3], *mode_sub[3], *rot_row, *rot_sw, *cam_row, *cam_sub;
 static void (*cam_cb)(void);
 static bool cam_on;
+static int cam_st;
+static lv_obj_t *t_cam, *t_cam_l;
 static lv_obj_t *snd_row, *snd_sw, *vol_card, *vol_minus, *vol_plus, *lbl_vol, *vol_bar, *vol_fill;
 static lv_obj_t *src_card[2], *lbl_src_st[2], *lbl_mac, *lbl_ble;
 static lv_obj_t *lbl_sys[4];
@@ -834,6 +836,11 @@ static void build_top(void)
     t_src = mk_fill(top, 0, (TOP_H - 18) / 2, 40, 18, 5);          /* o nguon du lieu: "waze" / "GOFA" */
     t_src_l = mk_label(t_src, &ui_font_cap12, 6, (18 - ui_font_cap12.line_height) / 2, "waze");
     t_gps_dot = mk_fill(top, 0, (TOP_H - 8) / 2, 8, 8, LV_RADIUS_CIRCLE);
+    t_cam = mk_fill(top, 0, (TOP_H - 18) / 2, 40, 18, 5);          /* chip camera vat can, canh gio */
+    lv_obj_set_style_border_width(t_cam, 1, 0);
+    t_cam_l = mk_label(t_cam, &ui_font_cap12, 0, 0, "CAM");
+    lv_obj_center(t_cam_l);
+    lv_obj_set_width(t_cam, text_w("CAM", &ui_font_cap12) + 12);
     top_line = mk_fill(scr, 0, TOP_H - 1, UI_W, 1, 0);
 }
 
@@ -849,6 +856,16 @@ static void render_top(void)
     lv_label_set_text(t_clock, b);
     lv_obj_set_style_text_color(t_clock, th->fg, 0);
     lv_obj_set_style_bg_color(top_line, th->border, 0);
+    show(t_cam, cam_st != UI_CAM_OFF);
+    if (cam_st != UI_CAM_OFF) {                                   /* xanh: san sang; vang: dang tu chinh chan troi; do: loi */
+        uint32_t c = cam_st == UI_CAM_OK ? (night ? 0x34D399 : 0x059669) : cam_st == UI_CAM_CALIB ? (night ? 0xFFD400 : 0xB45309)
+                                                                                                     : (night ? 0xFF4D4F : 0xBE123C);
+        lv_obj_set_style_bg_color(t_cam, lv_color_hex(c), 0);
+        lv_obj_set_style_bg_opa(t_cam, 38, 0);
+        lv_obj_set_style_border_color(t_cam, lv_color_hex(c), 0);
+        lv_obj_set_style_text_color(t_cam_l, lv_color_hex(c), 0);
+        lv_obj_set_x(t_cam, PAD + text_w(b, &ui_font_clk18) + 8);
+    }
 
     bool tsd = screen == SCR_NAV && nav_on && nav_is_ts;              /* dan toi tram sac: luon hien ten tram */
     const char *st = tsd ? street_nav : !waze ? "Chỉ có GPS" : screen == SCR_NAV && street_nav[0] ? street_nav : street_now;
@@ -2708,7 +2725,14 @@ void ui_set_cam_hook(void (*cb)(void)) { cam_cb = cb; }
 void ui_cam_state(bool connected)
 {
     cam_on = connected;
+    if (!connected) ui_cam_status(UI_CAM_OFF);
     if (set_scr) settings_render();
+}
+void ui_cam_status(int st)
+{
+    if (st == cam_st) return;
+    cam_st = st;
+    if (top) render_top();
 }
 
 bool ui_settings_shown(void) { return set_scr && shown(set_scr); }

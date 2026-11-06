@@ -89,6 +89,7 @@ int main(int argc, char **argv)
         ui_set_speed(kmh);
         ui_set_speed_limit(kmh >= 55 ? 80 : 50);
         adas_feed(bx, k, 320, 240);
+        ui_cam_status(adas_feed_calibrated() ? UI_CAM_OK : UI_CAM_CALIB);
         run_to(now_ms + 20);
         int lead = -1, dm = 0;
         for (int i = 0; i < k; i++) if (bx[i].dist_m > 0) { lead = i; dm = bx[i].dist_m; }

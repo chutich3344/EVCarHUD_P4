@@ -275,6 +275,8 @@ static void stats_tick(void)
     ESP_LOGI(TAG, "%s", txt);
     board_ui_lock();
     lv_label_set_text(s_info, txt);
+    /* chip CAM: do = khong co anh / khong chay duoc mo hinh; vang = dang tu chinh chan troi; xanh = san sang */
+    ui_cam_status(!s_frames || !s_det_runs ? UI_CAM_ERR : adas_feed_calibrated() ? UI_CAM_OK : UI_CAM_CALIB);
     if (!s_hidden && s_shown_since && now - s_shown_since > PREVIEW_S * 1000000LL) {   /* dang chay xe: tu an */
         s_hidden = true;
         lv_obj_add_flag(s_box, LV_OBJ_FLAG_HIDDEN);
