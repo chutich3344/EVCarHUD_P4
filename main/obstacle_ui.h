@@ -14,4 +14,6 @@ void obstacle_ui_init(void);
 /* city: xe minh dang bo trong pho (< 25 km/h): chi keu o muc Khan cap */
 #include <stdbool.h>
 void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city);
+void obstacle_ui_touch(void);                      /* van nhan dien binh thuong (muc khong doi): khong tu tat */
+void obstacle_ui_clear(void);                      /* tat ngay (camera rut ra), khong giu them */
 int obstacle_ui_level(void);                        /* muc dang hien (OBS_*) */

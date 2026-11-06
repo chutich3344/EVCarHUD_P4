@@ -109,6 +109,9 @@ void ui_rotate(void);                                  /* xoay 180 do (bam BOOT 
 void ui_set_rotate_hook(void (*cb)(void));             /* bam BOOT 2 lan: board xoay 180 do */
 void ui_set_level_hook(void (*cb)(int level));         /* UI_LEVEL_*: board bat den LED / loa */
 void ui_toast(const char *text);
+/* Camera USB: Cai dat > Hien thi > "Xem camera" goi cb (task LVGL); ui_cam_state: dang cam camera hay khong (dong phu) */
+void ui_set_cam_hook(void (*cb)(void));
+void ui_cam_state(bool connected);
 /* --- loa ---
  * Tieng tit theo trang thai: 1 tieng khi co canh bao moi (camera, canh sat...) va khi con 100 m toi cho re;
  * 2 tieng khi vuot toc do (nhac lai moi 8 giay neu van vuot). Giu tay 5 giay tren man hinh: man cai dat am luong. */

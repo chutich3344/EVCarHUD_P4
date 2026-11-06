@@ -186,7 +186,9 @@ static bool hold_used;
 /* cai dat */
 enum { PG_DISPLAY = 0, PG_ALERT, PG_LINK, PG_SYSTEM, PG_N };
 static lv_obj_t *set_scr, *set_tab[PG_N], *set_page_obj[PG_N], *set_close, *set_pill_phone, *set_pill_src;
-static lv_obj_t *mode_card[3], *mode_sub[3], *rot_row, *rot_sw;
+static lv_obj_t *mode_card[3], *mode_sub[3], *rot_row, *rot_sw, *cam_row, *cam_sub;
+static void (*cam_cb)(void);
+static bool cam_on;
 static lv_obj_t *snd_row, *snd_sw, *vol_card, *vol_minus, *vol_plus, *lbl_vol, *vol_bar, *vol_fill;
 static lv_obj_t *src_card[2], *lbl_src_st[2], *lbl_mac, *lbl_ble;
 static lv_obj_t *lbl_sys[4];
@@ -1472,6 +1474,7 @@ static int focus_items(lv_obj_t **out)
     case PG_DISPLAY:
         for (int i = 0; i < 3; i++) out[n++] = mode_card[i];
         out[n++] = rot_row;
+        out[n++] = cam_row;
         break;
     case PG_ALERT:
         out[n++] = snd_row;
@@ -1490,7 +1493,7 @@ static int focus_items(lv_obj_t **out)
 
 static void focus_render(void)
 {
-    lv_obj_t *all[] = {set_tab[0], set_tab[1], set_tab[2], set_tab[3], mode_card[0], mode_card[1], mode_card[2], rot_row,
+    lv_obj_t *all[] = {set_tab[0], set_tab[1], set_tab[2], set_tab[3], mode_card[0], mode_card[1], mode_card[2], rot_row, cam_row,
                        snd_row, vol_minus, vol_plus, src_card[0], src_card[1], set_close};
     for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) lv_obj_set_style_outline_width(all[i], 0, 0);
     if (set_focus < 0) return;
@@ -1523,6 +1526,7 @@ static void settings_render(void)
         lv_obj_set_style_text_color(mode_sub[i], mode == m ? S_GREEN3 : S_MUT, 0);
     }
     style_switch(rot_sw, rot_on);
+    if (cam_sub) lv_label_set_text(cam_sub, !cam_cb ? "Bản này chưa bật camera USB" : cam_on ? "Đã nhận camera · chỉnh góc lắp, xem vật nhận ra" : "Chưa cắm camera (cổng USB OTG)");
     /* Canh bao */
     style_switch(snd_sw, snd_on);
     show(vol_card, snd_on);
@@ -1603,6 +1607,12 @@ static void on_set_btn(lv_event_t *e)
             return;
         }
     if (o == rot_row) { ui_rotate(); return; }
+    if (o == cam_row) {
+        settings_close();
+        if (cam_cb) cam_cb();
+        else ui_toast("Bản này chưa bật camera USB");
+        return;
+    }
     if (o == src_card[0] || o == src_card[1]) {
         int want = o == src_card[1] ? UI_SRC_GOFA : UI_SRC_WAZE;
         if (want != src) rb_start(want);
@@ -1684,11 +1694,14 @@ static void build_settings(void)
         lv_label_set_text(mode_sub[i], mn[i][1]);
         clickable(mode_card[i]);
     }
-    rot_row = mk_setting_row(p, 104, 62, "Xoay màn hình 180°", "Khi lắp board ngược trong xe (hoặc bấm BOOT 2 lần)", &rot_sw);
+    rot_row = mk_setting_row(p, 102, 54, "Xoay màn hình 180°", "Khi lắp board ngược trong xe (hoặc bấm BOOT 2 lần)", &rot_sw);
     lv_obj_add_event_cb(rot_row, on_set_btn, LV_EVENT_CLICKED, NULL);
-    l = mk_label_w(p, &ui_font_sm12, 0, 180, UI_W - 24, LV_TEXT_ALIGN_LEFT);
-    lv_label_set_text(l, "Chạm màn hình ngoài cài đặt cũng đổi Tự động, Ngày, Đêm.");
-    lv_obj_set_style_text_color(l, S_MUT, 0);
+    cam_row = mk_setting_row(p, 164, 54, "Xem camera", "", NULL);   /* xem anh camera USB de chinh goc lap */
+    cam_sub = lv_obj_get_child(cam_row, 2);
+    lv_obj_add_event_cb(cam_row, on_set_btn, LV_EVENT_CLICKED, NULL);
+    l = mk_label(cam_row, &ui_font_txt14, 0, 0, "Mở  ›");
+    lv_obj_set_style_text_color(l, S_GREEN2, 0);
+    lv_obj_align(l, LV_ALIGN_RIGHT_MID, -14, 0);
 
     /* Canh bao: loa + am luong */
     p = set_page_obj[PG_ALERT];
@@ -2691,6 +2704,12 @@ void ui_set_mode_hook(void (*cb)(int)) { mode_cb = cb; }
 void ui_set_night_hook(void (*cb)(bool)) { night_cb = cb; if (cb) cb(night); }
 void ui_set_level_hook(void (*cb)(int)) { level_cb = cb; }
 void ui_set_rotate_hook(void (*cb)(void)) { rotate_cb = cb; }
+void ui_set_cam_hook(void (*cb)(void)) { cam_cb = cb; }
+void ui_cam_state(bool connected)
+{
+    cam_on = connected;
+    if (set_scr) settings_render();
+}
 
 bool ui_settings_shown(void) { return set_scr && shown(set_scr); }
 

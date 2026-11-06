@@ -1,12 +1,12 @@
-/* Camera USB (UVC) cam vao cong Type-C "USB OTG" cua board: ban thu nghiem.
- * Nhan anh MJPEG 640x480 -> giai ma bang bo JPEG phan cung cua P4 -> khung xem truoc 320x240 noi tren man hinh
- * kem so do: FPS camera, thoi gian giai ma, FPS hien thi. Day la buoc 1 truoc khi chay mo hinh nhan dien vat can.
- * Cham vao khung de an; rut camera ra cam lai de hien lai. */
+/* Camera USB (UVC) cam vao cong Type-C "USB OTG" cua board.
+ * Nhan anh MJPEG 640x480 -> giai ma bang bo JPEG phan cung cua P4 -> nhan dien vat can -> canh bao tren HUD.
+ * Cam vao: chi hien thong bao nho "Da nhan camera", KHONG tu mo khung xem truoc. Xem anh camera (de chinh goc lap):
+ * Cai dat > Hien thi > "Xem camera" (khung xem truoc tu an sau 60 s, cham vao de an). */
 #pragma once
 
 #include "sdkconfig.h"
 #if CONFIG_EVCARHUD_USB_CAM
-void usb_cam_start(void);
+void usb_cam_start(void);   /* goi sau khi giao dien da tao (can board_ui_lock) */
 #else
 static inline void usb_cam_start(void) {}
-#endif   /* goi sau khi giao dien da tao (can board_ui_lock) */
+#endif

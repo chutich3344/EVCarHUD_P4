@@ -112,7 +112,7 @@ static int s_frames, s_decoded, s_shown, s_errs;
 static int64_t s_dec_us_sum;
 static int s_det_runs, s_det_ms_sum, s_det_last = -1;
 static int64_t s_shown_since;                    /* luc khung xem truoc hien (tu an sau PREVIEW_S giay) */
-#define PREVIEW_S 20
+#define PREVIEW_S 60
 
 /* ---------------- USB ---------------- */
 static bool frame_cb(const uvc_host_frame_t *frame, void *ctx)
@@ -249,6 +249,15 @@ static void ui_show(bool on)
         lv_obj_add_flag(s_box, LV_OBJ_FLAG_HIDDEN);
     }
     board_ui_unlock();
+}
+
+static void on_open_preview(void)                  /* Cai dat > Hien thi > Xem camera (task LVGL, da giu khoa) */
+{
+    if (!s_connected) {
+        ui_toast("Chưa cắm camera USB");
+        return;
+    }
+    ui_show(true);
 }
 
 static void stats_tick(void)
@@ -414,7 +423,10 @@ static void cam_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
-        ui_show(true);
+        board_ui_lock();
+        ui_toast("Đã nhận camera · xem ảnh: Cài đặt › Hiển thị");
+        ui_cam_state(true);
+        board_ui_unlock();
         while (s_connected) {
             uvc_host_frame_t *f;
             if (xQueueReceive(s_q, &f, pdMS_TO_TICKS(500)) == pdPASS) {
@@ -427,6 +439,10 @@ static void cam_task(void *arg)
         }
         ui_show(false);
         adas_feed_lost();
+        board_ui_lock();
+        ui_cam_state(false);
+        ui_toast("Đã rút camera · tắt cảnh báo vật cản");
+        board_ui_unlock();
     }
 }
 
@@ -448,6 +464,7 @@ void usb_cam_start(void)
     board_ui_lock();
     ui_create();
     obstacle_ui_init();
+    ui_set_cam_hook(on_open_preview);
     board_ui_unlock();
 
     usb_host_config_t host_cfg = {

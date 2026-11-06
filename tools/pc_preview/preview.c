@@ -13,6 +13,7 @@
 #include <string.h>
 
 void board_beep(int times) { printf("(tit %d)\n", times); }   /* tren board: loa */
+static void cam_open(void) { printf("(mo xem truoc camera)\n"); }
 
 static uint16_t fb[UI_W * UI_H];
 static uint32_t now_ms;
@@ -82,6 +83,7 @@ int main(int argc, char **argv)
     dashboard_create(scr);
     hlp_dash_init(NULL, NULL);                     /* tren board: link_init() goi */
     obstacle_ui_init();                            /* tren board: usb_cam_start() goi */
+    ui_set_cam_hook(cam_open);
     if (force >= 0) ui_set_mode(force);
     run(400);
 
@@ -278,6 +280,16 @@ int main(int argc, char **argv)
     obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
     run(300);
     snprintf(p, sizeof p, "%s/vc_7_het.bmp", dir); save_bmp(p);
+    /* camera rut ra giua luc dang bao (khong ai cap nhat nua): phai tu tat, khong kêu mai */
+    obstacle_ui_set(OBS_DANGER, DET_CLS_CAR, 9, 1.8f, false);
+    run(300);
+    run(2000);
+    printf("sau 2 s khong cap nhat: muc %d (0 = da tat)\n", obstacle_ui_level());
+    ui_cam_state(true);
+    ui_toast("Đã nhận camera · xem ảnh: Cài đặt › Hiển thị");
+    run(300);
+    snprintf(p, sizeof p, "%s/cam_1_da_nhan.bmp", dir); save_bmp(p);
+    run(2500);
     obstacle_ui_set(OBS_CAUTION, DET_CLS_CAR, 18, 0, false);   /* doi man khi dang co o vat can: bien khong duoc lo ra */
     run(400);
     ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);

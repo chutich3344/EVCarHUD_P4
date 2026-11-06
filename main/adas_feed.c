@@ -93,7 +93,12 @@ static int calc_level(int cls, float dist, float ttc, float closing, bool *city)
 static void show(int lv, int cls, int m, float ttc, bool city)
 {
     int t10 = (int)(ttc * 10.0f + 0.5f);
-    if (lv == s_shown_lv && m == s_shown_m && t10 == s_shown_t10) return;
+    if (lv == s_shown_lv && m == s_shown_m && t10 == s_shown_t10) {
+        board_ui_lock();
+        obstacle_ui_touch();
+        board_ui_unlock();
+        return;
+    }
     s_shown_lv = lv;
     s_shown_m = m;
     s_shown_t10 = t10;
@@ -272,7 +277,10 @@ void adas_feed_lost(void)
     s_ttc_streak = 0;
     s_jump_n = 0;
     s_level = s_cand = s_cand_n = 0;
-    show(OBS_NONE, 0, 0, 0.0f, false);
+    s_shown_lv = s_shown_m = s_shown_t10 = -1;
+    board_ui_lock();
+    obstacle_ui_clear();
+    board_ui_unlock();
 }
 
 #else

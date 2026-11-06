@@ -31,7 +31,8 @@ static float s_ttc;
 static bool s_dim;
 static lv_area_t s_last_a;                  /* vi tri bien lan ve truoc (bam theo khi doi co) */
 static int s_last_lim;
-static uint32_t s_beep_tick, s_off_tick, s_end_tick;
+static uint32_t s_beep_tick, s_off_tick, s_end_tick, s_set_tick;
+#define STALE_MS 1500                      /* khong con ai cap nhat (camera rut / dung): tu tat canh bao */
 static bool s_city;
 
 static void vis(lv_obj_t *o, bool on)
@@ -237,6 +238,11 @@ static void tick_cb(lv_timer_t *tm)
 {
     (void)tm;
     if (s_level == OBS_NONE) return;
+    if ((s_off_tick && lv_tick_elaps(s_off_tick) >= HOLD_MS) || lv_tick_elaps(s_set_tick) >= STALE_MS) {
+        s_set_tick = lv_tick_get();                          /* het thoi gian giu / mat nguon cap nhat: tat han */
+        obstacle_ui_clear();
+        return;
+    }
     if (++s_tick >= 250 / TICK_MS) {                         /* chop 2 Hz + nhac tieng */
         s_tick = 0;
         s_dim = !s_dim;
@@ -346,10 +352,22 @@ void obstacle_ui_init(void)
 
 int obstacle_ui_level(void) { return s_level; }
 
+void obstacle_ui_touch(void) { s_set_tick = lv_tick_get(); }
+
+void obstacle_ui_clear(void)
+{
+    if (!s_strip) return;
+    if (s_level != OBS_NONE) s_end_tick = lv_tick_get();
+    s_level = OBS_NONE;
+    s_off_tick = 0;
+    paint();
+}
+
 void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city)
 {
     s_city = city;
     if (!s_strip) return;
+    s_set_tick = lv_tick_get();
     if (ui_settings_shown()) level = OBS_NONE;               /* dang mo cai dat: khong de len */
     if (level == OBS_NONE && s_level != OBS_NONE) {          /* het vat can: giu them HOLD_MS */
         if (!s_off_tick) s_off_tick = lv_tick_get();
