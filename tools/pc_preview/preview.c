@@ -278,6 +278,22 @@ int main(int argc, char **argv)
     obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
     run(300);
     snprintf(p, sizeof p, "%s/vc_7_het.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_CAUTION, DET_CLS_CAR, 18, 0, false);   /* doi man khi dang co o vat can: bien khong duoc lo ra */
+    run(400);
+    ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
+    ui_set_speed(88);
+    ui_set_speed_limit(80);
+    for (int k = 0; k < 4; k++) {
+        run(150);
+        snprintf(p, sizeof p, "%s/vc_8_doi_man_%d.bmp", dir, k); save_bmp(p);
+    }
+    obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
+    run(800);
+    obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_speed(58);
+    ui_set_speed_limit(60);
+    run(3600);
     ui_set_speed(45);
     ui_set_speed_limit(50);
     ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
