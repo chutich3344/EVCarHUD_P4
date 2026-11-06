@@ -137,6 +137,21 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
         }
     }
 
+    /* nguoi ngoi tren xe may (Viet Nam: rat nhieu) khong phai nguoi di bo: khung nguoi chong len khung xe 2 banh
+     * (phan chung >= 50% be ngang nguoi, chan nguoi nam trong khung xe) -> bo khung nguoi, xe 2 banh van duoc xet */
+    for (int i = 0; i < n; i++) {
+        if (bx[i].cls != DET_CLS_PERSON || !ab[i].is_vehicle) continue;
+        float pw = ab[i].x2 - ab[i].x1;
+        for (int j = 0; j < n && pw > 0.0f; j++) {
+            if (bx[j].cls != DET_CLS_TWO) continue;
+            float ov = fminf(ab[i].x2, ab[j].x2) - fmaxf(ab[i].x1, ab[j].x1);
+            if (ov >= 0.5f * pw && ab[i].y2 > ab[j].y1 && ab[i].y2 <= ab[j].y2 + 0.15f * (ab[j].y2 - ab[j].y1)) {
+                ab[i].is_vehicle = 0;
+                break;
+            }
+        }
+    }
+
 #if CONFIG_EVCARHUD_ADAS_AUTO_HORIZON
     /* chan troi tu chinh (doc, xe chui dau, camera lap lech): moi xe con / xe lon ro rang, gan giua anh, khong bi cat day */
     for (int i = 0; i < n; i++) {
@@ -192,6 +207,14 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
     if (s_trk.valid) {
         if (s_trk.closing > MAX_CLOSING) s_trk.closing = MAX_CLOSING;
         if (s_trk.closing < -MAX_CLOSING) s_trk.closing = -MAX_CLOSING;
+        /* vat phia truoc khong the lai gan nhanh hon toc do xe minh (+2 m/s cho xe truoc phanh / lui): khung nho ban dem
+         * rung lam khoang cach nhay -> TTC ao (vd 29 m, 0,9 s khi dang bo 10 km/h). Chua biet toc do: coi nhu 30 km/h. */
+        int v = ui_get_speed();
+        float vmax = (float)(v >= 0 ? v : 30) / 3.6f + 2.0f;
+        if (s_trk.closing < -vmax) {
+            s_trk.closing = -vmax;
+            s_trk.ttc = s_trk.dist / vmax;
+        }
     }
 
     int m = 0, raw = OBS_NONE;

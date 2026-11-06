@@ -343,6 +343,8 @@ void obstacle_ui_init(void)
     s_tmr = lv_timer_create(tick_cb, TICK_MS, NULL);
 }
 
+int obstacle_ui_level(void) { return s_level; }
+
 void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city)
 {
     s_city = city;
