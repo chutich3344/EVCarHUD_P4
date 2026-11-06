@@ -1,7 +1,9 @@
-# Flash 16 MB: mot ban firmware duy nhat (giong ban S3: nap file gop o dia chi 0x0, khong can OTA).
+# Flash 16 MB: mot ban firmware duy nhat (10 MB: thu vien nhan dien ESP-DL lam firmware lon them) (giong ban S3: nap file gop o dia chi 0x0, khong can OTA).
 # coredump: hien truong khi board sap (doc bang: idf.py -p COMx coredump-info).
 # Name,   Type, SubType,  Offset,   Size
 nvs,      data, nvs,      0x9000,   0x6000
 phy_init, data, phy,      0xf000,   0x1000
-factory,  app,  factory,  0x10000,  0x600000
-coredump, data, coredump, 0x610000, 0x40000
+factory,  app,  factory,  0x10000,  0xA00000
+# evdet: mo hinh nhan dien vat can (models/evdet.espdl ~0,6 MB), ten phai dung "evdet" (detect.cpp)
+evdet,    data, spiffs,   0xA10000, 0x100000
+coredump, data, coredump, 0xB10000, 0x40000

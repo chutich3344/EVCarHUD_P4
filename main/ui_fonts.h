@@ -23,4 +23,5 @@ extern const lv_font_t ui_font_r76, ui_font_r50, ui_font_r44, ui_font_r36;      
 extern const lv_font_t ui_font_dist26;   /* Inter ExtraBold 26: khoang cach "250 m", "1,2 km" tren dai */
 extern const lv_font_t ui_font_dist30;   /* Inter ExtraBold 30: khoang cach tren dai canh bao */
 extern const lv_font_t ui_font_r92;      /* man Toc do khong co dai: so trong bien 202 px */
+extern const lv_font_t ui_font_warn64, ui_font_warn40;   /* Inter 900/800 "PHANH!" + "12 m · 1,4 s": canh bao vat can khan cap */
 #endif

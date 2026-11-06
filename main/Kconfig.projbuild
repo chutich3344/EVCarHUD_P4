@@ -1,5 +1,51 @@
 menu "EVCarHUD"
 
+    config EVCARHUD_USB_CAM
+        bool "Camera USB (UVC) o cong OTG: khung xem truoc + do FPS (thu nghiem nhan dien vat can)"
+        default y
+        help
+            Cam webcam UVC (MJPEG) vao cong Type-C "USB OTG" cua board: hien khung xem truoc 320x240 noi tren man hinh
+            kem FPS camera, thoi gian giai ma JPEG phan cung, FPS hien thi. Cham khung de an.
+
+    config EVCARHUD_DETECT
+        bool "Nhan dien vat can (o to, xe lon, xe 2 banh, nguoi) + canh bao tren HUD"
+        default y
+        depends on EVCARHUD_USB_CAM
+        help
+            Chay mo hinh models/evdet.espdl (vung flash evdet) tren anh 320x240, chon vat gan nhat trong lan minh,
+            uoc luong khoang cach theo be rong khung va canh bao theo phuong an D (obstacle_ui.h).
+
+    config EVCARHUD_ADAS_HFOV_DEG
+        int "Camera: goc nhin NGANG (do)"
+        default 42
+        range 20 150
+        depends on EVCARHUD_DETECT
+        help
+            RMONCAM G200 ong 6 mm: ~42 do (hang ghi 50 do theo duong cheo). Ong 2.8 mm: ~80. Sai goc nhin thi moi khoang cach
+            sai theo cung ti le. Hieu chuan: dat o to cach camera dung 10 m, xem log "adas: phia truoc ... X m";
+            X lon hon 10 thi tang goc, nho hon thi giam.
+
+    config EVCARHUD_ADAS_HORIZON_PCT
+        int "Camera: duong chan troi o bao nhieu % chieu cao anh (tu tren xuong)"
+        default 45
+        range 10 90
+        depends on EVCARHUD_DETECT
+        help
+            Gia tri ban dau; bat "chan troi tu chinh" thi firmware tu doi theo cac xe nhin thay.
+
+    config EVCARHUD_ADAS_AUTO_HORIZON
+        bool "Chan troi tu chinh theo cac xe nhin thay (doc, xe chui dau, camera lap lech)"
+        default y
+        depends on EVCARHUD_DETECT
+
+    config EVCARHUD_ADAS_CAM_H_CM
+        int "Camera: do cao so voi mat duong (cm)"
+        default 130
+        range 50 300
+        depends on EVCARHUD_DETECT
+        help
+            Dung de ve vung lan cua minh va tu chinh chan troi. Xe con gan sau guong chieu hau ~130 cm, SUV ~150 cm.
+
     menu "Man hinh"
         config EVCARHUD_LCD_SPI_MHZ
             int "Toc do SPI man hinh (MHz)"
