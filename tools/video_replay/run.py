@@ -89,7 +89,9 @@ class EgoSpeed:
         self.prev = g
         if est is not None:
             est = min(max(est, 0.0), 130.0)
-            self.v += (est - self.v) * 0.12
+            dv = (est - self.v) * 0.12
+            lim = 4.0 * 3.6 * self.dt                 # xe that tang / giam toi da ~4 m/s2: bo nhay do rung xe ban dem
+            self.v += max(-lim, min(lim, dv))
         return self.v
 
 

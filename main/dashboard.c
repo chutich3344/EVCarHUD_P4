@@ -2360,14 +2360,16 @@ bool ui_sign_slot(lv_area_t *a, int *lim, bool hide)
 {
     head_t *hs[3] = {&d_hd, &h_hd, &n_hd};
     const int pg[3] = {SCR_CRUISE, SCR_HIGHWAY, SCR_NAV};
+    bool act = scr && lv_screen_active() == scr;
+    int want = screen == SCR_HIGHWAY ? 1 : screen == SCR_NAV ? 2 : 0;   /* man dang chon (khi doi man, man cu con mo dan) */
     bool got = false;
     for (int i = 0; i < 3; i++) {
         lv_obj_t *r = hs[i]->ring;
         if (!r) continue;
-        bool cur = !got && scr && lv_screen_active() == scr && page[pg[i]] && shown(page[pg[i]]);
-        lv_opa_t o = cur && hide ? LV_OPA_TRANSP : LV_OPA_COVER;
+        bool vis = act && page[pg[i]] && shown(page[pg[i]]);
+        lv_opa_t o = vis && hide ? LV_OPA_TRANSP : LV_OPA_COVER;          /* an bien o moi man dang hien, ke ca man dang mo dan */
         if (lv_obj_get_style_opa(r, 0) != o) lv_obj_set_style_opa(r, o, 0);
-        if (!cur) continue;
+        if (!vis || i != want || screen == SCR_STANDBY) continue;
         int x = lv_obj_get_style_x(r, 0), y = lv_obj_get_style_y(r, 0) + TOP_H;
         int w = lv_obj_get_style_width(r, 0), h = lv_obj_get_style_height(r, 0);
         a->x1 = x; a->y1 = y; a->x2 = x + w - 1; a->y2 = y + h - 1;

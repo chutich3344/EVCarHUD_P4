@@ -115,6 +115,7 @@ static bool paint_box(bool show, bool danger, bool night, const char *d, const c
     lv_area_t a;
     int lim = 0;
     bool slot = ui_sign_slot(&a, &lim, show);
+    if (show && !slot) ui_sign_slot(&a, &lim, false);         /* khong co cho: tra bien lai */
     s_last_a = a;
     s_last_lim = lim;
     if (!show || !slot) {
