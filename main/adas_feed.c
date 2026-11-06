@@ -175,6 +175,8 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
         float bd = 1e9f;
         for (int i = 0; i < n; i++) {
             if (!ab[i].is_vehicle || ab[i].score < MIN_SCORE || !in_lane(&ab[i])) continue;
+            /* khung cham mep trai / phai: vat moi lot vao nua chung, khung to dan khi no di vao -> tuong dang lao toi (TTC ao) */
+            if ((ab[i].x1 <= 2.0f || ab[i].x2 >= (float)w - 3.0f) && ab[i].x2 - ab[i].x1 < 0.6f * (float)w) continue;
             float di = adas_dist_width_m(&cam, ab[i].x2 - ab[i].x1, ab[i].w_m);
             if (di > 0.0f && di < bd) {
                 bd = di;
@@ -229,6 +231,10 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
             s_lead_cls = bx[lead].cls;
         }
         if (s_ttc_streak >= TTC_STREAK) ttc = s_trk.ttc;
+        /* "nguoi" chay cung chieu gan bang toc do xe minh = nguoi ngoi xe may (ban dem mo hinh hay chi thay nguoi, khong thay xe);
+         * nguoi di bo dung / bang qua duong thi lai gan dung bang toc do xe minh */
+        int v = ui_get_speed();
+        if (s_lead_cls == DET_CLS_PERSON && v >= 10 && s_trk.closing > -0.5f * (float)v / 3.6f) s_lead_cls = DET_CLS_TWO;
         raw = calc_level(s_lead_cls, s_trk.dist, ttc, s_trk.closing, &city);
     } else {
         s_ttc_streak = 0;
@@ -240,7 +246,7 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
         s_cand_n = 1;
     }
     if (raw > s_level) {
-        if (s_cand_n >= (raw >= OBS_CRITICAL ? 2 : 3)) s_level = raw;
+        if (s_cand_n >= (raw >= OBS_CRITICAL && !city ? 2 : 3)) s_level = raw;    /* pho dong: Khan cap cung phai 3 lan */
     } else {
         s_level = raw;
     }
