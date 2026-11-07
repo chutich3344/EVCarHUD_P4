@@ -25,7 +25,8 @@
 
 static const char *TAG = "adas";
 
-#define MIN_SCORE 0.30f
+#define MIN_SCORE 0.40f                 /* duoi muc nay de nhan nham (bien bao, bong phan chieu) */
+#define CRIT_AGE 5                      /* Khan cap: xe phia truoc phai theo duoc lien tuc >= 5 lan (~0,5 s) */
 #define MAX_AGE_MS 1000
 #define TTC_STREAK 3                    /* TTC chi tin khi dang lai gan lien tiep ngan nay lan do */
 #define TTC_MIN_CLOSING 1.0f            /* ... va lai gan it nhat 1 m/s */
@@ -50,6 +51,7 @@ static float s_hor_ref;                      /* chan troi luc kiem tra on dinh l
 static bool s_hor_ok;                        /* chan troi da on dinh (chip CAM xanh) */
 static int s_img_w = 320, s_img_h = 240;
 static int s_cand = 0, s_cand_n = 0, s_level = 0;
+static int s_trk_age;                        /* so lan lien tiep theo duoc cung xe phia truoc */
 
 bool adas_feed_calibrated(void) { return s_hor_ok; }
 float adas_feed_horizon(void) { return s_hor >= 0 ? s_hor : (float)s_img_h * CONFIG_EVCARHUD_ADAS_HORIZON_PCT / 100.0f; }
@@ -74,6 +76,17 @@ static float jump_tol(float d)
     return t < 2.0f ? 2.0f : t;
 }
 
+/* Khoang cach an toan toi thieu theo Thong tu 38/2024/TT-BGTVT (duong kho, khong mua / suong mu):
+ * toc do 60 km/h: 35 m; >60-80: 55 m; >80-100: 70 m; >100-120: 100 m. Duoi 60 km/h luat khong ghi so: dung quy tac 2 giay. */
+int adas_feed_legal_m(int v)
+{
+    if (v > 100) return 100;
+    if (v > 80) return 70;
+    if (v > 60) return 55;
+    if (v >= 55) return 35;
+    return 0;
+}
+
 static int calc_level(int cls, float dist, float ttc, float closing, bool *city)
 {
     int v = ui_get_speed();
@@ -81,14 +94,16 @@ static int calc_level(int cls, float dist, float ttc, float closing, bool *city)
     *city = v < CITY_KMH;
     if (v < 5) return OBS_NONE;
     if (v < CITY_KMH) {                                        /* pho dong / bo ket xe: chi khi sap cham */
-        if (ttc > 0.0f && ttc < 1.5f && dist < 12.0f) return OBS_CRITICAL;
+        if (ttc > 0.0f && ttc < 1.5f && dist < 12.0f && s_trk_age >= CRIT_AGE) return OBS_CRITICAL;
         if ((cls != DET_CLS_PERSON && dist < 4.0f && closing < -1.0f) || (cls == DET_CLS_PERSON && dist < 8.0f)) return OBS_DANGER;
         return OBS_NONE;
     }
-    float safe = (float)v / 3.6f * 2.0f;
+    int legal = adas_feed_legal_m(v);
+    float safe = legal > 0 ? (float)legal : (float)v / 3.6f * 2.0f;   /* cao toc: theo luat; duong thuong: 2 giay */
     if (safe < 10.0f) safe = 10.0f;
-    if (ttc > 0.0f && ttc < 1.5f) return OBS_CRITICAL;
-    if (dist < safe * 0.5f || (ttc > 0.0f && ttc < 2.7f)) return OBS_DANGER;
+    /* Khan cap chi khi that su dang lao vao: TTC ngan, da gan, theo duoc on dinh */
+    if (ttc > 0.0f && ttc < 1.5f && dist < safe * 0.6f && s_trk_age >= CRIT_AGE) return OBS_CRITICAL;
+    if (dist < safe * 0.5f || (ttc > 0.0f && ttc < 2.7f && dist < safe)) return OBS_DANGER;
     if (cls == DET_CLS_PERSON) return dist < 20.0f ? OBS_CAUTION : OBS_NONE;
     if (dist < safe) return OBS_CAUTION;
     return OBS_NONE;
@@ -190,6 +205,17 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
             if (!ab[i].is_vehicle || ab[i].score < MIN_SCORE || !in_lane(&ab[i])) continue;
             /* khung cham mep trai / phai: vat moi lot vao nua chung, khung to dan khi no di vao -> tuong dang lao toi (TTC ao) */
             if ((ab[i].x1 <= 2.0f || ab[i].x2 >= (float)w - 3.0f) && ab[i].x2 - ab[i].x1 < 0.6f * (float)w) continue;
+            /* nap capo / bong kinh lai: khung chiem day anh, rong */
+            if (ab[i].y2 >= (float)h - 2.0f && ab[i].x2 - ab[i].x1 > 0.45f * (float)w) continue;
+            /* vat phai dung tren mat duong: khoang cach theo day khung (chan troi + do cao camera) va theo be rong phai khop
+             * (lech qua 2,2 lan = bien bao, den, bong phan chieu, vat tren cao... -> bo; truoc day gay PHANH ao) */
+            {
+                float dy = ab[i].y2 - s_hor;
+                if (dy < 2.0f) continue;                       /* day khung tren chan troi: khong phai vat tren duong */
+                float zg = cam.f_px * CAM_H_M / dy;
+                float zw = adas_dist_width_m(&cam, ab[i].x2 - ab[i].x1, ab[i].w_m);
+                if (zw > 0.0f && (zg > zw * 2.2f || zw > zg * 2.2f)) continue;
+            }
             float di = adas_dist_width_m(&cam, ab[i].x2 - ab[i].x1, ab[i].w_m);
             if (di > 0.0f && di < bd) {
                 bd = di;
@@ -219,6 +245,8 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
             adas_track_miss(&s_trk, now, MAX_AGE_MS);
         }
     }
+    s_trk_age = used ? s_trk_age + 1 : (lead < 0 ? 0 : s_trk_age);
+    if (!s_trk.valid) s_trk_age = 0;
     if (s_trk.valid) {
         if (s_trk.closing > MAX_CLOSING) s_trk.closing = MAX_CLOSING;
         if (s_trk.closing < -MAX_CLOSING) s_trk.closing = -MAX_CLOSING;
@@ -248,6 +276,8 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
          * nguoi di bo dung / bang qua duong thi lai gan dung bang toc do xe minh */
         int v = ui_get_speed();
         if (s_lead_cls == DET_CLS_PERSON && v >= 10 && s_trk.closing > -0.5f * (float)v / 3.6f) s_lead_cls = DET_CLS_TWO;
+        /* tu 40 km/h: nguoi di bo giua lan gan nhu khong co, mo hinh hay nham nguoi <-> xe dap / xe may -> coi la xe 2 banh */
+        if (s_lead_cls == DET_CLS_PERSON && v >= 40) s_lead_cls = DET_CLS_TWO;
         raw = calc_level(s_lead_cls, s_trk.dist, ttc, s_trk.closing, &city);
     } else {
         s_ttc_streak = 0;
@@ -285,6 +315,7 @@ void adas_feed_lost(void)
     s_ttc_streak = 0;
     s_jump_n = 0;
     s_level = s_cand = s_cand_n = 0;
+    s_trk_age = 0;
     s_shown_lv = s_shown_m = s_shown_t10 = -1;
     board_ui_lock();
     obstacle_ui_clear();
@@ -297,6 +328,7 @@ void adas_feed(detect_box_t *bx, int n, int w, int h) { (void)bx; (void)n; (void
 void adas_feed_lost(void) {}
 float adas_feed_horizon(void) { return 0.0f; }
 bool adas_feed_calibrated(void) { return false; }
+int adas_feed_legal_m(int v) { (void)v; return 0; }
 float adas_feed_lane_half(float y) { (void)y; return 0.0f; }
 
 #endif

@@ -7,6 +7,7 @@
 #include "dashboard.h"
 #include "detect.h"
 #include "ui_fonts.h"
+#include "adas_feed.h"
 
 extern const lv_image_dsc_t obs_ico_car28, obs_ico_moto28, obs_ico_person28;
 extern const lv_image_dsc_t obs_ico_car64, obs_ico_moto64, obs_ico_person64;
@@ -52,7 +53,7 @@ static const char *name_for(int cls)
 {
     switch (cls) {
     case DET_CLS_PERSON: return "Người đi bộ";
-    case DET_CLS_TWO: return "Xe máy phía trước";
+    case DET_CLS_TWO: return "Xe 2 bánh phía trước";
     case DET_CLS_BIG: return "Xe lớn phía trước";
     default: return "Xe phía trước";
     }
@@ -62,7 +63,7 @@ static const char *short_for(int cls)
 {
     switch (cls) {
     case DET_CLS_PERSON: return "Người đi bộ";
-    case DET_CLS_TWO: return "Xe máy";
+    case DET_CLS_TWO: return "Xe 2 bánh";
     case DET_CLS_BIG: return "Xe lớn";
     default: return "Xe phía trước";
     }
@@ -149,6 +150,8 @@ static bool paint_box(bool show, bool danger, bool night, const char *d, const c
     char sub[40];
     if (bw < 170) snprintf(sub, sizeof sub, "%s", t[0] ? t : short_for(s_cls));
     else if (t[0]) snprintf(sub, sizeof sub, "Va chạm sau %s", t);
+    else if (adas_feed_legal_m(ui_get_speed()) > 0 && s_cls != DET_CLS_PERSON)   /* cao toc: nhac khoang cach theo luat */
+        snprintf(sub, sizeof sub, "Luật: tối thiểu %d m", adas_feed_legal_m(ui_get_speed()));
     else snprintf(sub, sizeof sub, "%s", short_for(s_cls));
     set_txt(s_bsub, sub);
     lv_obj_set_style_text_color(s_bsub, txt, 0);

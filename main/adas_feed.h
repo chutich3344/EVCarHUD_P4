@@ -11,6 +11,7 @@ extern "C" {
 void adas_feed(detect_box_t *bx, int n, int w, int h);
 void adas_feed_lost(void);          /* camera bi rut / dung: xoa canh bao */
 bool adas_feed_calibrated(void);    /* chan troi tu chinh da on dinh (chip CAM tren thanh tren: xanh) */
+int adas_feed_legal_m(int kmh);     /* khoang cach an toan toi thieu theo Thong tu 38/2024 (m), 0 = duoi 55 km/h luat khong ghi so */
 float adas_feed_horizon(void);      /* chan troi dang dung (hang diem anh tren anh nhan dien) - de ve len anh xem truoc */
 float adas_feed_lane_half(float y); /* nua be rong vung lan minh tai hang y (diem anh), 0 neu tren chan troi */
 

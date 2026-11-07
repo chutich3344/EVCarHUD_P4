@@ -17,6 +17,9 @@ static void cam_open(void) { printf("(mo xem truoc camera)\n"); }
 
 static uint16_t fb[UI_W * UI_H];
 static uint32_t now_ms;
+int64_t esp_timer_get_time(void) { return (int64_t)now_ms * 1000; }
+bool board_ui_lock(void) { return true; }
+void board_ui_unlock(void) {}
 static uint32_t tick_cb(void) { return now_ms; }
 
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
