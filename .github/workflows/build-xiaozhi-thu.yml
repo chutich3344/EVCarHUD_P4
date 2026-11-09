@@ -16,8 +16,8 @@ permissions:
 env:
   XIAOZHI_TAG: v2.5.2
   OTA_URL: https://evcarhud.com/api/ai/ota/
-  WAKE_PINYIN: bi bo
-  WAKE_NAME: Bi Bô
+  WAKE_PINYIN: mi mi
+  WAKE_NAME: Mi Mi
 
 jobs:
   build:
@@ -39,11 +39,12 @@ jobs:
                   b['sdkconfig_append'] += [
                       'CONFIG_OTA_URL="%s"' % os.environ['OTA_URL'],
                       'CONFIG_LANGUAGE_VI_VN=y',
-                      # Tu danh thuc rieng "Bi Bo (oi)": mo hinh MultiNet tieng Trung, khai bao cach doc bang pinyin
+                      # Tu danh thuc rieng "Mi Mi (oi)": mo hinh MultiNet tieng Trung, khai bao cach doc bang pinyin
                       'CONFIG_USE_CUSTOM_WAKE_WORD=y',
                       'CONFIG_CUSTOM_WAKE_WORD="%s"' % os.environ['WAKE_PINYIN'],
                       'CONFIG_CUSTOM_WAKE_WORD_DISPLAY="%s"' % os.environ['WAKE_NAME'],
                       'CONFIG_CUSTOM_WAKE_WORD_THRESHOLD=20',
+                      'CONFIG_SR_MN_CN_MULTINET7_QUANT=y',
                   ]
           json.dump(cfg, open(p, 'w'), indent=4)
           print(json.dumps(cfg['builds'][0], indent=2))
@@ -61,7 +62,7 @@ jobs:
         shell: bash
         run: |
           D=$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)
-          N="p4-tro-ly-ai-bi-bo-$D"
+          N="p4-tro-ly-ai-mi-mi-$D"
           cp xiaozhi/build/merged-binary.bin "$N.bin"
           apt-get update -qq && apt-get install -y -qq zip >/dev/null || true
           zip -9 "$N.zip" "$N.bin"
