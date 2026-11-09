@@ -1,0 +1,38 @@
+# Tao file giong doc mau tieng Viet (Edge TTS, giong nu HoaiMy) cho trang gia lap tro ly AI.
+# Moi dong trong tools/giong-mau/cau.txt -> 1 file mp3, dang len ban phat hanh "giong-mau".
+name: Giong doc mau
+
+on:
+  push:
+    branches: [claude/project-thread-3vo5x8]
+    paths: [tools/giong-mau/**, .github/workflows/giong-mau.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install edge-tts
+      - name: Doc tung cau
+        run: |
+          mkdir out
+          python3 - <<'PY'
+          import asyncio, edge_tts
+          lines = [l.strip() for l in open('tools/giong-mau/cau.txt', encoding='utf-8') if l.strip()]
+          async def main():
+              for i, t in enumerate(lines):
+                  await edge_tts.Communicate(t, 'vi-VN-HoaiMyNeural', rate='+5%').save(f'out/{i:02d}.mp3')
+          asyncio.run(main())
+          PY
+          cp tools/giong-mau/cau.txt out/cau.txt
+          cd out && zip -9 ../giong-mau.zip * && ls -la
+      - name: Dang ban phat hanh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete giong-mau --yes --cleanup-tag || true
+          gh release create giong-mau giong-mau.zip --target "$GITHUB_SHA" --title "Giọng đọc mẫu Mi Mi" --notes "File giọng đọc mẫu cho trang giả lập trợ lý AI." --prerelease
