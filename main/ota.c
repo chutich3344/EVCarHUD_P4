@@ -245,7 +245,7 @@ static void view(const ui_ota_view_t *v)
 /* ve man theo s_view (khi khong dang ghi flash) */
 static void render(void)
 {
-    char t[96], d[256], b[48];
+    char t[96], d[512], b[48];
     ui_ota_view_t v = {.tone = UI_OTA_INFO, .title = t, .detail = d, .pct = -1};
     switch (s_view) {
     case V_HOME:
@@ -683,7 +683,7 @@ static void report_rollback(void)
     if (strcmp(seen, d.version)) {
         nvs_set_str(nh, "bad", d.version);
         nvs_commit(nh);
-        char t[96];
+        char t[160];
         snprintf(t, sizeof t, "Bản %s lỗi khi khởi động, đã quay về %s", d.version, cur_ver());
         ESP_LOGW(TAG, "%s", t);
         board_ui_lock();
