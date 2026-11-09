@@ -26,7 +26,7 @@
 
 static const char *TAG = "wifi";
 
-enum { CMD_ENABLE, CMD_DISABLE, CMD_SCAN, CMD_JOIN, CMD_RETRY, CMD_FORGET };
+enum { CMD_ENABLE, CMD_DISABLE, CMD_SCAN, CMD_JOIN, CMD_RETRY, CMD_FORGET, CMD_SCAN_TIMEOUT };
 typedef struct {
     int cmd;
     char ssid[33];
@@ -40,7 +40,7 @@ static bool scanning, scan_auto, scan_user;      /* scan_auto: do de chon mang d
 static int retries;
 static char cur_ssid[33], cur_pass[65];          /* mang dang thu / dang noi */
 static TaskHandle_t wx_task;
-static esp_timer_handle_t retry_tmr;
+static esp_timer_handle_t retry_tmr, scan_tmr;
 
 static void ui_state(int st, const char *ssid)
 {
@@ -253,7 +253,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         static ui_wifi_ap_t aps[16];
         static char ss[WIFI_SAVED_MAX][33], sp[WIFI_SAVED_MAX][65];
         scanning = false;
+        esp_timer_stop(scan_tmr);
         if (esp_wifi_scan_get_ap_records(&n, rec) != ESP_OK) n = 0;
+        ESP_LOGI(TAG, "do song xong: %u mang", n);
         int ns = settings_wifi_list(ss, sp);
         int best = -1, best_rssi = -1000;
         for (int i = 0; i < n; i++) {
@@ -324,6 +326,27 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 
 static void retry_cb(void *arg) { (void)arg; post(CMD_RETRY, NULL, NULL); }
 
+/* Do song: chu dong (active) tren moi kenh, dung duoc ca khi dang noi mang. Chip C6 (esp_hosted) doi khi khong bao
+ * SCAN_DONE (vd lenh noi mang chen ngang): canh gac 12 s, het gio thi huy lan do va bao ket qua rong de trang Wi-Fi khong
+ * quay mai, lan bam "Do lai" sau van chay. */
+static esp_err_t scan_begin(void)
+{
+    wifi_scan_config_t sc = {.show_hidden = false, .scan_type = WIFI_SCAN_TYPE_ACTIVE};
+    sc.scan_time.active.min = 80;
+    sc.scan_time.active.max = 200;
+    esp_err_t e = esp_wifi_scan_start(&sc, false);
+    if (e == ESP_OK) {
+        scanning = true;
+        esp_timer_stop(scan_tmr);
+        esp_timer_start_once(scan_tmr, 12 * 1000000ULL);
+    } else {
+        ESP_LOGW(TAG, "khong do duoc song: %s", esp_err_to_name(e));
+    }
+    return e;
+}
+
+static void scan_tmr_cb(void *arg) { (void)arg; post(CMD_SCAN_TIMEOUT, NULL, NULL); }
+
 static void connect_to(const char *ssid, const char *pass, bool user)
 {
     wifi_config_t c = {0};
@@ -349,8 +372,7 @@ static void connect_saved(void)
     if (!n) { ui_state(UI_WIFI_IDLE, ""); return; }
     scan_auto = true;
     if (scanning) return;                                        /* dang do (trang Wi-Fi): ket qua dung chung */
-    wifi_scan_config_t sc = {.show_hidden = false};
-    if (esp_wifi_scan_start(&sc, false) == ESP_OK) { scanning = true; return; }
+    if (scan_begin() == ESP_OK) return;
     scan_auto = false;
     connect_to(s[0], p[0], false);                               /* khong do duoc: thu mang luu gan nhat */
 }
@@ -407,10 +429,13 @@ static void wifi_task(void *arg)
             break;
         case CMD_SCAN: {
             scan_user = true;
-            if (scanning) break;                                 /* dang do tu dong: cho ket qua */
-            wifi_scan_config_t sc = {.show_hidden = false};
-            if (wifi_up() && esp_wifi_scan_start(&sc, false) == ESP_OK) scanning = true;
-            else {
+            if (scanning) break;                                 /* dang do tu dong: cho ket qua (co canh gac 12 s) */
+            esp_err_t e = wifi_up() ? scan_begin() : ESP_FAIL;
+            if (e == ESP_ERR_WIFI_STATE) {                       /* dang noi mang: do lai sau 3 s */
+                vTaskDelay(pdMS_TO_TICKS(3000));
+                e = scan_begin();
+            }
+            if (e != ESP_OK) {
                 scan_user = false;
                 board_ui_lock();
                 ui_wifi_scan_done(NULL, 0);
@@ -418,6 +443,19 @@ static void wifi_task(void *arg)
             }
             break;
         }
+        case CMD_SCAN_TIMEOUT:
+            if (!scanning) break;
+            ESP_LOGW(TAG, "do song qua 12 s chua xong: huy");
+            esp_wifi_scan_stop();
+            scanning = false;
+            if (scan_user) {
+                scan_user = false;
+                board_ui_lock();
+                ui_wifi_scan_done(NULL, 0);
+                board_ui_unlock();
+            }
+            if (scan_auto) { scan_auto = false; esp_timer_start_once(retry_tmr, 10 * 1000000ULL); }
+            break;
         case CMD_JOIN:
             if (m.use_saved && !settings_wifi_find(m.ssid, m.pass)) m.pass[0] = 0;
             if (wifi_up()) connect_to(m.ssid, m.pass, true);
@@ -440,6 +478,8 @@ void wifi_link_start(void)
     q = xQueueCreate(6, sizeof(cmd_t));
     esp_timer_create_args_t ta = {.callback = retry_cb, .name = "wifi_retry"};
     esp_timer_create(&ta, &retry_tmr);
+    esp_timer_create_args_t ts = {.callback = scan_tmr_cb, .name = "wifi_scan"};
+    esp_timer_create(&ts, &scan_tmr);
     bool on = settings_get_wifi_on();
     char s[33], p[65];
     bool saved = settings_get_wifi(s, p);
