@@ -1,0 +1,8 @@
+dependencies:
+  idf: ">=5.5.0"
+  lvgl/lvgl: "~9.2.2"                          # cung ban voi cong cu xem truoc tren PC (tools/pc_preview)
+  espressif/esp_lcd_st7796: "^1.3.0"           # man hinh ST7796
+  espressif/esp_lcd_touch_ft5x06: "^1.0.0"     # cam ung FT6336 (tuong thich FT5x06); keo theo esp_lcd_touch
+  espressif/esp_hosted: "*"                    # cau noi SDIO P4 <-> C6: Bluetooth LE nam o chip C6
+  espressif/esp_wifi_remote: "*"               # esp_hosted can (Wi-Fi tren C6; ban nay chua dung Wi-Fi)
+  espressif/esp_codec_dev: "~1.5"              # codec ES8311 + loa: tieng tit canh bao
