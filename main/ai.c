@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "cJSON.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
@@ -18,6 +19,10 @@
 #include "esp_websocket_client.h"
 #include "esp_opus_dec.h"
 #include "esp_opus_enc.h"
+#include "esp_mn_iface.h"
+#include "esp_mn_models.h"
+#include "esp_mn_speech_commands.h"
+#include "model_path.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"
@@ -40,7 +45,7 @@
 static const char *TAG = "ai";
 
 enum { ST_IDLE = 0, ST_CONN, ST_LISTEN, ST_THINK, ST_SPEAK };
-enum { M_TAP = 1, M_JSON, M_CLOSED, M_DRAINED, M_WIFI_DOWN };
+enum { M_TAP = 1, M_WAKE, M_JSON, M_CLOSED, M_DRAINED, M_WIFI_DOWN, M_VAD_END, M_VAD_NONE };
 typedef struct {
     int type;
     int gen;                                          /* phien nao gui (bo tin cua phien cu) */
@@ -67,6 +72,14 @@ static char s_mac[18], s_uuid[37], s_session[64];
 static char *s_txt;                                   /* gom tin chu bi chia nhieu doan */
 static int s_txt_len;
 static TickType_t s_since;
+static volatile bool s_wake_ok;                       /* co mo hinh tu danh thuc (vung flash "model") */
+static char s_ws_url[256], s_ws_tok[256];             /* nho dia chi + token: phien sau khoi hoi lai may chu */
+
+/* VAD tren chip (do nang luong): biet anh noi xong de gui "listen stop" ngay, khong cho may chu doan */
+#define VAD_START_FR  3                               /* 180 ms co tieng: bat dau noi */
+#define VAD_END_FR    14                              /* 840 ms im: noi xong */
+#define VAD_NONE_FR   134                             /* ~8 s khong noi gi: dong phien */
+#define VAD_MAX_FR    250                             /* cau dai nhat 15 s */
 
 /* ---------------- giao dien ---------------- */
 static lv_obj_t *g_btn, *g_strip, *g_orb, *g_cap, *g_text;
@@ -293,6 +306,11 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 /* Hoi may chu dia chi WebSocket + token. Tra ve false va dat loi (thong bao cho nguoi dung). */
 static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *why, size_t why_n)
 {
+    if (s_ws_url[0]) {                                /* token theo MAC, khong het han: dung lai */
+        snprintf(url, url_n, "%s", s_ws_url);
+        snprintf(token, tok_n, "%s", s_ws_tok);
+        return true;
+    }
     char body[200];
     snprintf(body, sizeof body,
              "{\"application\":{\"name\":\"evcarhud-p4\",\"version\":\"%s\"},\"board\":{\"type\":\"evcarhud-p4\",\"mac\":\"%s\"}}",
@@ -322,6 +340,8 @@ static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *w
         if (cJSON_IsString(u) && u->valuestring[0]) {
             snprintf(url, url_n, "%s", u->valuestring);
             snprintf(token, tok_n, "%s", cJSON_IsString(t) ? t->valuestring : "");
+            snprintf(s_ws_url, sizeof s_ws_url, "%s", url);
+            snprintf(s_ws_tok, sizeof s_ws_tok, "%s", token);
             ok = true;
         } else if (act) {
             const cJSON *msg = cJSON_GetObjectItem(act, "message");
@@ -339,6 +359,17 @@ static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *w
     return ok;
 }
 
+static void ws_drop(void)
+{
+    if (s_ws) {
+        esp_websocket_client_handle_t ws = s_ws;
+        s_ws = NULL;
+        s_gen++;
+        if (esp_websocket_client_is_connected(ws)) esp_websocket_client_close(ws, pdMS_TO_TICKS(1000));
+        esp_websocket_client_destroy(ws);
+    }
+}
+
 static void session_close(void)
 {
     int was = s_st;
@@ -347,12 +378,7 @@ static void session_close(void)
     s_drop = true;
     s_tts_stop = false;
     flush_play();
-    if (s_ws) {
-        esp_websocket_client_handle_t ws = s_ws;
-        s_ws = NULL;
-        if (esp_websocket_client_is_connected(ws)) esp_websocket_client_close(ws, pdMS_TO_TICKS(1000));
-        esp_websocket_client_destroy(ws);
-    }
+    ws_drop();
     if (was != ST_IDLE) ESP_LOGI(TAG, "ket thuc phien");
     ui_show(NULL, NULL, false);
 }
@@ -361,11 +387,13 @@ static void go_listen(void)
 {
     s_drop = false;
     s_tts_stop = false;
-    send_listen("start", ",\"mode\":\"auto\"");
+    send_listen("start", ",\"mode\":\"manual\"");   /* VAD tren chip bao noi xong (listen stop) */
     s_st = ST_LISTEN;
     s_since = xTaskGetTickCount();
     ui_show("ĐANG NGHE", "Anh nói đi…", true);
 }
+
+static bool session_connect(void);
 
 static void session_open(void)
 {
@@ -376,17 +404,29 @@ static void session_open(void)
     if (!settings_get_sound() || settings_get_volume() <= 0) toast("Âm thanh đang tắt: bật để nghe Mi Mi");
     s_st = ST_CONN;
     ui_show("ĐANG KẾT NỐI", "Mi Mi đang tới…", true);
+    bool cached = s_ws_url[0] != 0;
+    if (session_connect()) return;
+    if (cached && s_st == ST_CONN) {                  /* token cu bi tu choi / doi dia chi: hoi lai may chu */
+        s_ws_url[0] = 0;
+        session_connect();
+    }
+}
+
+/* true: da vao phien; false: loi (da dong, s_st van ST_CONN neu nen thu lai voi token moi) */
+static bool session_connect(void)
+{
+    bool cached_try = s_ws_url[0] != 0;
     static char url[256], token[256], why[160];
     why[0] = 0;
     if (!fetch_ws(url, sizeof url, token, sizeof token, why, sizeof why)) {
         session_close();
         toast(why);
-        return;
+        return true;                                  /* loi tu may chu: khong thu lai */
     }
     char *hdr = malloc(600);
     if (!hdr) {
         session_close();
-        return;
+        return true;
     }
     snprintf(hdr, 600, "Authorization: Bearer %s\r\nDevice-Id: %s\r\nClient-Id: %s\r\nProtocol-Version: 1\r\n", token, s_mac, s_uuid);
     s_session[0] = 0;
@@ -406,21 +446,23 @@ static void session_open(void)
     if (!s_ws) {
         session_close();
         toast("Mi Mi: thiếu bộ nhớ");
-        return;
+        return true;
     }
     esp_websocket_register_events(s_ws, WEBSOCKET_EVENT_ANY, ws_event, (void *)(intptr_t)gen);
     if (esp_websocket_client_start(s_ws) != ESP_OK ||
         !(xEventGroupWaitBits(s_ev, BIT_CONNECTED, pdFALSE, pdFALSE, pdMS_TO_TICKS(10000)) & BIT_CONNECTED)) {
+        ws_drop();
+        if (s_ws_url[0] && cached_try) return false; /* thu lai voi token moi */
         session_close();
         toast("Mi Mi: không kết nối được máy chủ");
-        return;
+        return true;
     }
     send_text("{\"type\":\"hello\",\"version\":1,\"features\":{\"mcp\":true},\"transport\":\"websocket\","
               "\"audio_params\":{\"format\":\"opus\",\"sample_rate\":16000,\"channels\":1,\"frame_duration\":60}}");
     if (!(xEventGroupWaitBits(s_ev, BIT_HELLO, pdFALSE, pdFALSE, pdMS_TO_TICKS(5000)) & BIT_HELLO)) {
         session_close();
         toast("Mi Mi: máy chủ không trả lời");
-        return;
+        return true;
     }
     ESP_LOGI(TAG, "da noi phien %s", s_session);
     s_drop = false;
@@ -429,6 +471,7 @@ static void session_open(void)
     s_st = ST_THINK;
     s_since = xTaskGetTickCount();
     ui_show("MI MI", "", true);
+    return true;
 }
 
 /* ---------------- MCP: cong cu cho tro ly hoi trang thai HUD ---------------- */
@@ -515,7 +558,7 @@ static void on_json(cJSON *j)
         const cJSON *st = cJSON_GetObjectItem(j, "state");
         const char *state = cJSON_IsString(st) ? st->valuestring : "";
         if (strcmp(state, "start") == 0) {
-            if (s_st == ST_THINK) {
+            if (s_st == ST_THINK || s_st == ST_LISTEN) {
                 s_st = ST_SPEAK;
                 s_drop = false;
                 s_tts_stop = false;
@@ -566,6 +609,23 @@ static void ctl_task(void *arg)
             case M_TAP:
                 on_tap();
                 break;
+            case M_WAKE:                              /* "Mi Mi" bang giong noi */
+                if (s_st == ST_IDLE) {
+                    ESP_LOGI(TAG, "nghe thay tu danh thuc");
+                    session_open();
+                }
+                break;
+            case M_VAD_END:                           /* anh noi xong: gui ngay, khong cho may chu doan */
+                if (s_st == ST_LISTEN) {
+                    send_listen("stop", NULL);
+                    s_st = ST_THINK;
+                    s_since = xTaskGetTickCount();
+                    ui_show("MI MI", "Đang nghĩ…", true);
+                }
+                break;
+            case M_VAD_NONE:                          /* khong ai noi: ket thuc */
+                if (s_st == ST_LISTEN) session_close();
+                break;
             case M_JSON:
                 if (m.gen == s_gen && s_st != ST_IDLE) on_json(m.json);
                 break;
@@ -590,16 +650,71 @@ static void ctl_task(void *arg)
     }
 }
 
+/* Tu danh thuc "Mi Mi": MultiNet7 tieng Trung (lenh go bang pinyin, giong Xiaozhi CUSTOM_WAKE_WORD), chay thang tren
+ * micro khi dang ranh. Mo hinh nam o vung flash "model" (nap bang file gop). Khong co mo hinh: chi cham nut. */
+static esp_mn_iface_t *s_mn;
+static model_iface_data_t *s_mnd;
+static int16_t *s_wbuf;
+static int s_wchunk, s_wfill;
+
+static void wake_init(void)
+{
+    srmodel_list_t *models = esp_srmodel_init("model");
+    char *name = models ? esp_srmodel_filter(models, ESP_MN_PREFIX, ESP_MN_CHINESE) : NULL;
+    if (!name) {
+        ESP_LOGW(TAG, "khong co mo hinh tu danh thuc (vung flash \"model\"): chi cham nut micro");
+        return;
+    }
+    s_mn = esp_mn_handle_from_name(name);
+    s_mnd = s_mn ? s_mn->create(name, 3000) : NULL;
+    if (!s_mnd) return;
+    s_mn->set_det_threshold(s_mnd, CONFIG_EVCARHUD_WAKE_THRESHOLD / 100.0f);
+    esp_mn_commands_alloc(s_mn, s_mnd);
+    esp_mn_commands_clear();
+    esp_mn_commands_add(1, CONFIG_EVCARHUD_WAKE_WORD);
+    esp_mn_error_t *err = esp_mn_commands_update();
+    if (err && err->num > 0) {
+        ESP_LOGW(TAG, "tu danh thuc \"%s\" khong hop le (pinyin?)", CONFIG_EVCARHUD_WAKE_WORD);
+        return;
+    }
+    s_wchunk = s_mn->get_samp_chunksize(s_mnd);
+    s_wbuf = malloc((size_t)s_wchunk * sizeof(int16_t));
+    if (!s_wbuf || s_wchunk <= 0) return;
+    s_wake_ok = true;
+    ESP_LOGI(TAG, "tu danh thuc \"%s\" (%s, nguong %d%%)", CONFIG_EVCARHUD_WAKE_WORD, name, CONFIG_EVCARHUD_WAKE_THRESHOLD);
+}
+
+static void wake_feed(const int16_t *pcm, int n)
+{
+    while (n > 0) {
+        int k = s_wchunk - s_wfill < n ? s_wchunk - s_wfill : n;
+        memcpy(s_wbuf + s_wfill, pcm, (size_t)k * sizeof(int16_t));
+        s_wfill += k;
+        pcm += k;
+        n -= k;
+        if (s_wfill < s_wchunk) break;
+        s_wfill = 0;
+        esp_mn_state_t st = s_mn->detect(s_mnd, s_wbuf);
+        if (st == ESP_MN_STATE_DETECTED) {
+            s_mn->clean(s_mnd);
+            post(M_WAKE, 0, NULL);
+            return;
+        }
+        if (st == ESP_MN_STATE_TIMEOUT) s_mn->clean(s_mnd);
+    }
+}
+
 static void mic_task(void *arg)
 {
     (void)arg;
+    wake_init();
     esp_opus_enc_config_t cfg = ESP_OPUS_ENC_CONFIG_DEFAULT();
     cfg.sample_rate = RATE;
     cfg.channel = 1;
     cfg.bits_per_sample = 16;
     cfg.bitrate = ESP_OPUS_BITRATE_AUTO;
     cfg.frame_duration = ESP_OPUS_ENC_FRAME_DURATION_60_MS;
-    cfg.application_mode = ESP_OPUS_ENC_APPLICATION_VOIP;   /* DTX chi chay o che do VOIP: may chu nhan biet im lang */
+    cfg.application_mode = ESP_OPUS_ENC_APPLICATION_VOIP;
     cfg.complexity = 0;
     cfg.enable_dtx = true;
     cfg.enable_vbr = true;
@@ -619,10 +734,18 @@ static void mic_task(void *arg)
         return;
     }
     bool was = false;
+    int fr = 0, run = 0, quiet = 0;
+    bool started = false, sent_end = false;
+    float floor_e = 0;
+    int last_listen_gen = -1;
+    TickType_t last_since = 0;
     for (;;) {
-        if (s_st != ST_LISTEN) {
+        int st = s_st;
+        bool wake = st == ST_IDLE && s_wake_ok && s_wifi;
+        if (st != ST_LISTEN && !wake) {
             if (was) esp_opus_enc_reset(enc);
             was = false;
+            s_wfill = 0;
             vTaskDelay(pdMS_TO_TICKS(30));
             continue;
         }
@@ -630,8 +753,46 @@ static void mic_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
-        was = true;
+        if (s_st == ST_IDLE) {
+            if (wake) wake_feed(pcm, FRAME);
+            continue;
+        }
         if (s_st != ST_LISTEN) continue;
+        was = true;
+        /* moi lan bat dau nghe (go_listen dat s_since moi): dat lai VAD */
+        if (last_listen_gen != s_gen || last_since != s_since) {
+            last_listen_gen = s_gen;
+            last_since = s_since;
+            fr = run = quiet = 0;
+            started = sent_end = false;
+            floor_e = 0;
+        }
+        /* nang luong khung (RMS) + nen on thich nghi */
+        int64_t acc = 0;
+        for (int i = 0; i < FRAME; i++) acc += (int32_t)pcm[i] * pcm[i];
+        float e = sqrtf((float)acc / FRAME);
+        if (fr < 3) floor_e = fr == 0 ? e : (floor_e < e ? floor_e : e);   /* 180 ms dau: lay nen */
+        float thr = floor_e * 2.5f > 350.0f ? floor_e * 2.5f : 350.0f;
+        bool speech = fr >= 3 && e > thr;
+        if (!speech && fr >= 3) floor_e = floor_e * 0.95f + e * 0.05f;
+        fr++;
+        if (speech) {
+            run++;
+            quiet = 0;
+            if (run >= VAD_START_FR) started = true;
+        } else {
+            run = 0;
+            quiet++;
+        }
+        if (!sent_end) {
+            if (started && (quiet >= VAD_END_FR || fr >= VAD_MAX_FR)) {
+                sent_end = true;
+                post(M_VAD_END, s_gen, NULL);
+            } else if (!started && fr >= VAD_NONE_FR) {
+                sent_end = true;
+                post(M_VAD_NONE, s_gen, NULL);
+            }
+        }
         esp_audio_enc_in_frame_t in = {.buffer = (uint8_t *)pcm, .len = (uint32_t)in_sz};
         esp_audio_enc_out_frame_t o = {.buffer = out, .len = (uint32_t)(out_sz > 0 ? out_sz : 1500)};
         if (esp_opus_enc_process(enc, &in, &o) != ESP_AUDIO_ERR_OK || o.encoded_bytes == 0) continue;

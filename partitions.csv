@@ -1,15 +1,17 @@
-# Flash 16 MB, cap nhat OTA: 2 khe firmware ota_0 / ota_1 (moi khe 7 MB, ban hien tai ~4,6 MB).
+# Flash 16 MB, cap nhat OTA: 2 khe firmware ota_0 / ota_1 (moi khe 6 MB, ban 1.0.6 ~5,5 MB).
 # Ban moi luon ghi vao khe KHONG chay; khoi dong ban moi ma khong on (sap / khoi dong lai truoc khi xac nhan) thi
 # bootloader tu quay ve khe cu (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE, main/ota.c).
-# nvs / phy_init giu nguyen dia chi cu (khong mat cai dat), ota_0 van o 0x10000 (file app-0x10000 nap USB nhu truoc).
-# Doi bang phan vung: lan dau phai nap file gop o 0x0 bang USB; tu do ve sau cap nhat qua Wi-Fi.
+# nvs / phy_init giu nguyen dia chi cu (khong mat cai dat, Wi-Fi da luu), ota_0 van o 0x10000 (file app-0x10000 nap nhu truoc).
+# Doi bang phan vung: phai nap file gop o 0x0 bang USB (lan doi 1.0.5 -> 1.0.6: them vung "model" cho tu danh thuc Mi Mi).
 # coredump: hien truong khi board sap (doc bang: idf.py -p COMx coredump-info).
 # Name,   Type, SubType,  Offset,   Size
 nvs,      data, nvs,      0x9000,   0x6000
 phy_init, data, phy,      0xf000,   0x1000
-ota_0,    app,  ota_0,    0x10000,  0x700000
-ota_1,    app,  ota_1,    0x710000, 0x700000
-otadata,  data, ota,      0xE10000, 0x2000
-# evdet: mo hinh nhan dien vat can (models/evdet.espdl ~0,6 MB), ten phai dung "evdet" (detect.cpp). OTA khong doi vung nay.
-evdet,    data, spiffs,   0xE20000, 0x100000
-coredump, data, coredump, 0xF20000, 0x40000
+ota_0,    app,  ota_0,    0x10000,  0x600000
+ota_1,    app,  ota_1,    0x610000, 0x600000
+otadata,  data, ota,      0xC10000, 0x2000
+# evdet: mo hinh nhan dien vat can (models/evdet.espdl ~0,57 MB), ten phai dung "evdet" (detect.cpp). OTA khong doi vung nay.
+evdet,    data, spiffs,   0xC20000, 0xA0000
+# model: mo hinh nhan giong esp-sr (srmodels.bin, MultiNet7 tieng Trung ~2,6 MB), ten phai dung "model".
+model,    data, spiffs,   0xCC0000, 0x300000
+coredump, data, coredump, 0xFC0000, 0x40000

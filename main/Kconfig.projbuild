@@ -118,6 +118,19 @@ menu "EVCarHUD"
         help
             HUD POST kem Device-Id = MAC; may chu tra websocket.url + token (HUD da bat Mi Mi) hoac activation.message.
 
+    config EVCARHUD_WAKE_WORD
+        string "Tro ly Mi Mi: tu danh thuc (pinyin, cach bang dau cach)"
+        default "mi mi"
+        help
+            Nhan bang mo hinh MultiNet7 tieng Trung (esp-sr) trong vung flash "model". Doi chu khac thi viet theo pinyin.
+
+    config EVCARHUD_WAKE_THRESHOLD
+        int "Tro ly Mi Mi: nguong tu danh thuc (%)"
+        default 20
+        range 1 99
+        help
+            Nho hon = nhay hon (de goi nhung de bat nham khi xe on). Xiaozhi mac dinh 20.
+
     config EVCARHUD_OTA_URL
         string "Cap nhat OTA: dia chi may chu (evcarhud-web /api/ota)"
         default "https://evcarhud.com/api/ota"
