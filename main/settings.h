@@ -25,5 +25,9 @@ int settings_get_tz(void);            /* mui gio (phut), mac dinh +7 (Viet Nam) 
 void settings_set_tz(int tz_min);
 bool settings_get_wifi_on(void);      /* cong tac Wi-Fi (mac dinh: bat) */
 void settings_set_wifi_on(bool on);
-bool settings_get_wifi(char ssid[33], char pass[65]);   /* mang Wi-Fi da luu (false: chua co) */
-void settings_set_wifi(const char *ssid, const char *pass);
+#define WIFI_SAVED_MAX 6
+bool settings_get_wifi(char ssid[33], char pass[65]);   /* mang Wi-Fi luu gan nhat (false: chua co) */
+void settings_set_wifi(const char *ssid, const char *pass);   /* luu / cap nhat mang, dua len dau */
+int settings_wifi_list(char ssid[][33], char pass[][65]);    /* moi mang da luu (mang WIFI_SAVED_MAX), tra so mang */
+bool settings_wifi_find(const char *ssid, char pass[65]);     /* mang nay da luu chua (lay mat khau) */
+void settings_wifi_forget(const char *ssid);

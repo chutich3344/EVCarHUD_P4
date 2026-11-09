@@ -2,14 +2,15 @@
  * Theo man mau: nen xanh la dam nhu man cai dat. Dau trang: nut quay lai, tieu de, dong phu, cong tac Wi-Fi.
  *  - Danh sach mang: vach song, ten, "Da ket noi", o khoa (co mat khau) / "Mo"; nut "Do lai".
  *  - Nhap mat khau: o nhap (an bang dau cham, nut mat de hien), ban phim QWERTY: 123/ABC, Shift, xoa, dau cach, "Ket noi".
- *    It nhat 8 ky tu. Ket noi duoc thi wifi_link.c luu NVS, lan bat may sau tu ket noi.
+ *    It nhat 8 ky tu. Ket noi duoc thi wifi_link.c luu NVS (nhieu mang), lan bat may sau tu vao mang da luu song manh nhat.
+ *  - Mang da luu: cham la ket noi luon (khong hoi lai mat khau); giu lau de quen mang.
  *  - Dang ket noi / da ket noi / loi. Lop tren cung (lv_layer_top): khong dung toi cac man bang dieu khien. */
 #define WF_MAX 12
 static ui_wifi_hooks_t wf_h;
 static lv_obj_t *wf_scr, *wf_list_pg, *wf_sub, *wf_sw, *wf_list, *wf_busy, *wf_off_l, *wf_rescan;
 static lv_obj_t *wf_pass_pg, *wf_pass_sub, *wf_in_box, *wf_in, *wf_ph, *wf_caret, *wf_eye_l, *wf_keys;
 static lv_obj_t *wf_conn_pg, *wf_conn_spin, *wf_conn_icon, *wf_conn_t, *wf_conn_s;
-static bool wf_on, wf_scanning, wf_show, wf_shift, wf_num, wf_joining;
+static bool wf_on, wf_scanning, wf_show, wf_shift, wf_num, wf_joining, wf_use_saved;
 static char wf_pwd[64], wf_sel[33], wf_err[48];
 static ui_wifi_ap_t wf_aps[WF_MAX];
 static int wf_n;
@@ -103,12 +104,13 @@ static void wf_join_now(void)
     char b[80];
     snprintf(b, sizeof b, "Đang kết nối %s…", wf_sel);
     lv_label_set_text(wf_conn_t, b);
-    lv_label_set_text(wf_conn_s, "Lưu mạng này để lần sau tự kết nối");
+    lv_label_set_text(wf_conn_s, wf_use_saved ? "Mạng đã lưu · không cần nhập mật khẩu" : "Lưu mạng này để lần sau tự kết nối");
     show(wf_conn_spin, true);
     show(wf_conn_icon, false);
     wf_page(wf_conn_pg);
     render_standby();
-    if (wf_h.join) wf_h.join(wf_sel, wf_pwd);
+    if (wf_h.join) wf_h.join(wf_sel, wf_use_saved ? NULL : wf_pwd);
+    wf_use_saved = false;
 }
 
 static void wf_row_cb(lv_event_t *e)
@@ -119,11 +121,24 @@ static void wf_row_cb(lv_event_t *e)
     snprintf(wf_sel, sizeof wf_sel, "%s", wf_aps[i].ssid);
     wf_pwd[0] = 0;
     wf_err[0] = 0;
+    if (wf_aps[i].saved) { wf_use_saved = true; wf_join_now(); return; }   /* da luu: vao luon */
     if (!wf_aps[i].lock) { wf_join_now(); return; }
     wf_shift = wf_num = wf_show = false;
     lv_label_set_text(wf_pass_sub, wf_sel);
     wf_render_pass();
     wf_page(wf_pass_pg);
+}
+
+static void wf_forget_cb(lv_event_t *e)                          /* giu lau mang da luu: quen mang */
+{
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    if (i < 0 || i >= wf_n || !wf_aps[i].saved) return;
+    wf_aps[i].saved = false;
+    if (wf_h.forget) wf_h.forget(wf_aps[i].ssid);
+    char b[64];
+    snprintf(b, sizeof b, "Đã quên mạng %s", wf_aps[i].ssid);
+    wf_render_list();
+    lv_label_set_text(wf_sub, b);                                   /* trang Wi-Fi nam tren lop tren cung: bao o dong phu */
 }
 
 static void wf_render_list(void)
@@ -133,7 +148,12 @@ static void wf_render_list(void)
     if (!wf_on) snprintf(b, sizeof b, "Bật để lấy giờ (NTP) và thời tiết");
     else if (wifi_st == UI_WIFI_CONNECTED) snprintf(b, sizeof b, "Đã kết nối %s", wifi_ssid);
     else if (wifi_st == UI_WIFI_CONNECTING) snprintf(b, sizeof b, "Đang kết nối %s…", wifi_ssid);
-    else snprintf(b, sizeof b, "Dò mạng để lấy giờ (NTP) và thời tiết");
+    else {
+        bool any = false;
+        for (int i = 0; i < wf_n; i++) any |= wf_aps[i].saved;
+        snprintf(b, sizeof b, "%s", any && !wf_scanning ? "Chạm mạng đã lưu để vào ngay · giữ lâu để quên"
+                                                         : "Dò mạng để lấy giờ (NTP) và thời tiết");
+    }
     lv_label_set_text(wf_sub, b);
     style_switch(wf_sw, wf_on);
     show(wf_off_l, !wf_on);
@@ -156,7 +176,8 @@ static void wf_render_list(void)
         lv_obj_set_style_border_color(r, on ? S_GREEN : S_BORDER, 0);
         lv_obj_set_style_bg_color(r, S_ON_BG, LV_STATE_PRESSED);
         lv_obj_add_flag(r, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(r, wf_row_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(r, wf_row_cb, LV_EVENT_SHORT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(r, wf_forget_cb, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)i);
         int n = wf_bars(wf_aps[i].rssi);
         static const int H[4] = {5, 8, 11, 14};
         for (int k = 0; k < 4; k++) {
@@ -174,10 +195,11 @@ static void wf_render_list(void)
             lv_obj_set_x(m, right);
             right -= 10;
         }
-        if (on) {
-            lv_obj_t *c = mk_label(r, &ui_font_sm12, 0, (42 - ui_font_sm12.line_height) / 2, "Đã kết nối");
+        if (on || wf_aps[i].saved) {
+            const char *tag = on ? "Đã kết nối" : "Đã lưu";
+            lv_obj_t *c = mk_label(r, &ui_font_sm12, 0, (42 - ui_font_sm12.line_height) / 2, tag);
             lv_obj_set_style_text_color(c, S_GREEN3, 0);
-            right -= text_w("Đã kết nối", &ui_font_sm12);
+            right -= text_w(tag, &ui_font_sm12);
             lv_obj_set_x(c, right);
             right -= 10;
         }

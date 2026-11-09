@@ -92,7 +92,7 @@ int main(int argc, char **argv)
     run(400);
     snprintf(p, sizeof p, "%s/wifi_1_dang_do.bmp", dir); save_bmp(p);
     {
-        ui_wifi_ap_t aps[5] = {{"iPhone của Kevin", -48, true}, {"EVCar-Garage", -60, true},
+        ui_wifi_ap_t aps[5] = {{"iPhone của Kevin", -48, true, true}, {"EVCar-Garage", -60, true, true},
                                {"VNPT_5G_A2F1", -72, true}, {"Highlands Coffee", -84, false}, {"", -50, true}};
         ui_wifi_scan_done(aps, 5);
     }

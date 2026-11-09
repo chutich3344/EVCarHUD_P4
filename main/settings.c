@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <string.h>
 #include "settings.h"
 #include "nvs.h"
 
@@ -90,24 +92,96 @@ void settings_set_last_night(bool night) { set_u8("last_night", night ? 1 : 0); 
 bool settings_get_wifi_on(void) { return get_u8("wifi_on", 1) != 0; }
 void settings_set_wifi_on(bool on) { set_u8("wifi_on", on ? 1 : 0); }
 
-bool settings_get_wifi(char ssid[33], char pass[65])
+/* Nhieu mang da luu (toi da WIFI_SAVED_MAX), moi nhat dung dau: khoa "wf<i>s" / "wf<i>p".
+ * Ban cu chi co "wifi_ssid" / "wifi_pass": doc lan dau thi chuyen sang danh sach. */
+static int wifi_load(char ssid[][33], char pass[][65])
 {
     nvs_handle_t h;
-    size_t a = 33, b = 65;
-    ssid[0] = pass[0] = 0;
-    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
-    bool ok = nvs_get_str(h, "wifi_ssid", ssid, &a) == ESP_OK && ssid[0];
-    if (ok && nvs_get_str(h, "wifi_pass", pass, &b) != ESP_OK) pass[0] = 0;
+    int n = 0;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return 0;
+    for (int i = 0; i < WIFI_SAVED_MAX; i++) {
+        char ks[8], kp[8];
+        size_t a = 33, b = 65;
+        snprintf(ks, sizeof ks, "wf%ds", i);
+        snprintf(kp, sizeof kp, "wf%dp", i);
+        if (nvs_get_str(h, ks, ssid[n], &a) != ESP_OK || !ssid[n][0]) continue;
+        if (nvs_get_str(h, kp, pass[n], &b) != ESP_OK) pass[n][0] = 0;
+        n++;
+    }
+    if (!n) {
+        size_t a = 33, b = 65;
+        if (nvs_get_str(h, "wifi_ssid", ssid[0], &a) == ESP_OK && ssid[0][0]) {
+            if (nvs_get_str(h, "wifi_pass", pass[0], &b) != ESP_OK) pass[0][0] = 0;
+            n = 1;
+        }
+    }
     nvs_close(h);
-    return ok;
+    return n;
 }
 
-void settings_set_wifi(const char *ssid, const char *pass)
+static void wifi_store(char ssid[][33], char pass[][65], int n)
 {
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_str(h, "wifi_ssid", ssid);
-    nvs_set_str(h, "wifi_pass", pass ? pass : "");
+    for (int i = 0; i < WIFI_SAVED_MAX; i++) {
+        char ks[8], kp[8];
+        snprintf(ks, sizeof ks, "wf%ds", i);
+        snprintf(kp, sizeof kp, "wf%dp", i);
+        if (i < n) {
+            nvs_set_str(h, ks, ssid[i]);
+            nvs_set_str(h, kp, pass[i]);
+        } else {
+            nvs_erase_key(h, ks);
+            nvs_erase_key(h, kp);
+        }
+    }
+    nvs_erase_key(h, "wifi_ssid");
+    nvs_erase_key(h, "wifi_pass");
     nvs_commit(h);
     nvs_close(h);
+}
+
+int settings_wifi_list(char ssid[][33], char pass[][65])
+{
+    return wifi_load(ssid, pass);
+}
+
+bool settings_get_wifi(char ssid[33], char pass[65])
+{
+    char s[WIFI_SAVED_MAX][33], p[WIFI_SAVED_MAX][65];
+    ssid[0] = pass[0] = 0;
+    if (!wifi_load(s, p)) return false;
+    memcpy(ssid, s[0], 33);
+    memcpy(pass, p[0], 65);
+    return true;
+}
+
+bool settings_wifi_find(const char *ssid, char pass[65])
+{
+    char s[WIFI_SAVED_MAX][33], p[WIFI_SAVED_MAX][65];
+    int n = wifi_load(s, p);
+    for (int i = 0; i < n; i++)
+        if (!strcmp(s[i], ssid)) { memcpy(pass, p[i], 65); return true; }
+    return false;
+}
+
+void settings_set_wifi(const char *ssid, const char *pass)       /* luu / cap nhat, dua len dau danh sach */
+{
+    char s[WIFI_SAVED_MAX + 1][33], p[WIFI_SAVED_MAX + 1][65];
+    int n = wifi_load(s + 1, p + 1) + 1;
+    snprintf(s[0], 33, "%s", ssid);
+    snprintf(p[0], 65, "%s", pass ? pass : "");
+    int k = 1;
+    for (int i = 1; i < n; i++)
+        if (strcmp(s[i], ssid)) { if (k != i) { memcpy(s[k], s[i], 33); memcpy(p[k], p[i], 65); } k++; }
+    wifi_store(s, p, k > WIFI_SAVED_MAX ? WIFI_SAVED_MAX : k);
+}
+
+void settings_wifi_forget(const char *ssid)
+{
+    char s[WIFI_SAVED_MAX][33], p[WIFI_SAVED_MAX][65];
+    int n = wifi_load(s, p), k = 0;
+    for (int i = 0; i < n; i++)
+        if (strcmp(s[i], ssid)) { if (k != i) { memcpy(s[k], s[i], 33); memcpy(p[k], p[i], 65); } k++; }
+    wifi_store(s, p, k);
 }
