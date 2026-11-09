@@ -7,6 +7,7 @@ on:
   push:
     branches: [claude/project-thread-3vo5x8]
     paths: [.github/workflows/build-xiaozhi-thu.yml]
+
   workflow_dispatch:
 
 permissions:
@@ -15,6 +16,8 @@ permissions:
 env:
   XIAOZHI_TAG: v2.5.2
   OTA_URL: https://evcarhud.com/api/ai/ota/
+  WAKE_PINYIN: bi bo
+  WAKE_NAME: Bi Bô
 
 jobs:
   build:
@@ -36,6 +39,11 @@ jobs:
                   b['sdkconfig_append'] += [
                       'CONFIG_OTA_URL="%s"' % os.environ['OTA_URL'],
                       'CONFIG_LANGUAGE_VI_VN=y',
+                      # Tu danh thuc rieng "Bi Bo (oi)": mo hinh MultiNet tieng Trung, khai bao cach doc bang pinyin
+                      'CONFIG_USE_CUSTOM_WAKE_WORD=y',
+                      'CONFIG_CUSTOM_WAKE_WORD="%s"' % os.environ['WAKE_PINYIN'],
+                      'CONFIG_CUSTOM_WAKE_WORD_DISPLAY="%s"' % os.environ['WAKE_NAME'],
+                      'CONFIG_CUSTOM_WAKE_WORD_THRESHOLD=20',
                   ]
           json.dump(cfg, open(p, 'w'), indent=4)
           print(json.dumps(cfg['builds'][0], indent=2))
@@ -48,11 +56,12 @@ jobs:
           source "$IDF_PATH/export.sh"
           python scripts/build.py waveshare/esp32-p4-wifi6-touch-lcd-3.5 --name esp32-p4-wifi6-touch-lcd-3.5
           ls -la build/*.bin
+          grep -E "CUSTOM_WAKE_WORD|USE_AFE_WAKE_WORD|OTA_URL|LANGUAGE_VI" build/config/sdkconfig.h || grep -E "CUSTOM_WAKE|OTA_URL" sdkconfig
       - name: Dat ten file
         shell: bash
         run: |
           D=$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)
-          N="p4-tro-ly-ai-xiaozhi-$D"
+          N="p4-tro-ly-ai-bi-bo-$D"
           cp xiaozhi/build/merged-binary.bin "$N.bin"
           apt-get update -qq && apt-get install -y -qq zip >/dev/null || true
           zip -9 "$N.zip" "$N.bin"
