@@ -26,13 +26,15 @@ jobs:
           async def main():
               for i, t in enumerate(lines):
                   clean = t.replace('…', ',').strip(' ,')
-                  for voice in ('vi-VN-HoaiMyNeural', 'vi-VN-NamMinhNeural'):
+                  for voice in ['vi-VN-HoaiMyNeural'] * 6 + ['vi-VN-NamMinhNeural']:
                       try:
                           await edge_tts.Communicate(clean, voice).save(f'out/{i:02d}.mp3')
                           print('ok', i, voice, t)
+                          await asyncio.sleep(1.5)
                           break
                       except Exception as e:
                           print('loi', i, voice, t, e)
+                          await asyncio.sleep(4)
           asyncio.run(main())
           PY
           cp tools/giong-mau/cau.txt out/cau.txt
