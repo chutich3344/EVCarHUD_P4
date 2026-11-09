@@ -347,7 +347,8 @@ static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *w
             const cJSON *msg = cJSON_GetObjectItem(act, "message");
             snprintf(why, why_n, "%s", cJSON_IsString(msg) ? msg->valuestring : "HUD này chưa được bật Mi Mi");
         } else {
-            snprintf(why, why_n, st == 200 ? "Mi Mi: máy chủ chưa có trợ lý (trả sai dữ liệu)" : "Mi Mi: máy chủ trả lỗi %d", st);
+            if (st == 200) snprintf(why, why_n, "Mi Mi: máy chủ chưa có trợ lý (trả sai dữ liệu)");
+            else snprintf(why, why_n, "Mi Mi: máy chủ trả lỗi %d", st);
         }
         cJSON_Delete(j);
     } else {
