@@ -1,0 +1,76 @@
+# Build firmware Xiaozhi GOC (78/xiaozhi-esp32) cho bo Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5,
+# tro ve may chu AI rieng cua EVCarHUD (https://evcarhud.com/api/ai/ota/), giao dien tieng Viet.
+# Dung de thu tro ly AI tren bo truoc khi ghep vao firmware EVCarHUD. Nap file gop o 0x0 (ghi de firmware HUD).
+name: Build thu Xiaozhi (may chu EVCarHUD)
+
+on:
+  push:
+    branches: [claude/project-thread-3vo5x8]
+    paths: [.github/workflows/build-xiaozhi-thu.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  XIAOZHI_TAG: v2.5.2
+  OTA_URL: https://evcarhud.com/api/ai/ota/
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v6.1
+    steps:
+      - name: Tai ma nguon Xiaozhi
+        run: git clone --depth 1 --branch "$XIAOZHI_TAG" https://github.com/78/xiaozhi-esp32 xiaozhi
+      - name: Them cau hinh EVCarHUD (may chu, tieng Viet, chip P4 doi cu)
+        working-directory: xiaozhi
+        run: |
+          python3 - <<'PY'
+          import json, os
+          p = 'main/boards/waveshare/esp32-p4-wifi6-touch-lcd-3.5/config.json'
+          cfg = json.load(open(p))
+          for b in cfg['builds']:
+              if b['name'] == 'esp32-p4-wifi6-touch-lcd-3.5':
+                  b['sdkconfig_append'] += [
+                      'CONFIG_OTA_URL="%s"' % os.environ['OTA_URL'],
+                      'CONFIG_LANGUAGE_VI_VN=y',
+                  ]
+          json.dump(cfg, open(p, 'w'), indent=4)
+          print(json.dumps(cfg['builds'][0], indent=2))
+          PY
+      - name: Build
+        working-directory: xiaozhi
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$PWD"
+          source "$IDF_PATH/export.sh"
+          python scripts/build.py waveshare/esp32-p4-wifi6-touch-lcd-3.5 --name esp32-p4-wifi6-touch-lcd-3.5
+          ls -la build/*.bin
+      - name: Dat ten file
+        shell: bash
+        run: |
+          D=$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)
+          N="p4-tro-ly-ai-xiaozhi-$D"
+          cp xiaozhi/build/merged-binary.bin "$N.bin"
+          apt-get update -qq && apt-get install -y -qq zip >/dev/null || true
+          zip -9 "$N.zip" "$N.bin"
+          echo "N=$N" >> "$GITHUB_ENV"
+          ls -la p4-tro-ly-ai-*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.N }}
+          path: p4-tro-ly-ai-*
+      - name: Cap nhat ban phat hanh "xiaozhi-thu"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          (type gh >/dev/null 2>&1) || (apt-get install -y -qq gh >/dev/null 2>&1) || \
+            (curl -fsSL https://github.com/cli/cli/releases/download/v2.62.0/gh_2.62.0_linux_amd64.tar.gz | tar xz && cp gh_*/bin/gh /usr/local/bin/)
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release delete xiaozhi-thu --yes --cleanup-tag -R "$GITHUB_REPOSITORY" || true
+          gh release create xiaozhi-thu p4-tro-ly-ai-* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Thử trợ lý AI Xiaozhi ($XIAOZHI_TAG, máy chủ EVCarHUD)" \
+            --notes "Firmware Xiaozhi gốc $XIAOZHI_TAG cho Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5, trỏ về $OTA_URL. Nạp file .bin ở 0x0 (ghi đè firmware HUD)." --prerelease
