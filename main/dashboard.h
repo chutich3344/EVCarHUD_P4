@@ -117,6 +117,8 @@ void ui_cam_state(bool connected);
 /* chip "CAM" tren thanh tren (canh gio): an = chua cam camera; vang = dang tu chinh chan troi; xanh = san sang; do = loi */
 enum { UI_CAM_OFF = 0, UI_CAM_CALIB, UI_CAM_OK, UI_CAM_ERR };
 void ui_cam_status(int st);
+/* chip "LIDAR" canh chip CAM: an = chua thay cam bien; xanh = dang doc (UI_CAM_OK); do = mat tin hieu (UI_CAM_ERR) */
+void ui_lidar_status(int st);
 /* --- loa ---
  * Tieng tit theo trang thai: 1 tieng khi co canh bao moi (camera, canh sat...) va khi con 100 m toi cho re;
  * 2 tieng khi vuot toc do (nhac lai moi 8 giay neu van vuot). Giu tay 5 giay tren man hinh: man cai dat am luong. */

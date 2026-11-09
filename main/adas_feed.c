@@ -8,7 +8,13 @@
  * Chong keu pho dong (5..25 km/h): chi bao khi that su sap cham (xe < 4 m dang lai gan, nguoi trong lan < 8 m, TTC < 1,5 s).
  * Mot muc phai thay lien tiep 3 lan nhan dien (khan cap: 2) moi hien.
  * Chi xet vat trong "lan cua minh": hinh thang tu chan troi, nua be rong tai hang y = (y - chan_troi) x 1,6 m / do cao camera.
- * Chan troi tu chinh: tu moi xe con / xe lon ro rang giua anh: chan_troi = y_day - f x do_cao_camera / khoang_cach_theo_be_rong. */
+ * Chan troi tu chinh: tu moi xe con / xe lon ro rang giua anh: chan_troi = y_day - f x do_cao_camera / khoang_cach_theo_be_rong.
+ *
+ * Lidar (lidar.c, neu cam): tia hep 1-2 do dung giua anh. Xe phia truoc camera chon ma khung phu qua giua anh va so met
+ * camera uoc khop voi Lidar (0,55..1,8 lan) thi dung so met Lidar (chinh xac vai cm thay vi sai 20-30 %).
+ * Lidar thay vat ma camera khong thay xe nao trong lan: bo qua (vao cua tia trung lan can / mat duong khi len doc).
+ * Camera khong chay (rut ra / chua cam) thi canh bao chi bang Lidar (adas_feed_lidar): chi Chu y / Nguy hiem, khong PHANH
+ * toan man; tu 40 km/h bo vat dung yen (lai gan ~ bang toc do xe minh = lan can, bien bao khi vao cua); chua biet toc do: im. */
 #include "sdkconfig.h"
 #include "adas_feed.h"
 
@@ -21,6 +27,9 @@
 #include "dashboard.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "lidar.h"
 #include "obstacle_ui.h"
 
 static const char *TAG = "adas";
@@ -52,6 +61,27 @@ static bool s_hor_ok;                        /* chan troi da on dinh (chip CAM x
 static int s_img_w = 320, s_img_h = 240;
 static int s_cand = 0, s_cand_n = 0, s_level = 0;
 static int s_trk_age;                        /* so lan lien tiep theo duoc cung xe phia truoc */
+static SemaphoreHandle_t s_mx;               /* task camera va task Lidar cung dung trang thai o day */
+static StaticSemaphore_t s_mx_buf;
+static int64_t s_cam_us;                     /* lan cuoi camera goi adas_feed */
+static bool s_lidar_only;                    /* dang canh bao chi bang Lidar */
+static int s_lidar_hits;                     /* so lan dung so met Lidar (de log) */
+
+void adas_feed_init(void)
+{
+    if (!s_mx) s_mx = xSemaphoreCreateMutexStatic(&s_mx_buf);
+}
+static void lock(void) { if (s_mx) xSemaphoreTake(s_mx, portMAX_DELAY); }
+static void unlock(void) { if (s_mx) xSemaphoreGive(s_mx); }
+
+static void reset_state(void)
+{
+    adas_track_reset(&s_trk);
+    s_ttc_streak = 0;
+    s_jump_n = 0;
+    s_level = s_cand = s_cand_n = 0;
+    s_trk_age = 0;
+}
 
 bool adas_feed_calibrated(void) { return s_hor_ok; }
 float adas_feed_horizon(void) { return s_hor >= 0 ? s_hor : (float)s_img_h * CONFIG_EVCARHUD_ADAS_HORIZON_PCT / 100.0f; }
@@ -126,9 +156,23 @@ static void show(int lv, int cls, int m, float ttc, bool city)
     board_ui_unlock();
 }
 
+static void feed_locked(detect_box_t *bx, int n, int w, int h);
+
 void adas_feed(detect_box_t *bx, int n, int w, int h)
 {
     if (!bx || w <= 0 || h <= 0) return;
+    lock();
+    s_cam_us = esp_timer_get_time();
+    if (s_lidar_only) {                                        /* camera chay lai: bo vet cua che do chi Lidar */
+        s_lidar_only = false;
+        reset_state();
+    }
+    feed_locked(bx, n, w, h);
+    unlock();
+}
+
+static void feed_locked(detect_box_t *bx, int n, int w, int h)
+{
     if (n > DET_BOX_MAX) n = DET_BOX_MAX;
     if (n < 0) n = 0;
 
@@ -224,6 +268,17 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
         }
         if (lead >= 0) d = bd;
     }
+    float d_cam = d, d_lid = 0.0f;
+    bool lid = false;
+    if (lead >= 0 && lidar_get(&d_lid, 200)) {               /* Lidar: tia o giua anh, chi tin khi khop xe camera chon */
+        float bw = ab[lead].x2 - ab[lead].x1, cx = 0.5f * (float)w;
+        bool center = ab[lead].x1 - 0.1f * bw <= cx && ab[lead].x2 + 0.1f * bw >= cx;
+        if (center && d_lid > d * 0.55f && d_lid < d * 1.8f) {
+            d = d_lid;
+            lid = true;
+            s_lidar_hits++;
+        }
+    }
     bool used = false;
     if (lead < 0) {
         s_jump_n = 0;
@@ -300,9 +355,10 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
     if (us - s_log_us >= 3000000) {                            /* 3 giay mot dong: de hieu chuan goc nhin camera */
         s_log_us = us;
         if (lead >= 0) {
-            ESP_LOGI(TAG, "phia truoc: %s, khung rong %d px (anh %d px) -> %.1f m, tiep can %.1f m/s, TTC %.1f s, muc %d (%d km/h), chan troi %d%%",
-                     k_name[bx[lead].cls], bx[lead].x2 - bx[lead].x1, w, (double)d, (double)s_trk.closing, (double)ttc, lv,
-                     ui_get_speed(), (int)(s_hor * 100.0f / (float)h));
+            ESP_LOGI(TAG, "phia truoc: %s, khung rong %d px (anh %d px) -> camera %.1f m, Lidar %.1f m%s, tiep can %.1f m/s, "
+                          "TTC %.1f s, muc %d (%d km/h), chan troi %d%%, dung Lidar %d lan",
+                     k_name[bx[lead].cls], bx[lead].x2 - bx[lead].x1, w, (double)d_cam, (double)d_lid, lid ? " (dung)" : "",
+                     (double)s_trk.closing, (double)ttc, lv, ui_get_speed(), (int)(s_hor * 100.0f / (float)h), s_lidar_hits);
         } else {
             ESP_LOGI(TAG, "phia truoc: khong co vat nao trong lan (%d vat trong anh)", n);
         }
@@ -311,21 +367,100 @@ void adas_feed(detect_box_t *bx, int n, int w, int h)
 
 void adas_feed_lost(void)
 {
-    adas_track_reset(&s_trk);
-    s_ttc_streak = 0;
-    s_jump_n = 0;
-    s_level = s_cand = s_cand_n = 0;
-    s_trk_age = 0;
+    lock();
+    reset_state();
     s_shown_lv = s_shown_m = s_shown_t10 = -1;
     board_ui_lock();
     obstacle_ui_clear();
     board_ui_unlock();
+    unlock();
+}
+
+/* Canh bao chi bang Lidar khi camera khong chay; task Lidar goi moi 100 ms */
+void adas_feed_lidar(void)
+{
+    lock();
+    int64_t us = esp_timer_get_time();
+    if (s_cam_us && us - s_cam_us < 1500000) {                 /* camera dang chay: adas_feed lo */
+        unlock();
+        return;
+    }
+    if (!s_lidar_only) {
+        s_lidar_only = true;
+        reset_state();
+    }
+    uint32_t now = (uint32_t)(us / 1000);
+    float d = 0.0f;
+    bool used = false;
+    if (lidar_get(&d, 200) && d >= MIN_DIST_M) {
+        if (!s_trk.valid || fabsf(d - s_trk.dist) <= jump_tol(s_trk.dist)) {
+            s_jump_n = 0;
+            adas_track_update(&s_trk, d, now);
+            used = true;
+        } else {                                               /* doi vat (xe chen vao / xe truoc re di) */
+            s_jump_n = (s_jump_n > 0 && fabsf(d - s_jump_d) <= jump_tol(s_jump_d)) ? s_jump_n + 1 : 1;
+            s_jump_d = d;
+            if (s_jump_n >= JUMP_FRAMES) {
+                adas_track_reset(&s_trk);
+                adas_track_update(&s_trk, d, now);
+                s_jump_n = 0;
+                s_ttc_streak = 0;
+                s_trk_age = 0;
+                used = true;
+            }
+        }
+    } else {
+        s_jump_n = 0;
+        adas_track_miss(&s_trk, now, 500);
+    }
+    s_trk_age = used ? s_trk_age + 1 : 0;
+    if (!s_trk.valid) s_trk_age = 0;
+
+    int v = ui_get_speed();
+    int m = 0, raw = OBS_NONE;
+    bool city = v >= 0 && v < CITY_KMH;
+    float ttc = 0.0f;
+    if (s_trk.valid) {
+        if (s_trk.closing < -MAX_CLOSING) s_trk.closing = -MAX_CLOSING;
+        if (v >= 0) {
+            float vmax = (float)v / 3.6f + 2.0f;
+            if (s_trk.closing < -vmax) {
+                s_trk.closing = -vmax;
+                s_trk.ttc = s_trk.dist / vmax;
+            }
+        }
+        m = (int)(s_trk.dist + 0.5f);
+        if (m < 1) m = 1;
+        if (used) s_ttc_streak = (s_trk.ttc > 0.0f && s_trk.closing <= -TTC_MIN_CLOSING) ? s_ttc_streak + 1 : 0;
+        if (s_ttc_streak >= TTC_STREAK) ttc = s_trk.ttc;
+        bool stationary = v >= 40 && s_trk.closing < -0.75f * (float)v / 3.6f;
+        if (v >= 0 && s_trk_age >= 5 && !stationary) {
+            raw = calc_level(DET_CLS_CAR, s_trk.dist, ttc, s_trk.closing, &city);
+            if (raw > OBS_DANGER) raw = OBS_DANGER;            /* mot tia, khong biet vat gi: khong PHANH toan man */
+        }
+    } else {
+        s_ttc_streak = 0;
+    }
+    if (raw == s_cand) s_cand_n++;
+    else {
+        s_cand = raw;
+        s_cand_n = 1;
+    }
+    if (raw > s_level) {
+        if (s_cand_n >= 3) s_level = raw;
+    } else {
+        s_level = raw;
+    }
+    if (s_level != OBS_NONE || s_shown_lv > OBS_NONE) show(s_level, DET_CLS_CAR, m, ttc, city);
+    unlock();
 }
 
 #else
 
 void adas_feed(detect_box_t *bx, int n, int w, int h) { (void)bx; (void)n; (void)w; (void)h; }
 void adas_feed_lost(void) {}
+void adas_feed_init(void) {}
+void adas_feed_lidar(void) {}
 float adas_feed_horizon(void) { return 0.0f; }
 bool adas_feed_calibrated(void) { return false; }
 int adas_feed_legal_m(int v) { (void)v; return 0; }
