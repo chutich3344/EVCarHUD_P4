@@ -25,7 +25,14 @@ jobs:
           lines = [l.strip() for l in open('tools/giong-mau/cau.txt', encoding='utf-8') if l.strip()]
           async def main():
               for i, t in enumerate(lines):
-                  await edge_tts.Communicate(t, 'vi-VN-HoaiMyNeural', rate='+5%').save(f'out/{i:02d}.mp3')
+                  clean = t.replace('…', ',').strip(' ,')
+                  for voice in ('vi-VN-HoaiMyNeural', 'vi-VN-NamMinhNeural'):
+                      try:
+                          await edge_tts.Communicate(clean, voice).save(f'out/{i:02d}.mp3')
+                          print('ok', i, voice, t)
+                          break
+                      except Exception as e:
+                          print('loi', i, voice, t, e)
           asyncio.run(main())
           PY
           cp tools/giong-mau/cau.txt out/cau.txt
