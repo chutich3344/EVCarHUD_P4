@@ -25,6 +25,7 @@
 #include "rtc_ds3231.h"
 #include "wifi_link.h"
 #include "ota.h"
+#include "ai.h"
 #include "usb_cam.h"
 #include <sys/time.h>
 #include <time.h>
@@ -262,6 +263,7 @@ void app_main(void)
     if (!demo) ble_link_start();                             /* cho Waze Mod ket noi qua Bluetooth LE */
     ota_start();                                             /* cap nhat OTA: xac nhan ban moi, man Cap nhat firmware */
     wifi_link_start();                                       /* Wi-Fi da luu: gio NTP + thoi tiet */
+    ai_start();                                              /* tro ly Mi Mi: nut micro (can Wi-Fi + loa) */
     usb_cam_start();                                         /* camera USB (thu nghiem): xem truoc + FPS */
 #if CONFIG_EVCARHUD_LDR
     xTaskCreate(light_task, "anh_sang", 2560, NULL, 2, NULL);

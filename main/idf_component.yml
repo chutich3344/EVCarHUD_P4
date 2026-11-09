@@ -8,3 +8,5 @@ dependencies:
   espressif/esp_codec_dev: "~1.5"              # codec ES8311 + loa: tieng tit canh bao
   espressif/usb_host_uvc: "^2.4.0"             # camera USB (UVC) o cong OTG: ban thu nhan dien vat can
   espressif/esp-dl: "~3.3.0"                  # nhan dien vat can: mo hinh tu huan luyen models/evdet.espdl (detect.cpp)
+  espressif/esp_websocket_client: "^1.4.0"     # tro ly Mi Mi: WebSocket toi evcarhud.com/api/ai/ws
+  espressif/esp_audio_codec: "~2.5.0"          # tro ly Mi Mi: ma hoa / giai ma giong noi Opus

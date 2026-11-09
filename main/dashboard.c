@@ -2430,6 +2430,11 @@ bool ui_sign_slot(lv_area_t *a, int *lim, bool hide)
 
 lv_obj_t *ui_screen(void) { return scr; }
 
+void ui_below_settings(lv_obj_t *o)
+{
+    if (o && set_scr && lv_obj_get_parent(o) == scr) lv_obj_move_to_index(o, lv_obj_get_index(set_scr));
+}
+
 void ui_set_speed_limit(int kmh)
 {
     if (kmh == limit) return;

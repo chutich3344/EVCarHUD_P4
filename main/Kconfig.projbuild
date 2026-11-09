@@ -112,6 +112,12 @@ menu "EVCarHUD"
         int "Nut BOOT (board P4: GPIO35)"
         default 35
 
+    config EVCARHUD_AI_URL
+        string "Tro ly Mi Mi: dia chi lay WebSocket (evcarhud-web /api/ai/ota/)"
+        default "https://evcarhud.com/api/ai/ota/"
+        help
+            HUD POST kem Device-Id = MAC; may chu tra websocket.url + token (HUD da bat Mi Mi) hoac activation.message.
+
     config EVCARHUD_OTA_URL
         string "Cap nhat OTA: dia chi may chu (evcarhud-web /api/ota)"
         default "https://evcarhud.com/api/ota"

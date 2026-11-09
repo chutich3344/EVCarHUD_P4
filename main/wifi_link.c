@@ -23,6 +23,7 @@
 #include "dashboard_hlp.h"
 #include "settings.h"
 #include "ota.h"
+#include "ai.h"
 
 static const char *TAG = "wifi";
 
@@ -291,6 +292,7 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         bool was = connected;
         connected = false;
         if (was) ota_wifi_changed(false, NULL);
+        if (was) ai_wifi_changed(false);
         if (!started) return;
         if (joining) {
             if (++retries < 3) { esp_wifi_connect(); return; }
@@ -314,6 +316,7 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
             const ip_event_got_ip_t *ev = data;
             snprintf(ip, sizeof ip, IPSTR, IP2STR(&ev->ip_info.ip));
             ota_wifi_changed(true, ip);                          /* cap nhat OTA: lan dau co mang thi hoi ban moi */
+            ai_wifi_changed(true);                               /* tro ly Mi Mi duoc phep mo phien */
         }
         if (joining) settings_set_wifi(cur_ssid, cur_pass);      /* chi luu khi ket noi duoc */
         joining = false;
@@ -423,6 +426,7 @@ static void wifi_task(void *arg)
             settings_set_wifi_on(false);
             esp_timer_stop(retry_tmr);
             if (connected) ota_wifi_changed(false, NULL);
+            if (connected) ai_wifi_changed(false);
             joining = connected = scanning = scan_auto = scan_user = false;
             if (started) { started = false; esp_wifi_disconnect(); esp_wifi_stop(); }
             ui_state(UI_WIFI_OFF, "");

@@ -10,6 +10,13 @@ void audio_start(void);              /* goi mot lan sau board_display_init() (ca
 void audio_beep(int times);          /* phat `times` tieng tit ngan */
 void audio_set_volume(int percent);  /* 0..100, 0 = tat tieng */
 
+/* Tro ly AI: 16 kHz, 16 bit, 1 kenh (micro va loa cung la ES8311) */
+#include <stdbool.h>
+#include <stdint.h>
+bool audio_ready(void);
+int audio_mic_read(int16_t *buf, int n);      /* chan cho du n mau; -1 neu loi */
+void audio_play(const int16_t *pcm, int n);   /* chan cho den khi day xong xuong I2S */
+
 #ifdef __cplusplus
 }
 #endif

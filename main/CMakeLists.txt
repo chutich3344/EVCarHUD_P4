@@ -1,6 +1,6 @@
 idf_component_register(
     SRCS "main.c" "board.c" "audio.c" "buttons.c" "settings.c" "ble_link.c" "link.c" "demo.c"
-         "dashboard.c" "dashboard_hlp.c" "dashboard_signs.c" "hlp.c" "gofa.c" "rtc_ds3231.c" "wifi_link.c" "ota.c" "usb_cam.c"
+         "dashboard.c" "dashboard_hlp.c" "dashboard_signs.c" "hlp.c" "gofa.c" "rtc_ds3231.c" "wifi_link.c" "ota.c" "ai.c" "usb_cam.c"
          "detect.cpp" "adas.c" "adas_feed.c" "obstacle_ui.c" "obstacle_icons.c" "ui_font_warn64.c" "ui_font_warn40.c"
          "ui_font_cap12.c" "ui_font_sm12.c" "ui_font_txt14.c" "ui_font_txt16.c" "ui_font_mono14.c"
          "ui_font_dist24.c"
