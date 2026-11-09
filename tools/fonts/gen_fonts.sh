@@ -19,6 +19,7 @@ gen() {  # ten co ho do_dam bo_ky_tu(full|digits|ascii)
     numpct) args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x2C,0x25) ;;
     dist)   args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x2C,0x6B,0x6D,0x2F,0x68) ;;
     logo)   args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x45,0x56,0x43,0x61,0x72,0x48,0x55,0x44,0x20) ;;
+    warn)   args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x20,0x2C,0x6D,0x73,0xB7,0x50,0x48,0x41,0x4E,0x21) ;;
     clock)  args=(--font $F/$fam/files/$fam-latin-$w-normal.woff -r 0x30-0x39,0x2D,0x20,0x3A) ;;
   esac
   npx lv_font_conv --bpp 4 --size $size --format lvgl --no-compress --lv-include lvgl.h \
@@ -54,3 +55,6 @@ gen ui_font_r36     36 inter 800 digits
 gen ui_font_dist26  26 inter 800 dist
 gen ui_font_dist30  30 inter 800 dist
 gen ui_font_r92    92 inter 800 digits
+# canh bao vat can khan cap (obstacle_ui.c): "PHANH!" + "12 m · 1,4 s"
+gen ui_font_warn64  64 inter 900 warn
+gen ui_font_warn40  40 inter 800 warn

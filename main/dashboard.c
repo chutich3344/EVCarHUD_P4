@@ -186,7 +186,11 @@ static bool hold_used;
 /* cai dat */
 enum { PG_DISPLAY = 0, PG_ALERT, PG_LINK, PG_SYSTEM, PG_N };
 static lv_obj_t *set_scr, *set_tab[PG_N], *set_page_obj[PG_N], *set_close, *set_pill_phone, *set_pill_src;
-static lv_obj_t *mode_card[3], *mode_sub[3], *rot_row, *rot_sw;
+static lv_obj_t *mode_card[3], *mode_sub[3], *rot_row, *rot_sw, *cam_row, *cam_sub;
+static void (*cam_cb)(void);
+static bool cam_on;
+static int cam_st;
+static lv_obj_t *t_cam, *t_cam_l;
 static lv_obj_t *snd_row, *snd_sw, *vol_card, *vol_minus, *vol_plus, *lbl_vol, *vol_bar, *vol_fill;
 static lv_obj_t *src_card[2], *lbl_src_st[2], *lbl_mac, *lbl_ble;
 static lv_obj_t *lbl_sys[4];
@@ -832,6 +836,11 @@ static void build_top(void)
     t_src = mk_fill(top, 0, (TOP_H - 18) / 2, 40, 18, 5);          /* o nguon du lieu: "waze" / "GOFA" */
     t_src_l = mk_label(t_src, &ui_font_cap12, 6, (18 - ui_font_cap12.line_height) / 2, "waze");
     t_gps_dot = mk_fill(top, 0, (TOP_H - 8) / 2, 8, 8, LV_RADIUS_CIRCLE);
+    t_cam = mk_fill(top, 0, (TOP_H - 18) / 2, 40, 18, 5);          /* chip camera vat can, canh gio */
+    lv_obj_set_style_border_width(t_cam, 1, 0);
+    t_cam_l = mk_label(t_cam, &ui_font_cap12, 0, 0, "CAM");
+    lv_obj_center(t_cam_l);
+    lv_obj_set_width(t_cam, text_w("CAM", &ui_font_cap12) + 12);
     top_line = mk_fill(scr, 0, TOP_H - 1, UI_W, 1, 0);
 }
 
@@ -847,6 +856,16 @@ static void render_top(void)
     lv_label_set_text(t_clock, b);
     lv_obj_set_style_text_color(t_clock, th->fg, 0);
     lv_obj_set_style_bg_color(top_line, th->border, 0);
+    show(t_cam, cam_st != UI_CAM_OFF);
+    if (cam_st != UI_CAM_OFF) {                                   /* xanh: san sang; vang: dang tu chinh chan troi; do: loi */
+        uint32_t c = cam_st == UI_CAM_OK ? (night ? 0x34D399 : 0x059669) : cam_st == UI_CAM_CALIB ? (night ? 0xFFD400 : 0xB45309)
+                                                                                                     : (night ? 0xFF4D4F : 0xBE123C);
+        lv_obj_set_style_bg_color(t_cam, lv_color_hex(c), 0);
+        lv_obj_set_style_bg_opa(t_cam, 38, 0);
+        lv_obj_set_style_border_color(t_cam, lv_color_hex(c), 0);
+        lv_obj_set_style_text_color(t_cam_l, lv_color_hex(c), 0);
+        lv_obj_set_x(t_cam, PAD + text_w(b, &ui_font_clk18) + 8);
+    }
 
     bool tsd = screen == SCR_NAV && nav_on && nav_is_ts;              /* dan toi tram sac: luon hien ten tram */
     const char *st = tsd ? street_nav : !waze ? "Chỉ có GPS" : screen == SCR_NAV && street_nav[0] ? street_nav : street_now;
@@ -1472,6 +1491,7 @@ static int focus_items(lv_obj_t **out)
     case PG_DISPLAY:
         for (int i = 0; i < 3; i++) out[n++] = mode_card[i];
         out[n++] = rot_row;
+        out[n++] = cam_row;
         break;
     case PG_ALERT:
         out[n++] = snd_row;
@@ -1490,7 +1510,7 @@ static int focus_items(lv_obj_t **out)
 
 static void focus_render(void)
 {
-    lv_obj_t *all[] = {set_tab[0], set_tab[1], set_tab[2], set_tab[3], mode_card[0], mode_card[1], mode_card[2], rot_row,
+    lv_obj_t *all[] = {set_tab[0], set_tab[1], set_tab[2], set_tab[3], mode_card[0], mode_card[1], mode_card[2], rot_row, cam_row,
                        snd_row, vol_minus, vol_plus, src_card[0], src_card[1], set_close};
     for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) lv_obj_set_style_outline_width(all[i], 0, 0);
     if (set_focus < 0) return;
@@ -1523,6 +1543,7 @@ static void settings_render(void)
         lv_obj_set_style_text_color(mode_sub[i], mode == m ? S_GREEN3 : S_MUT, 0);
     }
     style_switch(rot_sw, rot_on);
+    if (cam_sub) lv_label_set_text(cam_sub, !cam_cb ? "Bản này chưa bật camera USB" : cam_on ? "Đã nhận camera · chỉnh góc lắp, xem vật nhận ra" : "Chưa cắm camera (cổng USB OTG)");
     /* Canh bao */
     style_switch(snd_sw, snd_on);
     show(vol_card, snd_on);
@@ -1603,6 +1624,12 @@ static void on_set_btn(lv_event_t *e)
             return;
         }
     if (o == rot_row) { ui_rotate(); return; }
+    if (o == cam_row) {
+        settings_close();
+        if (cam_cb) cam_cb();
+        else ui_toast("Bản này chưa bật camera USB");
+        return;
+    }
     if (o == src_card[0] || o == src_card[1]) {
         int want = o == src_card[1] ? UI_SRC_GOFA : UI_SRC_WAZE;
         if (want != src) rb_start(want);
@@ -1684,11 +1711,14 @@ static void build_settings(void)
         lv_label_set_text(mode_sub[i], mn[i][1]);
         clickable(mode_card[i]);
     }
-    rot_row = mk_setting_row(p, 104, 62, "Xoay màn hình 180°", "Khi lắp board ngược trong xe (hoặc bấm BOOT 2 lần)", &rot_sw);
+    rot_row = mk_setting_row(p, 102, 54, "Xoay màn hình 180°", "Khi lắp board ngược trong xe (hoặc bấm BOOT 2 lần)", &rot_sw);
     lv_obj_add_event_cb(rot_row, on_set_btn, LV_EVENT_CLICKED, NULL);
-    l = mk_label_w(p, &ui_font_sm12, 0, 180, UI_W - 24, LV_TEXT_ALIGN_LEFT);
-    lv_label_set_text(l, "Chạm màn hình ngoài cài đặt cũng đổi Tự động, Ngày, Đêm.");
-    lv_obj_set_style_text_color(l, S_MUT, 0);
+    cam_row = mk_setting_row(p, 164, 54, "Xem camera", "", NULL);   /* xem anh camera USB de chinh goc lap */
+    cam_sub = lv_obj_get_child(cam_row, 2);
+    lv_obj_add_event_cb(cam_row, on_set_btn, LV_EVENT_CLICKED, NULL);
+    l = mk_label(cam_row, &ui_font_txt14, 0, 0, "Mở  ›");
+    lv_obj_set_style_text_color(l, S_GREEN2, 0);
+    lv_obj_align(l, LV_ALIGN_RIGHT_MID, -14, 0);
 
     /* Canh bao: loa + am luong */
     p = set_page_obj[PG_ALERT];
@@ -2354,6 +2384,30 @@ void ui_set_speed(int kmh)
 }
 
 int ui_get_speed(void) { return speed; }
+bool ui_is_night(void) { return night; }
+
+bool ui_sign_slot(lv_area_t *a, int *lim, bool hide)
+{
+    head_t *hs[3] = {&d_hd, &h_hd, &n_hd};
+    const int pg[3] = {SCR_CRUISE, SCR_HIGHWAY, SCR_NAV};
+    bool act = scr && lv_screen_active() == scr;
+    int want = screen == SCR_HIGHWAY ? 1 : screen == SCR_NAV ? 2 : 0;   /* man dang chon (khi doi man, man cu con mo dan) */
+    bool got = false;
+    for (int i = 0; i < 3; i++) {
+        lv_obj_t *r = hs[i]->ring;
+        if (!r) continue;
+        bool vis = act && page[pg[i]] && shown(page[pg[i]]);
+        lv_opa_t o = vis && hide ? LV_OPA_TRANSP : LV_OPA_COVER;          /* an bien o moi man dang hien, ke ca man dang mo dan */
+        if (lv_obj_get_style_opa(r, 0) != o) lv_obj_set_style_opa(r, o, 0);
+        if (!vis || i != want || screen == SCR_STANDBY) continue;
+        int x = lv_obj_get_style_x(r, 0), y = lv_obj_get_style_y(r, 0) + TOP_H;
+        int w = lv_obj_get_style_width(r, 0), h = lv_obj_get_style_height(r, 0);
+        a->x1 = x; a->y1 = y; a->x2 = x + w - 1; a->y2 = y + h - 1;
+        if (lim) *lim = limit;
+        got = true;
+    }
+    return got;
+}
 
 lv_obj_t *ui_screen(void) { return scr; }
 
@@ -2667,6 +2721,19 @@ void ui_set_mode_hook(void (*cb)(int)) { mode_cb = cb; }
 void ui_set_night_hook(void (*cb)(bool)) { night_cb = cb; if (cb) cb(night); }
 void ui_set_level_hook(void (*cb)(int)) { level_cb = cb; }
 void ui_set_rotate_hook(void (*cb)(void)) { rotate_cb = cb; }
+void ui_set_cam_hook(void (*cb)(void)) { cam_cb = cb; }
+void ui_cam_state(bool connected)
+{
+    cam_on = connected;
+    if (!connected) ui_cam_status(UI_CAM_OFF);
+    if (set_scr) settings_render();
+}
+void ui_cam_status(int st)
+{
+    if (st == cam_st) return;
+    cam_st = st;
+    if (top) render_top();
+}
 
 bool ui_settings_shown(void) { return set_scr && shown(set_scr); }
 

@@ -47,6 +47,10 @@ void ui_set_speed(int kmh);
 void ui_set_speed_limit(int kmh);                 /* 0 = chua biet: an bien, khong canh bao */
 void ui_set_time(int hour, int minute, int wday); /* wday: 0 = Chu nhat ... 6 = Thu bay, -1 = chua biet */
 int ui_get_speed(void);
+bool ui_is_night(void);                          /* giao dien dang Dem (canh bao vat can lay mau theo) */
+/* Canh bao vat can phuong an E: vi tri bien gioi han dang hien (toa do man hinh) + gia tri bien.
+ * hide = true: an bien (o vat can de len cho do), false: hien lai. Tra ve false neu man hien tai khong co bien (man cho). */
+bool ui_sign_slot(lv_area_t *a, int *lim, bool hide);
 void ui_set_date(int day, int month);
 bool ui_get_clock(int *h, int *m);                /* false: chua co gio */
 enum { UI_TSRC_NONE = 0, UI_TSRC_RTC = 1, UI_TSRC_PHONE = 2, UI_TSRC_NTP = 3 };   /* nguon gio, thap -> cao */
@@ -107,6 +111,12 @@ void ui_rotate(void);                                  /* xoay 180 do (bam BOOT 
 void ui_set_rotate_hook(void (*cb)(void));             /* bam BOOT 2 lan: board xoay 180 do */
 void ui_set_level_hook(void (*cb)(int level));         /* UI_LEVEL_*: board bat den LED / loa */
 void ui_toast(const char *text);
+/* Camera USB: Cai dat > Hien thi > "Xem camera" goi cb (task LVGL); ui_cam_state: dang cam camera hay khong (dong phu) */
+void ui_set_cam_hook(void (*cb)(void));
+void ui_cam_state(bool connected);
+/* chip "CAM" tren thanh tren (canh gio): an = chua cam camera; vang = dang tu chinh chan troi; xanh = san sang; do = loi */
+enum { UI_CAM_OFF = 0, UI_CAM_CALIB, UI_CAM_OK, UI_CAM_ERR };
+void ui_cam_status(int st);
 /* --- loa ---
  * Tieng tit theo trang thai: 1 tieng khi co canh bao moi (camera, canh sat...) va khi con 100 m toi cho re;
  * 2 tieng khi vuot toc do (nhac lai moi 8 giay neu van vuot). Giu tay 5 giay tren man hinh: man cai dat am luong. */
