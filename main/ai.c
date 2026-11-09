@@ -347,11 +347,11 @@ static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *w
             const cJSON *msg = cJSON_GetObjectItem(act, "message");
             snprintf(why, why_n, "%s", cJSON_IsString(msg) ? msg->valuestring : "HUD này chưa được bật Mi Mi");
         } else {
-            snprintf(why, why_n, "Mi Mi: máy chủ trả lỗi %d", st);
+            snprintf(why, why_n, st == 200 ? "Mi Mi: máy chủ chưa có trợ lý (trả sai dữ liệu)" : "Mi Mi: máy chủ trả lỗi %d", st);
         }
         cJSON_Delete(j);
     } else {
-        snprintf(why, why_n, "Mi Mi: không kết nối được máy chủ");
+        snprintf(why, why_n, "Mi Mi: không hỏi được máy chủ (%s)", esp_err_to_name(e));
         ESP_LOGW(TAG, "POST %s: %s", CONFIG_EVCARHUD_AI_URL, esp_err_to_name(e));
     }
     free(buf);
@@ -454,7 +454,7 @@ static bool session_connect(void)
         ws_drop();
         if (s_ws_url[0] && cached_try) return false; /* thu lai voi token moi */
         session_close();
-        toast("Mi Mi: không kết nối được máy chủ");
+        toast("Mi Mi: không mở được kết nối thoại (WebSocket)");
         return true;
     }
     send_text("{\"type\":\"hello\",\"version\":1,\"features\":{\"mcp\":true},\"transport\":\"websocket\","
