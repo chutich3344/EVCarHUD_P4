@@ -72,7 +72,8 @@ static char s_mac[18], s_uuid[37], s_session[64];
 static char *s_txt;                                   /* gom tin chu bi chia nhieu doan */
 static int s_txt_len;
 static TickType_t s_since;
-static volatile bool s_wake_ok;                       /* co mo hinh tu danh thuc (vung flash "model") */
+static volatile bool s_wake_ok;
+static volatile int s_ws_http, s_ws_tls;              /* loi bat tay WebSocket gan nhat: ma HTTP, loi TLS */                       /* co mo hinh tu danh thuc (vung flash "model") */
 static char s_ws_url[256], s_ws_tok[256];             /* nho dia chi + token: phien sau khoi hoi lai may chu */
 
 /* VAD tren chip (do nang luong): biet anh noi xong de gui "listen stop" ngay, khong cho may chu doan */
@@ -268,6 +269,8 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     case WEBSOCKET_EVENT_DISCONNECTED:
     case WEBSOCKET_EVENT_CLOSED:
     case WEBSOCKET_EVENT_ERROR:
+        if (d && d->error_handle.esp_ws_handshake_status_code) s_ws_http = d->error_handle.esp_ws_handshake_status_code;
+        if (d && d->error_handle.esp_tls_last_esp_err) s_ws_tls = d->error_handle.esp_tls_last_esp_err;
         post(M_CLOSED, gen, NULL);
         break;
     case WEBSOCKET_EVENT_DATA:
@@ -432,6 +435,8 @@ static bool session_connect(void)
     snprintf(hdr, 600, "Authorization: Bearer %s\r\nDevice-Id: %s\r\nClient-Id: %s\r\nProtocol-Version: 1\r\n", token, s_mac, s_uuid);
     s_session[0] = 0;
     xEventGroupClearBits(s_ev, BIT_CONNECTED | BIT_HELLO);
+    s_ws_http = 0;
+    s_ws_tls = 0;
     int gen = ++s_gen;
     esp_websocket_client_config_t wc = {
         .uri = url,
@@ -455,7 +460,14 @@ static bool session_connect(void)
         ws_drop();
         if (s_ws_url[0] && cached_try) return false; /* thu lai voi token moi */
         session_close();
-        toast("Mi Mi: không mở được kết nối thoại (WebSocket)");
+        static char m[96];
+        if (s_ws_http == 401) snprintf(m, sizeof m, "Mi Mi: máy chủ từ chối token (401)");
+        else if (s_ws_http == 503) snprintf(m, sizeof m, "Mi Mi: máy chủ thiếu khoá AI / giọng đọc (503)");
+        else if (s_ws_http) snprintf(m, sizeof m, "Mi Mi: mở kết nối thoại lỗi HTTP %d", s_ws_http);
+        else if (s_ws_tls) snprintf(m, sizeof m, "Mi Mi: lỗi TLS kết nối thoại (%s)", esp_err_to_name(s_ws_tls));
+        else snprintf(m, sizeof m, "Mi Mi: không mở được kết nối thoại");
+        ESP_LOGW(TAG, "WebSocket that bai: HTTP %d, TLS %s", s_ws_http, esp_err_to_name(s_ws_tls));
+        toast(m);
         return true;
     }
     send_text("{\"type\":\"hello\",\"version\":1,\"features\":{\"mcp\":true},\"transport\":\"websocket\","
