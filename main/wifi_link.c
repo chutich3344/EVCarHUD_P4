@@ -304,6 +304,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         connected = true;
         retries = 0;
+        /* HUD cam nguon xe, khong can tiet kiem dien: tat ngu modem de khong lo goi ARP/ket noi tu dien thoai
+         * (trang tai firmware http://IP HUD bao ERR_ADDRESS_UNREACHABLE tren mot so router mesh) */
+        esp_wifi_set_ps(WIFI_PS_NONE);
         {
             char ip[16];
             const ip_event_got_ip_t *ev = data;
