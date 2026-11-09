@@ -349,7 +349,14 @@ static bool server_check(char *why, size_t wn)
     if (!h) { snprintf(why, wn, "Hết bộ nhớ"); return false; }
     static char buf[1024];
     int n = -1, st = 0;
-    if (esp_http_client_open(h, 0) == ESP_OK) {
+    esp_err_t oe = ESP_FAIL;
+    for (int i = 0; i < 3; i++) {                                  /* DNS/TLS loi thoang qua (hotspot dien thoai): thu lai */
+        if ((oe = esp_http_client_open(h, 0)) == ESP_OK) break;
+        ESP_LOGW(TAG, "mo ket noi kiem tra loi %s, thu lai", esp_err_to_name(oe));
+        esp_http_client_close(h);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+    }
+    if (oe == ESP_OK) {
         esp_http_client_fetch_headers(h);
         st = esp_http_client_get_status_code(h);
         n = 0;
@@ -362,7 +369,7 @@ static bool server_check(char *why, size_t wn)
         buf[n] = 0;
     }
     esp_http_client_cleanup(h);
-    if (n < 0) { snprintf(why, wn, "Không kết nối được máy chủ"); return false; }
+    if (n < 0) { snprintf(why, wn, "Không kết nối được máy chủ (%s)", esp_err_to_name(oe)); return false; }
     cJSON *j = cJSON_Parse(buf);
     cJSON *e = j ? cJSON_GetObjectItem(j, "error") : NULL;
     if (st != 200) {
@@ -402,8 +409,15 @@ static esp_http_client_handle_t dl_open(const char *url, size_t from, int64_t *l
         snprintf(r, sizeof r, "bytes=%u-", (unsigned)from);
         esp_http_client_set_header(h, "Range", r);
     }
-    if (esp_http_client_open(h, 0) != ESP_OK) {
-        snprintf(why, wn, "Không kết nối được máy chủ");
+    esp_err_t oe = ESP_FAIL;
+    for (int i = 0; i < 3; i++) {
+        if ((oe = esp_http_client_open(h, 0)) == ESP_OK) break;
+        ESP_LOGW(TAG, "mo ket noi tai file loi %s, thu lai", esp_err_to_name(oe));
+        esp_http_client_close(h);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+    }
+    if (oe != ESP_OK) {
+        snprintf(why, wn, "Không kết nối được máy chủ khi tải (%s)", esp_err_to_name(oe));
         esp_http_client_cleanup(h);
         return NULL;
     }
