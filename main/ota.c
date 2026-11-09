@@ -353,8 +353,12 @@ static bool server_check(char *why, size_t wn)
         esp_http_client_fetch_headers(h);
         st = esp_http_client_get_status_code(h);
         n = 0;
-        int r;
-        while (n < (int)sizeof buf - 1 && (r = esp_http_client_read(h, buf + n, sizeof buf - 1 - n)) > 0) n += r;
+        for (int idle = 0; n < (int)sizeof buf - 1 && idle < 200;) {   /* EAGAIN (TLS chua du goi): doc lai, toi da ~10 s */
+            int r = esp_http_client_read(h, buf + n, sizeof buf - 1 - n);
+            if (r > 0) { n += r; idle = 0; }
+            else if (r == -ESP_ERR_HTTP_EAGAIN && !esp_http_client_is_complete_data_received(h)) { idle++; vTaskDelay(pdMS_TO_TICKS(50)); }
+            else break;
+        }
         buf[n] = 0;
     }
     esp_http_client_cleanup(h);
@@ -386,43 +390,93 @@ static bool server_check(char *why, size_t wn)
     return ok;
 }
 
+/* Mo ket noi tai file tu byte 'from' (from > 0: noi tiep bang Range, may chu phai tra 206) */
+static esp_http_client_handle_t dl_open(const char *url, size_t from, int64_t *len, char *why, size_t wn)
+{
+    esp_http_client_config_t c = {.url = url, .timeout_ms = 15000, .buffer_size = 4096,
+                                  .crt_bundle_attach = esp_crt_bundle_attach};
+    esp_http_client_handle_t h = esp_http_client_init(&c);
+    if (!h) { snprintf(why, wn, "Hết bộ nhớ"); return NULL; }
+    if (from) {
+        char r[40];
+        snprintf(r, sizeof r, "bytes=%u-", (unsigned)from);
+        esp_http_client_set_header(h, "Range", r);
+    }
+    if (esp_http_client_open(h, 0) != ESP_OK) {
+        snprintf(why, wn, "Không kết nối được máy chủ");
+        esp_http_client_cleanup(h);
+        return NULL;
+    }
+    *len = esp_http_client_fetch_headers(h);
+    int st = esp_http_client_get_status_code(h);
+    if (st != (from ? 206 : 200)) {
+        snprintf(why, wn, from && st == 200 ? "Máy chủ không cho tải nối tiếp" : "Máy chủ báo lỗi %d khi tải file", st);
+        esp_http_client_cleanup(h);
+        return NULL;
+    }
+    return h;
+}
+
 static void server_install(void)
 {
     char url[300], why[96] = "";
     server_url(url, sizeof url, true);
-    esp_http_client_config_t c = {.url = url, .timeout_ms = 15000, .buffer_size = 4096,
-                                  .crt_bundle_attach = esp_crt_bundle_attach};
-    esp_http_client_handle_t h = esp_http_client_init(&c);
     static sink_t s;
     uint8_t *buf = heap_caps_malloc(4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    bool ok = false;
+    esp_http_client_handle_t h = NULL;
+    bool ok = false, begun = false;
     char ver[32] = "";
+    int64_t total = 0, len = 0;
     s_busy = true;
     progress("Đang tải bản mới…", 0, "Không tắt nguồn HUD");
-    if (!h || !buf) { snprintf(why, sizeof why, "Hết bộ nhớ"); goto out; }
-    if (esp_http_client_open(h, 0) != ESP_OK) { snprintf(why, sizeof why, "Không kết nối được máy chủ"); goto out; }
-    int64_t total = esp_http_client_fetch_headers(h);
-    int st = esp_http_client_get_status_code(h);
-    if (st != 200) { snprintf(why, sizeof why, "Máy chủ báo lỗi %d khi tải file", st); goto out; }
+    if (!buf) { snprintf(why, sizeof why, "Hết bộ nhớ"); goto out; }
+    if (!(h = dl_open(url, 0, &total, why, sizeof why))) goto out;
     if (!sink_begin(&s)) { snprintf(why, sizeof why, "%s", s.err); goto out; }
-    int last = -1, r = 0;
+    begun = true;
+    int last = -1, r = 0, tries = 0;
+    int64_t idle = esp_timer_get_time();
     for (;;) {
         int n = esp_http_client_read(h, (char *)buf, 4096);
-        if (n < 0) { snprintf(why, sizeof why, "Mất kết nối khi tải (%u KB)", (unsigned)(s.in / 1024)); break; }
-        if (n == 0) break;
-        r = sink_feed(&s, buf, n);
-        if (r < 0) { snprintf(why, sizeof why, "%s", s.err); break; }
-        int p = sink_pct(&s, total > 0 ? (size_t)total : 0);
-        if (p != last) {
-            last = p;
-            char d[64];
-            snprintf(d, sizeof d, "%u / %u KB · không tắt nguồn HUD", (unsigned)(s.app / 1024),
-                     (unsigned)((s.app_len ? s.app_len : (size_t)(total > 0 ? total : 0)) / 1024));
-            progress("Đang tải và ghi bản mới…", p, d);
+        if (n > 0) {
+            idle = esp_timer_get_time();
+            tries = 0;
+            r = sink_feed(&s, buf, n);
+            if (r < 0) { snprintf(why, sizeof why, "%s", s.err); break; }
+            int p = sink_pct(&s, total > 0 ? (size_t)total : 0);
+            if (p != last) {
+                last = p;
+                char d[64];
+                snprintf(d, sizeof d, "%u / %u KB · không tắt nguồn HUD", (unsigned)(s.app / 1024),
+                         (unsigned)((s.app_len ? s.app_len : (size_t)(total > 0 ? total : 0)) / 1024));
+                progress("Đang tải và ghi bản mới…", p, d);
+            }
+            if (r == 1) break;                                     /* du firmware: phan sau cua file gop (mo hinh...) bo qua */
+            continue;
         }
-        if (r == 1) break;                                         /* du firmware: phan sau cua file gop (mo hinh...) bo qua */
+        if (n == 0 && esp_http_client_is_complete_data_received(h)) break;
+        /* TLS chua du mot goi (EAGAIN) la binh thuong: doc lai, chi coi la dut khi 20 giay khong co byte nao */
+        if ((n == -ESP_ERR_HTTP_EAGAIN || n == 0) && esp_timer_get_time() - idle < 20000000) {
+            if (n == 0) vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+        /* Dut that: noi lai tu byte da nhan, toi da 5 lan lien tiep */
+        ESP_LOGW(TAG, "tai bi dut o %u byte (read=%d), noi lai lan %d", (unsigned)s.in, n, tries + 1);
+        esp_http_client_cleanup(h);
+        h = NULL;
+        while (!h && tries < 5) {
+            vTaskDelay(pdMS_TO_TICKS(1000 * ++tries));
+            why[0] = 0;
+            h = dl_open(url, s.in, &len, why, sizeof why);
+            if (!h && strcmp(why, "Máy chủ không cho tải nối tiếp") == 0) break;
+        }
+        if (!h) {
+            if (strcmp(why, "Máy chủ không cho tải nối tiếp") != 0)
+                snprintf(why, sizeof why, "Mất kết nối khi tải (%u KB)", (unsigned)(s.in / 1024));
+            break;
+        }
+        idle = esp_timer_get_time();
     }
-    if (why[0]) { sink_abort(&s); goto out; }
+    if (why[0]) { if (begun) sink_abort(&s); goto out; }
     progress("Đang kiểm tra firmware…", 100, "Không tắt nguồn HUD");
     ok = sink_finish(&s, ver, sizeof ver);
     if (!ok) snprintf(why, sizeof why, "%s", s.err);
