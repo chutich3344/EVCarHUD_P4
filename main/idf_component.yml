@@ -7,7 +7,7 @@ dependencies:
   espressif/esp_wifi_remote: "*"               # esp_hosted can (Wi-Fi tren C6; ban nay chua dung Wi-Fi)
   espressif/esp_codec_dev: "~1.5"              # codec ES8311 + loa: tieng tit canh bao
   espressif/usb_host_uvc: "^2.4.0"             # camera USB (UVC) o cong OTG: ban thu nhan dien vat can
-  espressif/esp-dl: "~3.3.0"                  # nhan dien vat can: mo hinh tu huan luyen models/evdet.espdl (detect.cpp)
+  espressif/esp-dl: "==3.3.15"                  # nhan dien vat can: mo hinh tu huan luyen models/evdet.espdl (detect.cpp)
   espressif/esp_websocket_client: "^1.4.0"     # tro ly Mi Mi: WebSocket toi evcarhud.com/api/ai/ws
   espressif/esp_audio_codec: "~2.5.0"          # tro ly Mi Mi: ma hoa / giai ma giong noi Opus
   espressif/esp-sr: "~2.6.1"                   # tro ly Mi Mi: tu danh thuc "mi mi" (MultiNet7 tieng Trung, vung flash "model")

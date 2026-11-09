@@ -15,6 +15,15 @@ idf_component_register(
              esp_wifi esp_netif esp_event esp_http_client json mbedtls lwip usb esp_driver_jpeg esp_partition
              app_update esp_http_server)
 
+# esp-sr (tu danh thuc Mi Mi) bat esp-dl chi bien dich phep tinh WakeNet can; khai bao them TOAN BO phep tinh cho mo hinh
+# nhan dien vat can evdet, neu khong dl::Model khong tao duoc (main/evdet.compile_req.yml).
+idf_build_get_property(build_components BUILD_COMPONENTS)
+if("espressif__esp-dl" IN_LIST build_components)
+    idf_component_get_property(_espdl_dir espressif__esp-dl COMPONENT_DIR)
+    include(${_espdl_dir}/cmake/compile_register.cmake)
+    esp_dl_compile_add_yml(${CMAKE_CURRENT_LIST_DIR}/evdet.compile_req.yml)
+endif()
+
 # Mo hinh nhan dien vat can (lay tu repo EVCarHUD/esp, huan luyen bang ml/train_evhud.py): ghi vao vung flash "evdet".
 # idf.py flash va file gop (idf.py merge-bin) deu co mo hinh nay. Doi mo hinh = chep file .espdl moi de len models/evdet.espdl.
 if(CONFIG_EVCARHUD_DETECT)
