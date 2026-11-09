@@ -189,8 +189,8 @@ static lv_obj_t *set_scr, *set_tab[PG_N], *set_page_obj[PG_N], *set_close, *set_
 static lv_obj_t *mode_card[3], *mode_sub[3], *rot_row, *rot_sw, *cam_row, *cam_sub;
 static void (*cam_cb)(void);
 static bool cam_on;
-static int cam_st;
-static lv_obj_t *t_cam, *t_cam_l;
+static int cam_st, lid_st;
+static lv_obj_t *t_cam, *t_cam_l, *t_lid, *t_lid_l;
 static lv_obj_t *snd_row, *snd_sw, *vol_card, *vol_minus, *vol_plus, *lbl_vol, *vol_bar, *vol_fill;
 static lv_obj_t *src_card[2], *lbl_src_st[2], *lbl_mac, *lbl_ble;
 static lv_obj_t *lbl_sys[4];
@@ -841,6 +841,11 @@ static void build_top(void)
     t_cam_l = mk_label(t_cam, &ui_font_cap12, 0, 0, "CAM");
     lv_obj_center(t_cam_l);
     lv_obj_set_width(t_cam, text_w("CAM", &ui_font_cap12) + 12);
+    t_lid = mk_fill(top, 0, (TOP_H - 18) / 2, 40, 18, 5);          /* chip Lidar, canh chip CAM */
+    lv_obj_set_style_border_width(t_lid, 1, 0);
+    t_lid_l = mk_label(t_lid, &ui_font_cap12, 0, 0, "LIDAR");
+    lv_obj_center(t_lid_l);
+    lv_obj_set_width(t_lid, text_w("LIDAR", &ui_font_cap12) + 12);
     top_line = mk_fill(scr, 0, TOP_H - 1, UI_W, 1, 0);
 }
 
@@ -866,6 +871,20 @@ static void render_top(void)
         lv_obj_set_style_text_color(t_cam_l, lv_color_hex(c), 0);
         lv_obj_set_x(t_cam, PAD + text_w(b, &ui_font_clk18) + 8);
     }
+    int chip_r = 0;                                                   /* co chip LIDAR: ten duong khong de len cac chip */
+    int cam_w = text_w("CAM", &ui_font_cap12) + 12, lid_w = text_w("LIDAR", &ui_font_cap12) + 12;
+    show(t_lid, lid_st != UI_CAM_OFF);
+    if (lid_st != UI_CAM_OFF) {                                   /* xanh: dang doc; do: mat tin hieu */
+        uint32_t c = lid_st == UI_CAM_OK ? (night ? 0x34D399 : 0x059669) : (night ? 0xFF4D4F : 0xBE123C);
+        lv_obj_set_style_bg_color(t_lid, lv_color_hex(c), 0);
+        lv_obj_set_style_bg_opa(t_lid, 38, 0);
+        lv_obj_set_style_border_color(t_lid, lv_color_hex(c), 0);
+        lv_obj_set_style_text_color(t_lid_l, lv_color_hex(c), 0);
+        int x = PAD + text_w(b, &ui_font_clk18) + 8;
+        if (cam_st != UI_CAM_OFF) x += cam_w + 4;
+        lv_obj_set_x(t_lid, x);
+        chip_r = x + lid_w;
+    }
 
     bool tsd = screen == SCR_NAV && nav_on && nav_is_ts;              /* dan toi tram sac: luon hien ten tram */
     const char *st = tsd ? street_nav : !waze ? "Chỉ có GPS" : screen == SCR_NAV && street_nav[0] ? street_nav : street_now;
@@ -879,6 +898,7 @@ static void render_top(void)
     int pre = hw ? lv_obj_get_width(t_badge) + 6 : tsd ? text_w(LV_SYMBOL_CHARGE, &lv_font_montserrat_14) + 6 : 0;
     int sw = text_w(st, &ui_font_txt14);
     int maxw = 300 - pre;
+    if (chip_r > 0 && UI_W - 2 * (chip_r + 6) - pre < maxw) maxw = UI_W - 2 * (chip_r + 6) - pre;
     if (sw > maxw) sw = maxw;
     int total = sw + pre, x0 = (UI_W - total) / 2;
     if (hw) lv_obj_set_x(t_badge, x0);
@@ -2751,6 +2771,12 @@ void ui_cam_status(int st)
 {
     if (st == cam_st) return;
     cam_st = st;
+    if (top) render_top();
+}
+void ui_lidar_status(int st)
+{
+    if (st == lid_st) return;
+    lid_st = st;
     if (top) render_top();
 }
 

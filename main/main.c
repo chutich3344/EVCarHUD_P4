@@ -26,6 +26,8 @@
 #include "wifi_link.h"
 #include "ota.h"
 #include "usb_cam.h"
+#include "lidar.h"
+#include "adas_feed.h"
 #include <sys/time.h>
 #include <time.h>
 #include "ui_fonts.h"
@@ -262,7 +264,9 @@ void app_main(void)
     if (!demo) ble_link_start();                             /* cho Waze Mod ket noi qua Bluetooth LE */
     ota_start();                                             /* cap nhat OTA: xac nhan ban moi, man Cap nhat firmware */
     wifi_link_start();                                       /* Wi-Fi da luu: gio NTP + thoi tiet */
+    adas_feed_init();                                        /* khoa chung cho camera + Lidar */
     usb_cam_start();                                         /* camera USB (thu nghiem): xem truoc + FPS */
+    lidar_start();                                           /* Lidar UART (neu cam): do cu ly xe phia truoc */
 #if CONFIG_EVCARHUD_LDR
     xTaskCreate(light_task, "anh_sang", 2560, NULL, 2, NULL);
 #endif

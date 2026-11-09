@@ -46,6 +46,30 @@ menu "EVCarHUD"
         help
             Dung de ve vung lan cua minh va tu chinh chan troi. Xe con gan sau guong chieu hau ~130 cm, SUV ~150 cm.
 
+    config EVCARHUD_LIDAR
+        bool "Lidar do khoang cach qua UART (Nooploop TOFSense-F2 / Benewake TF02-Pro, TF03) bo tro canh bao vat can"
+        default y
+        help
+            Tu do loai cam bien, toc do baud va thu tu chan RX/TX. Khong cam thi firmware chi do lai moi 3 giay, khong anh huong gi.
+            Co camera: dung so met Lidar cho xe phia truoc camera chon (neu khop). Khong co camera: canh bao chi bang Lidar
+            (Chu y / Nguy hiem, khong PHANH toan man).
+
+    config EVCARHUD_LIDAR_UART
+        int "Lidar: cong UART cua ESP32-P4"
+        default 2
+        range 1 4
+        depends on EVCARHUD_LIDAR
+
+    config EVCARHUD_LIDAR_RX
+        int "Lidar: GPIO nhan (noi day TX cua cam bien - F2 PH: day vang)"
+        default 5
+        depends on EVCARHUD_LIDAR
+
+    config EVCARHUD_LIDAR_TX
+        int "Lidar: GPIO gui (noi day RX cua cam bien - F2 PH: day xanh duong)"
+        default 4
+        depends on EVCARHUD_LIDAR
+
     menu "Man hinh"
         config EVCARHUD_LCD_SPI_MHZ
             int "Toc do SPI man hinh (MHz)"

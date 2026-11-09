@@ -11,6 +11,6 @@ for f in $(cd $P && find lvgl/src -name '*.c'); do
   [ "$o" -nt "$P/$f" ] || cc -c -O1 -DLV_CONF_INCLUDE_SIMPLE -I$P -I$P/lvgl "$P/$f" -o "$o"
 done
 SRC="$M/dashboard.c $M/dashboard_hlp.c $M/hlp.c $M/gofa.c $M/demo.c $M/dashboard_signs.c $M/ui_font_*.c $M/ui_logo_icon.c
-     $M/obstacle_ui.c $M/obstacle_icons.c $M/adas.c $M/adas_feed.c replay.c"
+     $M/obstacle_ui.c $M/obstacle_icons.c $M/adas.c $M/adas_feed.c $M/lidar.c replay.c"
 cc -O1 -Wall -DLV_CONF_INCLUDE_SIMPLE ${EXTRA:-} -Istub -I$P -I$P/lvgl -I$M $SRC $P/build/*.o -lm -o replay
 echo "da dung tools/video_replay/replay"
