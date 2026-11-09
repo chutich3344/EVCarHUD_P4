@@ -156,6 +156,8 @@ button{border:0;background:none;padding:0;cursor:pointer}
     </button>
     <label class="lbl" for="rad">Bán kính tìm (km)</label>
     <input class="f" id="rad" type="number" min="2" max="50" inputmode="numeric" onchange="A.setRadius(parseInt(this.value)||15)">
+    <span class="lbl">Firmware HUD</span>
+    <button class="btn sm ol" style="width:100%" onclick="A.otaCheck()">Kiểm tra cập nhật firmware HUD</button>
   </div>
 </div>
 
@@ -172,7 +174,7 @@ button{border:0;background:none;padding:0;cursor:pointer}
 var A = window.Android || {
   state: function(){return JSON.stringify({running:false,gps:'Chưa bật',hud:'Chưa chọn HUD',hudName:'',data:'—',speed:0,target:false,picked:null,list:[],source:'vf_osm',sources:[['vf_osm','VinFast + OSM']],radius:15,ocmKey:''})},
   toggle:function(){},sendNow:function(){},battery:function(){},pickHud:function(){},sendTest:function(){},openHub:function(){},clearTarget:function(){},
-  setTarget:function(){},setSource:function(){},setRadius:function(){},setOcmKey:function(){}
+  setTarget:function(){},setSource:function(){},setRadius:function(){},setOcmKey:function(){},otaCheck:function(){}
 };
 var SIDE = {A:'thẳng phía trước',R:'bên phải',L:'bên trái',B:'phía sau','?':'chưa biết hướng xe'};
 function $(id){return document.getElementById(id)}
