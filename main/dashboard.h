@@ -64,11 +64,13 @@ typedef struct {
     char ssid[33];
     int rssi;                                     /* dBm */
     bool lock;                                    /* co mat khau */
+    bool saved;                                   /* da luu: cham la ket noi, khong hoi mat khau */
 } ui_wifi_ap_t;
 typedef struct {
     void (*enable)(bool on);                      /* cong tac Wi-Fi */
     void (*scan)(void);                           /* do mang: tra ket qua bang ui_wifi_scan_done */
-    void (*join)(const char *ssid, const char *pass);   /* ket noi + luu NVS */
+    void (*join)(const char *ssid, const char *pass);   /* ket noi + luu NVS; pass NULL: dung mat khau da luu */
+    void (*forget)(const char *ssid);             /* quen mang da luu */
 } ui_wifi_hooks_t;
 void ui_set_wifi_hooks(const ui_wifi_hooks_t *h);
 void ui_wifi_set_state(int state, const char *ssid);   /* UI_WIFI_*; ssid: mang dang/da ket noi */
