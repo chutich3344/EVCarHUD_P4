@@ -112,6 +112,17 @@ menu "EVCarHUD"
         int "Nut BOOT (board P4: GPIO35)"
         default 35
 
+    config EVCARHUD_OTA_URL
+        string "Cap nhat OTA: dia chi may chu (evcarhud-web /api/ota)"
+        default "https://evcarhud.com/api/ota"
+        help
+            HUD hoi ?model=...&mac=...&v=<phien ban dang chay> de biet ban moi nhat (tai len o trang admin),
+            them &download=1 de tai file. Chi HUD da dang ky (nap qua trang /account) moi tai duoc.
+
+    config EVCARHUD_OTA_MODEL
+        string "Cap nhat OTA: ma model tren may chu"
+        default "p4"
+
     config EVCARHUD_BLE_NAME
         string "Ten Bluetooth (Waze Mod tim theo ten nay)"
         default "EVHUD-P4"

@@ -22,6 +22,7 @@
 #include "dashboard.h"
 #include "dashboard_hlp.h"
 #include "settings.h"
+#include "ota.h"
 
 static const char *TAG = "wifi";
 
@@ -253,6 +254,7 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         bool was = connected;
         connected = false;
+        if (was) ota_wifi_changed(false, NULL);
         if (!started) return;
         if (joining) {
             if (++retries < 3) { esp_wifi_connect(); return; }
@@ -269,6 +271,12 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         connected = true;
         retries = 0;
+        {
+            char ip[16];
+            const ip_event_got_ip_t *ev = data;
+            snprintf(ip, sizeof ip, IPSTR, IP2STR(&ev->ip_info.ip));
+            ota_wifi_changed(true, ip);                          /* cap nhat OTA: lan dau co mang thi hoi ban moi */
+        }
         if (joining) settings_set_wifi(cur_ssid, cur_pass);      /* chi luu khi ket noi duoc */
         joining = false;
         ESP_LOGI(TAG, "da ket noi %s", cur_ssid);
@@ -349,6 +357,7 @@ static void wifi_task(void *arg)
         case CMD_DISABLE:
             settings_set_wifi_on(false);
             esp_timer_stop(retry_tmr);
+            if (connected) ota_wifi_changed(false, NULL);
             joining = connected = false;
             if (started) { started = false; esp_wifi_disconnect(); esp_wifi_stop(); }
             ui_state(UI_WIFI_OFF, "");

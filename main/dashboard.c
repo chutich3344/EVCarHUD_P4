@@ -1483,6 +1483,8 @@ static lv_obj_t *mk_setting_row(lv_obj_t *p, int y, int h, const char *title, co
     return r;
 }
 
+#include "dashboard_ota.inc"
+
 static int focus_items(lv_obj_t **out)
 {
     int n = 0;
@@ -1501,6 +1503,9 @@ static int focus_items(lv_obj_t **out)
         out[n++] = src_card[0];
         out[n++] = src_card[1];
         break;
+    case PG_SYSTEM:
+        out[n++] = upd_row;
+        break;
     default:
         break;
     }
@@ -1511,7 +1516,7 @@ static int focus_items(lv_obj_t **out)
 static void focus_render(void)
 {
     lv_obj_t *all[] = {set_tab[0], set_tab[1], set_tab[2], set_tab[3], mode_card[0], mode_card[1], mode_card[2], rot_row, cam_row,
-                       snd_row, vol_minus, vol_plus, src_card[0], src_card[1], set_close};
+                       snd_row, vol_minus, vol_plus, src_card[0], src_card[1], upd_row, set_close};
     for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) lv_obj_set_style_outline_width(all[i], 0, 0);
     if (set_focus < 0) return;
     lv_obj_t *it[10];
@@ -1573,7 +1578,7 @@ static void settings_close(void)
 static void set_tmr_cb(lv_timer_t *t)
 {
     (void)t;
-    if (set_page == PG_LINK || (rb_scr && shown(rb_scr))) return;   /* trang Ket noi (co MAC): khong tu dong dong */
+    if (set_page == PG_LINK || (rb_scr && shown(rb_scr)) || (ota_scr && shown(ota_scr))) return;   /* trang Ket noi (co MAC): khong tu dong dong */
     settings_close();
 }
 
@@ -1624,6 +1629,7 @@ static void on_set_btn(lv_event_t *e)
             return;
         }
     if (o == rot_row) { ui_rotate(); return; }
+    if (o == upd_row) { ota_open(); return; }
     if (o == cam_row) {
         settings_close();
         if (cam_cb) cam_cb();
@@ -1773,21 +1779,32 @@ static void build_settings(void)
     lv_obj_set_style_text_color(lbl_ble, S_MUT, 0);
     lv_label_set_text(lbl_ble, "Đổi nguồn xong bấm RST để khởi động lại");
 
-    /* He thong */
+    /* He thong: thong tin + hang "Cap nhat firmware" (mo man cap nhat OTA) */
     p = set_page_obj[PG_SYSTEM];
-    lv_obj_t *box = mk_card(p, 0, 0, UI_W - 24, 200, 16);
+    lv_obj_t *box = mk_card(p, 0, 0, UI_W - 24, 150, 16);
     lv_obj_set_style_bg_color(box, S_CARD, 0);
     lv_obj_set_style_border_color(box, S_BORDER, 0);
     for (int i = 0; i < 4; i++) {
-        lbl_sys[i] = mk_label_w(box, &ui_font_txt14, 16, 16 + i * 44, UI_W - 24 - 34, LV_TEXT_ALIGN_LEFT);
+        lbl_sys[i] = mk_label_w(box, &ui_font_txt14, 16, 10 + i * 34, UI_W - 24 - 34, LV_TEXT_ALIGN_LEFT);
         lv_obj_set_style_text_color(lbl_sys[i], S_FG, 0);
         if (i) {
-            lv_obj_t *ln = mk_fill(box, 16, 6 + i * 44, UI_W - 24 - 34, 1, 0);
+            lv_obj_t *ln = mk_fill(box, 16, 2 + i * 34, UI_W - 24 - 34, 1, 0);
             lv_obj_set_style_bg_color(ln, S_BORDER, 0);
         }
     }
     lv_label_set_text(lbl_sys[1], "Board  ESP32-P4 · màn 3.5\" ST7796 480×320");
     lv_label_set_text(lbl_sys[3], "Giữ BOOT 5 giây: bật / tắt chế độ trình diễn");
+    lv_obj_set_style_text_color(lbl_sys[3], S_MUT, 0);
+    upd_row = mk_setting_row(p, 158, 60, "Cập nhật firmware", "", NULL);
+    upd_sub = lv_obj_get_child(upd_row, 2);
+    lv_label_set_text(upd_sub, "");
+    l = mk_label(upd_row, &lv_font_montserrat_14, UI_W - 24 - 2 - 12 - 14, (60 - 2 - 16) / 2, LV_SYMBOL_RIGHT);
+    lv_obj_set_style_text_color(l, S_MUT, 0);
+    upd_dot = mk_fill(upd_row, UI_W - 24 - 2 - 12 - 14 - 20, (60 - 2 - 10) / 2, 10, 10, 5);
+    lv_obj_set_style_bg_color(upd_dot, S_GREEN, 0);
+    clickable(upd_row);
+    ui_ota_badge(ota_new[0] ? ota_new : NULL);
+    ota_build();
 
     /* doi nguon: "Da chon GOFA" + MAC Bluetooth, cho bam RST; cham de huy */
     rb_scr = mk_box(set_scr, 0, 0, UI_W, UI_H);
@@ -1819,6 +1836,7 @@ static void settings_open(void)
     set_page = PG_DISPLAY;
     set_focus = -1;
     show(rb_scr, false);
+    if (ota_scr && !ota_lock) show(ota_scr, false);
     settings_render();
     show(set_scr, true);
     lv_obj_move_foreground(set_scr);
@@ -1885,6 +1903,7 @@ bool ui_settings_key(int key)
     if (!ui_settings_shown()) return false;
     lv_timer_reset(set_tmr);
     if (shown(rb_scr)) { rb_cancel(); ui_toast("Đã huỷ"); return true; }
+    if (ota_key(key)) return true;
     lv_obj_t *it[10];
     int n = focus_items(it);
     if (key == UI_KEY_NEXT) {

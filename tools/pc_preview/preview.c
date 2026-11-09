@@ -379,5 +379,37 @@ int main(int argc, char **argv)
     ui_test_switch(UI_SRC_GOFA);
     run(200);
     snprintf(p, sizeof p, "%s/cai_dat_doi_nguon.bmp", dir); save_bmp(p);
+    /* cap nhat firmware (OTA): trang He thong co ban moi + cac trang thai man cap nhat */
+    ui_set_version("1.0.0");
+    ui_ota_badge("1.1.0");
+    ui_open_settings_page(3);
+    run(200);
+    snprintf(p, sizeof p, "%s/ota_he_thong.bmp", dir); save_bmp(p);
+    ui_open_ota();
+    static const ui_ota_view_t vs[] = {
+        {.tone = UI_OTA_INFO, .title = "Phiên bản đang chạy 1.0.0", .pct = -1,
+         .detail = "Kiểm tra bản mới trên máy chủ EVCarHUD qua Wi-Fi.\nHoặc tải file .bin lên từ trình duyệt trên điện thoại / máy tính cùng mạng Wi-Fi.",
+         .btn_a = "Kiểm tra bản mới", .act_a = UI_OTA_ACT_CHECK, .btn_b = "Tải lên từ trình duyệt", .act_b = UI_OTA_ACT_WEB},
+        {.tone = UI_OTA_NEW, .title = "Có bản mới 1.1.0", .pct = -1,
+         .detail = "Đang chạy 1.0.0 · nhanh chậm tùy mạng Wi-Fi của HUD.\nCảnh báo vật cản cao tốc, sửa lỗi GOFA\nNên cập nhật khi xe đứng yên, không tắt nguồn HUD.",
+         .btn_a = "Cập nhật ngay", .act_a = UI_OTA_ACT_INSTALL, .btn_b = "Để sau", .act_b = UI_OTA_ACT_CLOSE},
+        {.tone = UI_OTA_BUSY, .title = "Đang tải và ghi bản mới…", .pct = 45, .lock = true,
+         .detail = "2118 / 4706 KB · không tắt nguồn HUD"},
+        {.tone = UI_OTA_INFO, .title = "Mở trình duyệt, vào địa chỉ:", .big = "http://192.168.43.27", .pct = -1,
+         .detail = "Mã xác nhận  4821\nĐiện thoại / máy tính phải cùng mạng Wi-Fi với HUD. Chọn file .bin (file gộp hoặc app-0x10000 đều được). Tự tắt sau 10 phút.",
+         .btn_b = "Dừng", .act_b = UI_OTA_ACT_WEB_STOP},
+        {.tone = UI_OTA_OK, .title = "Đã cài bản 1.1.0", .pct = 100, .lock = true,
+         .detail = "Khởi động lại sau 3 giây…\nBản mới lỗi thì HUD tự quay về bản cũ."},
+        {.tone = UI_OTA_FAIL, .title = "Không cập nhật được", .pct = -1,
+         .detail = "HUD chưa đăng ký: nạp lần đầu qua evcarhud.com/account\nHUD vẫn chạy bản 1.0.0.",
+         .btn_a = "Thử lại", .act_a = UI_OTA_ACT_CHECK, .btn_b = "Tải lên từ trình duyệt", .act_b = UI_OTA_ACT_WEB},
+        {.tone = UI_OTA_INFO, .title = "Đang kiểm tra bản mới…", .pct = -1, .spin = true, .detail = "Phiên bản đang chạy 1.0.0"},
+    };
+    static const char *const names[] = {"mo", "co_ban_moi", "dang_tai", "trinh_duyet", "xong", "loi", "dang_kiem_tra"};
+    for (int i = 0; i < 7; i++) {
+        ui_ota_view(&vs[i]);
+        run(300);
+        snprintf(p, sizeof p, "%s/ota_%s.bmp", dir, names[i]); save_bmp(p);
+    }
     return 0;
 }

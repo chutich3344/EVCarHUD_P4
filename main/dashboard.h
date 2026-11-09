@@ -122,6 +122,28 @@ bool ui_settings_shown(void);                          /* man cai dat dang mo */
 void ui_open_settings(void);                           /* mo man cai dat am luong (giu tay 5 giay) */
 void ui_open_settings_page(int page);                  /* 0 = Hien thi, 1 = Canh bao (am thanh), 2 = Ket noi, 3 = He thong */
 void ui_set_version(const char *version);              /* phien ban firmware (trang He thong) */
+/* --- cap nhat firmware (ota.c lam viec that) ---
+ * Cai dat > He thong > "Cap nhat firmware" mo man phu: tieu de, dong chinh, dong phu, thanh tien trinh, 2 nut.
+ * Mo man / bam nut: giao dien goi hook action(UI_OTA_ACT_*) trong task LVGL (ota.c chi gui lenh vao hang doi);
+ * ota.c ve lai man bang ui_ota_view (giu board_ui_lock). */
+enum { UI_OTA_ACT_NONE = 0, UI_OTA_ACT_OPEN, UI_OTA_ACT_CHECK, UI_OTA_ACT_INSTALL, UI_OTA_ACT_WEB, UI_OTA_ACT_WEB_STOP,
+       UI_OTA_ACT_CLOSE };
+enum { UI_OTA_INFO = 0, UI_OTA_OK, UI_OTA_NEW, UI_OTA_BUSY, UI_OTA_FAIL };   /* mau / bieu tuong cua dong chinh */
+typedef struct {
+    int tone;                                          /* UI_OTA_* */
+    const char *title, *detail;                        /* dong chinh (to), dong phu (nho, nhieu dong) */
+    const char *big;                                   /* dong rat to (dia chi trang tai len), NULL: an */
+    int pct;                                           /* thanh tien trinh 0..100, -1: an */
+    bool spin;                                         /* vong quay (dang hoi may chu) */
+    const char *btn_a, *btn_b;                         /* nut chinh (xanh la) / nut phu; NULL: an */
+    int act_a, act_b;                                  /* UI_OTA_ACT_* khi bam */
+    bool lock;                                         /* dang ghi flash: an nut quay lai, khong cho dong cai dat */
+} ui_ota_view_t;
+void ui_set_ota_hook(void (*action)(int act));
+void ui_ota_view(const ui_ota_view_t *v);
+void ui_ota_close(void);
+void ui_ota_badge(const char *new_version);            /* trang He thong: "Co ban moi X" (NULL: xoa) */
+void ui_open_ota(void);                                /* mo man cap nhat (mo luon cai dat trang He thong) */
 void ui_set_rotated(bool on);                          /* trang thai xoay 180 do da luu (NVS) */
 void ui_set_source(int source);                        /* nguon da luu (NVS), UI_SRC_* */
 void ui_set_source_hook(void (*cb)(int source));       /* nguoi dung doi nguon: luu NVS (chay nguon moi sau khi bam RST) */
