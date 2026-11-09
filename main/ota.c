@@ -434,6 +434,7 @@ static void server_install(void)
     if (!sink_begin(&s)) { snprintf(why, sizeof why, "%s", s.err); goto out; }
     begun = true;
     int last = -1, r = 0, tries = 0;
+    char code[32] = "";
     int64_t idle = esp_timer_get_time();
     for (;;) {
         int n = esp_http_client_read(h, (char *)buf, 4096);
@@ -460,7 +461,9 @@ static void server_install(void)
             continue;
         }
         /* Dut that: noi lai tu byte da nhan, toi da 5 lan lien tiep */
-        ESP_LOGW(TAG, "tai bi dut o %u byte (read=%d), noi lai lan %d", (unsigned)s.in, n, tries + 1);
+        int en = esp_http_client_get_errno(h);
+        ESP_LOGW(TAG, "tai bi dut o %u byte (read=%d errno=%d), noi lai lan %d", (unsigned)s.in, n, en, tries + 1);
+        snprintf(code, sizeof code, "mã %d/%d", n, en);
         esp_http_client_cleanup(h);
         h = NULL;
         while (!h && tries < 5) {
@@ -471,7 +474,7 @@ static void server_install(void)
         }
         if (!h) {
             if (strcmp(why, "Máy chủ không cho tải nối tiếp") != 0)
-                snprintf(why, sizeof why, "Mất kết nối khi tải (%u KB)", (unsigned)(s.in / 1024));
+                snprintf(why, sizeof why, "Mất kết nối khi tải (%u KB, %s)", (unsigned)(s.in / 1024), code);
             break;
         }
         idle = esp_timer_get_time();
