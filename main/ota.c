@@ -213,7 +213,7 @@ static httpd_handle_t s_web;
 static char s_code[5];
 static esp_timer_handle_t s_web_tmr, s_ok_tmr;
 static enum { V_HOME, V_CHECKING, V_LATEST, V_NEW, V_WEB, V_FAIL } s_view;
-static char s_fail[96];
+static char s_fail[192];
 
 static void post(int c)
 {
@@ -339,6 +339,15 @@ static void server_url(char *u, size_t n, bool download)
              sha[0] ? "&sha=" : "", sha, download ? "&download=1" : "");
 }
 
+/* Chi tiet loi ket noi (ESP_ERR_HTTP_CONNECT chung chung): loi esp-tls + ma mbedTLS + RAM trong chip con lai */
+static void tls_why(esp_http_client_handle_t h, char *out, size_t n)
+{
+    int code = 0, flags = 0;
+    esp_err_t te = esp_http_client_get_and_clear_last_tls_error(h, &code, &flags);
+    snprintf(out, n, "%s, -0x%04x/%x, RAM %uK", te ? esp_err_to_name(te) : "-", (unsigned)(-code) & 0xFFFF, (unsigned)flags,
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+}
+
 /* Hoi may chu ban moi nhat. true: hoi duoc (s_has_new co ban moi hay khong); false: loi (why) */
 static bool server_check(char *why, size_t wn)
 {
@@ -368,8 +377,10 @@ static bool server_check(char *why, size_t wn)
         }
         buf[n] = 0;
     }
+    char tw[96] = "";
+    if (n < 0) tls_why(h, tw, sizeof tw);
     esp_http_client_cleanup(h);
-    if (n < 0) { snprintf(why, wn, "Không kết nối được máy chủ (%s)", esp_err_to_name(oe)); return false; }
+    if (n < 0) { snprintf(why, wn, "Không kết nối được máy chủ (%s; %s)", esp_err_to_name(oe), tw); ESP_LOGW(TAG, "%s", why); return false; }
     cJSON *j = cJSON_Parse(buf);
     cJSON *e = j ? cJSON_GetObjectItem(j, "error") : NULL;
     if (st != 200) {
@@ -433,7 +444,7 @@ static esp_http_client_handle_t dl_open(const char *url, size_t from, int64_t *l
 
 static void server_install(void)
 {
-    char url[300], why[96] = "";
+    char url[300], why[192] = "";
     server_url(url, sizeof url, true);
     static sink_t s;
     uint8_t *buf = heap_caps_malloc(4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -566,7 +577,7 @@ static esp_err_t web_update(httpd_req_t *r)
     s_busy = true;
     static sink_t s;
     static uint8_t buf[4096];
-    char why[96] = "", ver[32] = "";
+    char why[192] = "", ver[32] = "";
     size_t left = r->content_len;
     int last = -1, res = 0;
     progress("Đang nhận firmware từ trình duyệt…", 0, "Không tắt nguồn HUD");
@@ -653,7 +664,7 @@ static bool web_start(char *why, size_t wn)
 /* ======================= task ======================= */
 static void check(bool manual)
 {
-    char why[96] = "";
+    char why[192] = "";
     if (!s_wifi) {
         if (manual) fail("Chưa có Wi-Fi. Vào Cài đặt > Kết nối Wi-Fi (hotspot điện thoại) rồi thử lại.");
         return;
@@ -697,7 +708,7 @@ static void ota_task(void *arg)
             server_install();
             break;
         case CMD_WEB: {
-            char why[96] = "";
+            char why[192] = "";
             if (web_start(why, sizeof why)) { s_view = V_WEB; render(); }
             else fail(why);
             break;

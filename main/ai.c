@@ -12,6 +12,7 @@
 #include "cJSON.h"
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -306,6 +307,15 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     }
 }
 
+/* Chi tiet loi ket noi (ESP_ERR_HTTP_CONNECT chung chung): loi esp-tls + ma mbedTLS + RAM trong chip con lai */
+static void tls_why(esp_http_client_handle_t h, char *out, size_t n)
+{
+    int code = 0, flags = 0;
+    esp_err_t te = esp_http_client_get_and_clear_last_tls_error(h, &code, &flags);
+    snprintf(out, n, "%s, -0x%04x/%x, RAM %uK", te ? esp_err_to_name(te) : "-", (unsigned)(-code) & 0xFFFF, (unsigned)flags,
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+}
+
 /* Hoi may chu dia chi WebSocket + token. Tra ve false va dat loi (thong bao cho nguoi dung). */
 static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *why, size_t why_n)
 {
@@ -355,7 +365,9 @@ static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *w
         }
         cJSON_Delete(j);
     } else {
-        snprintf(why, why_n, "Mi Mi: không hỏi được máy chủ (%s)", esp_err_to_name(e));
+        char tw[96];
+        tls_why(h, tw, sizeof tw);
+        snprintf(why, why_n, "Mi Mi: không hỏi được máy chủ (%s; %s)", esp_err_to_name(e), tw);
         ESP_LOGW(TAG, "POST %s: %s", CONFIG_EVCARHUD_AI_URL, esp_err_to_name(e));
     }
     free(buf);
@@ -420,7 +432,7 @@ static void session_open(void)
 static bool session_connect(void)
 {
     bool cached_try = s_ws_url[0] != 0;
-    static char url[256], token[256], why[160];
+    static char url[256], token[256], why[200];
     why[0] = 0;
     if (!fetch_ws(url, sizeof url, token, sizeof token, why, sizeof why)) {
         session_close();
