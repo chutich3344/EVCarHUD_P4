@@ -38,6 +38,10 @@ void settings_set_sound(bool on) { set_u8("snd", on ? 1 : 0); }
 int settings_get_volume(void) { int v = get_u8("vol", 70); return v < 10 ? 10 : v > 100 ? 100 : v; }
 void settings_set_volume(int v) { set_u8("vol", v); }
 
+/* Am luong rieng cua giong Mi Mi (tieng tit canh bao dung settings_get_volume) */
+int settings_get_ai_volume(void) { int v = get_u8("aivol", 100); return v < 30 ? 30 : v > 100 ? 100 : v; }
+void settings_set_ai_volume(int v) { set_u8("aivol", v < 30 ? 30 : v > 100 ? 100 : v); }
+
 int settings_get_source(void) { return get_u8("src", 0) == 1 ? 1 : 0; }
 void settings_set_source(int s) { set_u8("src", s == 1 ? 1 : 0); }
 

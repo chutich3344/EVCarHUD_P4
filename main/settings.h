@@ -19,6 +19,8 @@ bool settings_get_sound(void);        /* loa bat (mac dinh: co) */
 void settings_set_sound(bool on);
 int settings_get_volume(void);        /* am luong 10..100 (mac dinh 70) */
 void settings_set_volume(int v);
+int settings_get_ai_volume(void);     /* am luong giong Mi Mi 30..100 (mac dinh 100), rieng voi tieng tit */
+void settings_set_ai_volume(int v);
 int settings_get_source(void);        /* nguon du lieu: 0 Waze Mod (mac dinh), 1 GOFA */
 void settings_set_source(int s);
 int settings_get_tz(void);            /* mui gio (phut), mac dinh +7 (Viet Nam) */

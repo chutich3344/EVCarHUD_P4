@@ -40,13 +40,15 @@
 #define RATE       16000
 #define FRAME      (RATE * FRAME_MS / 1000)           /* 960 mau moi goi */
 #define PLAY_Q     200                                /* ~12 giay giong noi cho phat */
-#define LISTEN_MAX_MS 15000                           /* dang nghe ma khong ai noi: dong phien */
+#define LISTEN_MAX_MS 17000                           /* luoi an toan sau VAD_MAX_FR (15 s): VAD luon bao truoc */
 #define THINK_MAX_MS  20000                           /* cho may chu tra loi */
 
 static const char *TAG = "ai";
 
 enum { ST_IDLE = 0, ST_CONN, ST_LISTEN, ST_THINK, ST_SPEAK };
-enum { M_TAP = 1, M_WAKE, M_JSON, M_CLOSED, M_DRAINED, M_WIFI_DOWN, M_VAD_END, M_VAD_NONE };
+static float s_tts_peak = 8000.0f;                  /* dinh tieng Mi Mi gan day (luong loa) */
+static volatile bool s_heard;                         /* VAD da nghe thay anh noi trong luot nghe nay */
+enum { M_TAP = 1, M_WAKE, M_JSON, M_CLOSED, M_DRAINED, M_WIFI_DOWN, M_VAD_END, M_VAD_NONE, M_VAD_HEARD };
 typedef struct {
     int type;
     int gen;                                          /* phien nao gui (bo tin cua phien cu) */
@@ -78,6 +80,8 @@ static volatile int s_ws_http, s_ws_tls;              /* loi bat tay WebSocket g
 static char s_ws_url[256], s_ws_tok[256];             /* nho dia chi + token: phien sau khoi hoi lai may chu */
 
 /* VAD tren chip (do nang luong): biet anh noi xong de gui "listen stop" ngay, khong cho may chu doan */
+#define VAD_SKIP_FR   5                               /* 300 ms dau bo qua: tieng tit + vang loa */
+#define VAD_FLOOR_FR  5                               /* 300 ms tiep: lay nen on (min) */
 #define VAD_START_FR  3                               /* 180 ms co tieng: bat dau noi */
 #define VAD_END_FR    14                              /* 840 ms im: noi xong */
 #define VAD_NONE_FR   134                             /* ~8 s khong noi gi: dong phien */
@@ -395,14 +399,17 @@ static void session_close(void)
     s_tts_stop = false;
     flush_play();
     ws_drop();
+    audio_set_volume(settings_get_volume());          /* tra am luong tieng tit canh bao */
     if (was != ST_IDLE) ESP_LOGI(TAG, "ket thuc phien");
     ui_show(NULL, NULL, false);
 }
 
 static void go_listen(void)
 {
+    audio_set_volume(settings_get_volume());          /* het noi: tra am luong tieng tit */
     s_drop = false;
     s_tts_stop = false;
+    s_heard = false;
     send_listen("start", ",\"mode\":\"manual\"");   /* VAD tren chip bao noi xong (listen stop) */
     s_st = ST_LISTEN;
     s_since = xTaskGetTickCount();
@@ -543,16 +550,40 @@ static void on_mcp(const cJSON *pl)
         cJSON_AddStringToObject(sc, "type", "object");
         cJSON_AddObjectToObject(sc, "properties");
         cJSON_AddItemToArray(tools, t);
+        t = cJSON_CreateObject();
+        cJSON_AddStringToObject(t, "name", "self.set_voice_volume");
+        cJSON_AddStringToObject(t, "description",
+                                "Chỉnh âm lượng giọng nói của trợ lý (30 đến 100 phần trăm), riêng với tiếng tít cảnh báo. Gọi khi người dùng "
+                                "bảo nói to lên / nhỏ lại: to lên thì cộng 20, nhỏ lại thì trừ 20 so với ai_volume hiện tại.");
+        sc = cJSON_AddObjectToObject(t, "inputSchema");
+        cJSON_AddStringToObject(sc, "type", "object");
+        cJSON *pr = cJSON_AddObjectToObject(sc, "properties");
+        cJSON *vv = cJSON_AddObjectToObject(pr, "volume");
+        cJSON_AddStringToObject(vv, "type", "integer");
+        cJSON_AddNumberToObject(vv, "minimum", 30);
+        cJSON_AddNumberToObject(vv, "maximum", 100);
+        cJSON *rq = cJSON_AddArrayToObject(sc, "required");
+        cJSON_AddItemToArray(rq, cJSON_CreateString("volume"));
+        cJSON_AddItemToArray(tools, t);
         mcp_reply(id, res, 0, NULL);
     } else if (strcmp(meth, "tools/call") == 0) {
-        const cJSON *nm = cJSON_GetObjectItem(cJSON_GetObjectItem(pl, "params"), "name");
-        if (!cJSON_IsString(nm) || strcmp(nm->valuestring, "self.get_device_status") != 0) {
+        const cJSON *prm = cJSON_GetObjectItem(pl, "params");
+        const cJSON *nm = cJSON_GetObjectItem(prm, "name");
+        char txt[200];
+        if (cJSON_IsString(nm) && strcmp(nm->valuestring, "self.set_voice_volume") == 0) {
+            const cJSON *v = cJSON_GetObjectItem(cJSON_GetObjectItem(prm, "arguments"), "volume");
+            int nv = cJSON_IsNumber(v) ? v->valueint : settings_get_ai_volume();
+            settings_set_ai_volume(nv);
+            if (s_st == ST_SPEAK || s_st == ST_THINK) audio_set_volume(settings_get_ai_volume());
+            snprintf(txt, sizeof txt, "{\"ai_volume\":%d}", settings_get_ai_volume());
+        } else if (cJSON_IsString(nm) && strcmp(nm->valuestring, "self.get_device_status") == 0) {
+            snprintf(txt, sizeof txt, "{\"speed_kmh\":%d,\"volume\":%d,\"ai_volume\":%d,\"sound_on\":%s,\"firmware\":\"%s\"}",
+                     ui_get_speed(), settings_get_volume(), settings_get_ai_volume(), settings_get_sound() ? "true" : "false",
+                     esp_app_get_description()->version);
+        } else {
             mcp_reply(id, NULL, -32601, "Không có công cụ này");
             return;
         }
-        char txt[160];
-        snprintf(txt, sizeof txt, "{\"speed_kmh\":%d,\"volume\":%d,\"sound_on\":%s,\"firmware\":\"%s\"}", ui_get_speed(),
-                 settings_get_volume(), settings_get_sound() ? "true" : "false", esp_app_get_description()->version);
         cJSON *res = cJSON_CreateObject();
         cJSON *ct = cJSON_AddArrayToObject(res, "content");
         cJSON *c = cJSON_CreateObject();
@@ -587,6 +618,7 @@ static void on_json(cJSON *j)
                 s_st = ST_SPEAK;
                 s_drop = false;
                 s_tts_stop = false;
+                audio_set_volume(settings_get_ai_volume());   /* giong Mi Mi to hon tieng tit (am luong rieng) */
                 ui_show("MI MI", NULL, true);
             }
         } else if (strcmp(state, "sentence_start") == 0) {
@@ -613,7 +645,16 @@ static void on_tap(void)
         send_text("{\"type\":\"abort\"}");
         go_listen();
         break;
-    case ST_LISTEN:
+    case ST_LISTEN:                                   /* da noi: cham = "noi xong", gui ngay; chua noi: dong */
+        send_listen("stop", NULL);
+        if (s_heard) {
+            s_st = ST_THINK;
+            s_since = xTaskGetTickCount();
+            ui_show("MI MI", "Đang nghĩ…", true);
+        } else {
+            session_close();
+        }
+        break;
     case ST_THINK:
         send_listen("stop", NULL);
         session_close();
@@ -648,6 +689,9 @@ static void ctl_task(void *arg)
                     ui_show("MI MI", "Đang nghĩ…", true);
                 }
                 break;
+            case M_VAD_HEARD:                         /* bat dau nghe thay tieng: cho anh biet HUD dang nghe */
+                if (m.gen == s_gen && s_st == ST_LISTEN) ui_show("ĐANG NGHE", "Mi Mi đang nghe anh…", true);
+                break;
             case M_VAD_NONE:                          /* khong ai noi: ket thuc */
                 if (s_st == ST_LISTEN) session_close();
                 break;
@@ -670,7 +714,13 @@ static void ctl_task(void *arg)
         if ((s_st == ST_LISTEN && el > pdMS_TO_TICKS(LISTEN_MAX_MS)) || (s_st == ST_THINK && el > pdMS_TO_TICKS(THINK_MAX_MS))) {
             ESP_LOGI(TAG, "het gio cho (%s)", s_st == ST_LISTEN ? "nghe" : "tra loi");
             send_listen("stop", NULL);
-            session_close();
+            if (s_st == ST_LISTEN && s_heard) {       /* da noi: van gui cho Mi Mi tra loi */
+                s_st = ST_THINK;
+                s_since = xTaskGetTickCount();
+                ui_show("MI MI", "Đang nghĩ…", true);
+            } else {
+                session_close();
+            }
         }
     }
 }
@@ -796,15 +846,28 @@ static void mic_task(void *arg)
         int64_t acc = 0;
         for (int i = 0; i < FRAME; i++) acc += (int32_t)pcm[i] * pcm[i];
         float e = sqrtf((float)acc / FRAME);
-        if (fr < 3) floor_e = fr == 0 ? e : (floor_e < e ? floor_e : e);   /* 180 ms dau: lay nen */
-        float thr = floor_e * 2.5f > 350.0f ? floor_e * 2.5f : 350.0f;
-        bool speech = fr >= 3 && e > thr;
-        if (!speech && fr >= 3) floor_e = floor_e * 0.95f + e * 0.05f;
+        /* bo 300 ms dau (tieng tit vang lai lam nen qua cao -> khong bao gio "bat dau noi" -> treo "Anh noi di"),
+         * roi lay nen = min cua 300 ms tiep. Nguong bi chan tren de xe on/vang loa khong che mat giong. */
+        const int ready = VAD_SKIP_FR + VAD_FLOOR_FR;
+        if (fr >= VAD_SKIP_FR && fr < ready) floor_e = fr == VAD_SKIP_FR ? e : (floor_e < e ? floor_e : e);
+        float thr = floor_e * 2.5f;
+        if (thr < 350.0f) thr = 350.0f;
+        if (thr > 2500.0f) thr = 2500.0f;
+        /* tre (hysteresis): da noi thi chi can 0,7 nguong de coi la con noi, tranh cat giua cau */
+        bool speech = fr >= ready && e > (started && run > 0 ? thr * 0.7f : thr);
+        if (fr >= ready) {
+            if (!speech) floor_e = floor_e * 0.95f + e * 0.05f;
+            else floor_e = floor_e * 0.998f + e * 0.002f;   /* on xe tang dan van theo kip, khong "noi mai" */
+        }
         fr++;
         if (speech) {
             run++;
             quiet = 0;
-            if (run >= VAD_START_FR) started = true;
+            if (run >= VAD_START_FR && !started) {
+                started = true;
+                s_heard = true;
+                post(M_VAD_HEARD, s_gen, NULL);
+            }
         } else {
             run = 0;
             quiet++;
@@ -873,7 +936,24 @@ static void spk_task(void *arg)
             esp_audio_dec_info_t info = {0};
             int r = esp_opus_dec_decode(dec, &raw, &fr, &info);
             if (r == ESP_AUDIO_ERR_OK && fr.decoded_size > 0) {
-                if (!s_drop) audio_play(pcm, (int)(fr.decoded_size / sizeof(int16_t)));
+                int n = (int)(fr.decoded_size / sizeof(int16_t));
+                /* Giong noi nghe nho hon tieng tit cung bien do: tu dong khuech dai (toi da x3) theo dinh gan day,
+                 * dinh sau khuech dai ~28000 nen khong meo; dinh giam cham (~1 s) de am luong deu giua cac cau. */
+                int pk = 0;
+                for (int i = 0; i < n; i++) {
+                    int a = pcm[i] < 0 ? -pcm[i] : pcm[i];
+                    if (a > pk) pk = a;
+                }
+                if (pk > s_tts_peak) s_tts_peak = (float)pk;
+                else s_tts_peak = s_tts_peak * 0.98f + pk * 0.02f;
+                float g = s_tts_peak > 1000.0f ? 28000.0f / s_tts_peak : 3.0f;
+                if (g > 3.0f) g = 3.0f;
+                if (g < 1.0f) g = 1.0f;
+                for (int i = 0; i < n; i++) {
+                    int32_t v = (int32_t)(pcm[i] * g);
+                    pcm[i] = (int16_t)(v > 32000 ? 32000 : v < -32000 ? -32000 : v);
+                }
+                if (!s_drop) audio_play(pcm, n);
                 played++;
             } else {
                 bad++;
