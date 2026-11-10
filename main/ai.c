@@ -833,7 +833,8 @@ static void spk_task(void *arg)
     esp_opus_dec_cfg_t cfg = ESP_OPUS_DEC_CONFIG_DEFAULT();
     cfg.sample_rate = RATE;                           /* may chu ma hoa 24 kHz: Opus giai ma thang ra 16 kHz cua loa */
     cfg.channel = 1;
-    cfg.frame_duration = (esp_opus_dec_frame_duration_t)ESP_OPUS_ENC_FRAME_DURATION_60_MS;
+    /* Google TTS gui goi 20 ms (Xiaozhi 60 ms): khong co dinh do dai goi, bo giai ma nhan moi co toi da 60 ms */
+    cfg.frame_duration = ESP_OPUS_DEC_FRAME_DURATION_INVALID;
     void *dec = NULL;
     if (esp_opus_dec_open(&cfg, sizeof cfg, &dec) != ESP_AUDIO_ERR_OK || !dec) {
         ESP_LOGE(TAG, "khong mo duoc bo giai ma Opus");
@@ -846,24 +847,38 @@ static void spk_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    int idle = 0;
+    int idle = 0, got = 0, played = 0, bad = 0, last_err = 0;
     for (;;) {
         pkt_t *p = NULL;
         if (xQueueReceive(s_play, &p, pdMS_TO_TICKS(100)) != pdTRUE) {
             if (s_tts_stop && s_st == ST_SPEAK && ++idle >= 3) {   /* het cau cuoi + 300 ms khong co goi moi */
                 s_tts_stop = false;
                 idle = 0;
+                ESP_LOGI(TAG, "loa: nhan %d goi, phat %d, loi giai ma %d (ma %d)", got, played, bad, last_err);
+                if (got > 0 && played == 0) {                   /* co tieng tu may chu ma khong phat duoc: bao ro */
+                    static char m[96];
+                    snprintf(m, sizeof m, "Mi Mi: nhận %d gói tiếng, giải mã lỗi %d (mã %d)", got, bad, last_err);
+                    toast(m);
+                }
+                got = played = bad = 0;
                 post(M_DRAINED, s_gen, NULL);
             }
             continue;
         }
         idle = 0;
+        got++;
         if (!s_drop) {
             esp_audio_dec_in_raw_t raw = {.buffer = p->data, .len = (uint32_t)p->len};
             esp_audio_dec_out_frame_t fr = {.buffer = (uint8_t *)pcm, .len = (uint32_t)cap * sizeof(int16_t)};
             esp_audio_dec_info_t info = {0};
-            if (esp_opus_dec_decode(dec, &raw, &fr, &info) == ESP_AUDIO_ERR_OK && fr.decoded_size > 0 && !s_drop)
-                audio_play(pcm, (int)(fr.decoded_size / sizeof(int16_t)));
+            int r = esp_opus_dec_decode(dec, &raw, &fr, &info);
+            if (r == ESP_AUDIO_ERR_OK && fr.decoded_size > 0) {
+                if (!s_drop) audio_play(pcm, (int)(fr.decoded_size / sizeof(int16_t)));
+                played++;
+            } else {
+                bad++;
+                last_err = r;
+            }
         }
         free(p);
     }
