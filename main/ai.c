@@ -48,6 +48,7 @@ static const char *TAG = "ai";
 enum { ST_IDLE = 0, ST_CONN, ST_LISTEN, ST_THINK, ST_SPEAK };
 static float s_tts_peak = 8000.0f;                  /* dinh tieng Mi Mi gan day (luong loa) */
 static volatile bool s_heard;                         /* VAD da nghe thay anh noi trong luot nghe nay */
+static volatile bool s_greet;                         /* dang cho cau chao dau phien (de bao loi ro rang) */
 enum { M_TAP = 1, M_WAKE, M_JSON, M_CLOSED, M_DRAINED, M_WIFI_DOWN, M_VAD_END, M_VAD_NONE, M_VAD_HEARD };
 typedef struct {
     int type;
@@ -441,6 +442,7 @@ static bool session_connect(void)
     bool cached_try = s_ws_url[0] != 0;
     static char url[256], token[256], why[200];
     why[0] = 0;
+    ui_show("ĐANG KẾT NỐI", s_ws_url[0] ? "Mi Mi đang tới… (1/3 dùng lại token)" : "Mi Mi đang tới… (1/3 hỏi máy chủ)", true);
     if (!fetch_ws(url, sizeof url, token, sizeof token, why, sizeof why)) {
         session_close();
         toast(why);
@@ -474,6 +476,7 @@ static bool session_connect(void)
         return true;
     }
     esp_websocket_register_events(s_ws, WEBSOCKET_EVENT_ANY, ws_event, (void *)(intptr_t)gen);
+    ui_show("ĐANG KẾT NỐI", "Mi Mi đang tới… (2/3 mở kết nối thoại)", true);
     if (esp_websocket_client_start(s_ws) != ESP_OK ||
         !(xEventGroupWaitBits(s_ev, BIT_CONNECTED, pdFALSE, pdFALSE, pdMS_TO_TICKS(10000)) & BIT_CONNECTED)) {
         ws_drop();
@@ -491,6 +494,7 @@ static bool session_connect(void)
     }
     send_text("{\"type\":\"hello\",\"version\":1,\"features\":{\"mcp\":true},\"transport\":\"websocket\","
               "\"audio_params\":{\"format\":\"opus\",\"sample_rate\":16000,\"channels\":1,\"frame_duration\":60}}");
+    ui_show("ĐANG KẾT NỐI", "Mi Mi đang tới… (3/3 chờ máy chủ chào)", true);
     if (!(xEventGroupWaitBits(s_ev, BIT_HELLO, pdFALSE, pdFALSE, pdMS_TO_TICKS(5000)) & BIT_HELLO)) {
         session_close();
         toast("Mi Mi: máy chủ không trả lời");
@@ -502,7 +506,8 @@ static bool session_connect(void)
     send_listen("detect", ",\"text\":\"Mi Mi\"");    /* may chu chao "Da, Mi Mi nghe a" roi moi nghe */
     s_st = ST_THINK;
     s_since = xTaskGetTickCount();
-    ui_show("MI MI", "", true);
+    s_greet = true;
+    ui_show("MI MI", "Đã kết nối, chờ Mi Mi chào…", true);
     return true;
 }
 
@@ -619,6 +624,7 @@ static void on_json(cJSON *j)
                 s_drop = false;
                 s_tts_stop = false;
                 audio_set_volume(settings_get_ai_volume());   /* giong Mi Mi to hon tieng tit (am luong rieng) */
+                s_greet = false;
                 ui_show("MI MI", NULL, true);
             }
         } else if (strcmp(state, "sentence_start") == 0) {
@@ -719,7 +725,9 @@ static void ctl_task(void *arg)
                 s_since = xTaskGetTickCount();
                 ui_show("MI MI", "Đang nghĩ…", true);
             } else {
+                bool think = s_st == ST_THINK, greet = s_greet;
                 session_close();
+                if (think) toast(greet ? "Mi Mi: đã kết nối nhưng máy chủ không chào lại (20 s)" : "Mi Mi: máy chủ không trả lời sau 20 s");
             }
         }
     }
