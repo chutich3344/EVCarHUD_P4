@@ -17,7 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Lay esp-hosted-mcu v3.1.0
-        run: git clone --depth 1 --branch v3.1.0 https://github.com/espressif/esp-hosted-mcu eh
+        run: |
+          git clone --depth 1 --branch v3.1.0 https://github.com/espressif/esp-hosted-mcu eh
+          # du an mau tro toi ma nguon qua override_path (ten thanh phan sai khi clone rieng): lay esp_hosted 3.1.0 tu kho thanh phan
+          printf 'dependencies:\n  espressif/esp_hosted: "==3.1.0"\n  idf:\n    version: ">=5.5"\n' \
+            > eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/main/idf_component.yml
+          cat eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/main/idf_component.yml
       - name: Build C6 (Wi-Fi + BLE HCI qua SDIO)
         uses: espressif/esp-idf-ci-action@v1
         with:
