@@ -330,6 +330,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         if (was) ai_wifi_changed(false);
         if (!started) return;
         if (joining) {
+            /* Doi mang khi dang noi: connect_to tu ngat mang cu (ly do ASSOC_LEAVE). Su kien do toi sau lenh noi mang moi,
+             * goi esp_wifi_connect lan nua luc dang noi lam C6 ket: bo qua. */
+            if (last_reason == WIFI_REASON_ASSOC_LEAVE) { ESP_LOGI(TAG, "da roi mang cu, dang noi %s", cur_ssid); return; }
             if (++retries < 3) { esp_wifi_connect(); return; }
             joining = false;
             esp_timer_stop(join_tmr);
@@ -539,6 +542,7 @@ static void wifi_task(void *arg)
             ESP_LOGW(TAG, "noi %s qua 30 s chua co IP: dung", cur_ssid);
             joining = false;
             esp_wifi_disconnect();
+            last_reason = 0;
             fail_hint();
             ui_state(UI_WIFI_FAIL, cur_ssid);
             esp_timer_start_once(retry_tmr, 20 * 1000000ULL);
