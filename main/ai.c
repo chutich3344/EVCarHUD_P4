@@ -725,7 +725,12 @@ static void ctl_task(void *arg)
                 if (m.gen == s_gen && s_st == ST_LISTEN) ui_show("ĐANG NGHE", "Mi Mi đang nghe anh…", true);
                 break;
             case M_VAD_NONE:                          /* khong ai noi: ket thuc */
-                if (s_st == ST_LISTEN) {
+                if (s_st == ST_LISTEN && s_vad_peak > s_vad_thr) {   /* co tieng vuot nguong nhung VAD chua chac: van gui, Whisper quyet */
+                    send_listen("stop", NULL);
+                    s_st = ST_THINK;
+                    s_since = xTaskGetTickCount();
+                    ui_show("MI MI", "Đang nghĩ…", true);
+                } else if (s_st == ST_LISTEN) {
                     session_close();
                     static char m[96];                /* so do de chinh nguong: to nhat nghe duoc / nguong can vuot */
                     snprintf(m, sizeof m, "Mi Mi không nghe thấy anh (to nhất %d, cần %d)", (int)s_vad_peak, (int)s_vad_thr);
@@ -864,6 +869,7 @@ static void mic_task(void *arg)
     }
     bool was = false;
     int fr = 0, run = 0, quiet = 0;
+    uint8_t hist = 0;
     bool started = false, sent_end = false;
     float floor_e = 0;
     int last_listen_gen = -1;
@@ -893,6 +899,7 @@ static void mic_task(void *arg)
             last_listen_gen = s_gen;
             last_since = s_since;
             fr = run = quiet = 0;
+            hist = 0;
             started = sent_end = false;
             floor_e = 0;
         }
@@ -905,7 +912,7 @@ static void mic_task(void *arg)
         const int ready = VAD_SKIP_FR + VAD_FLOOR_FR;
         if (fr >= VAD_SKIP_FR && fr < ready) floor_e = fr == VAD_SKIP_FR ? e : (floor_e < e ? floor_e : e);
         float thr = floor_e * 2.5f;
-        if (thr < 350.0f) thr = 350.0f;
+        if (thr < 250.0f) thr = 250.0f;                 /* micro bo nay nho: giong noi do duoc ~500-800 */
         if (thr > 2500.0f) thr = 2500.0f;
         /* tre (hysteresis): da noi thi chi can 0,7 nguong de coi la con noi, tranh cat giua cau */
         bool speech = fr >= ready && e > (started && run > 0 ? thr * 0.7f : thr);
@@ -917,10 +924,12 @@ static void mic_task(void *arg)
             else floor_e = floor_e * 0.998f + e * 0.002f;   /* on xe tang dan van theo kip, khong "noi mai" */
         }
         fr++;
+        hist = (uint8_t)((hist << 1) | (speech ? 1 : 0));   /* 5 khung gan nhat */
         if (speech) {
             run++;
             quiet = 0;
-            if (run >= VAD_START_FR && !started) {
+            /* giong nho/ngat quang: 3 trong 5 khung gan nhat co tieng la du (truoc can 3 khung lien) */
+            if (!started && (run >= VAD_START_FR || __builtin_popcount(hist & 0x1F) >= 3)) {
                 started = true;
                 s_heard = true;
                 post(M_VAD_HEARD, s_gen, NULL);

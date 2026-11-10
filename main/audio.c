@@ -140,7 +140,7 @@ static bool audio_init(void)
         return false;
     }
     esp_codec_dev_set_out_vol(s_dev, s_vol);
-    esp_codec_dev_set_in_gain(s_dev, 30.0f);                      /* micro: nhu Xiaozhi cho bo nay */
+    esp_codec_dev_set_in_gain(s_dev, 36.0f);                      /* micro: 30 dB (Xiaozhi) do giong noi chi ~800/32767, nang +6 dB */
     s_ready = true;
     ESP_LOGI(TAG, "loa san sang (am luong %d%%)", s_vol);
     return true;
