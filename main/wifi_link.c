@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_crt_bundle.h"
 #include "esp_event.h"
 #include "esp_timer.h"
@@ -29,7 +30,7 @@
 
 static const char *TAG = "wifi";
 
-enum { CMD_ENABLE, CMD_DISABLE, CMD_SCAN, CMD_JOIN, CMD_RETRY, CMD_FORGET, CMD_SCAN_TIMEOUT, CMD_JOIN_TIMEOUT };
+enum { CMD_ENABLE, CMD_DISABLE, CMD_SCAN, CMD_JOIN, CMD_RETRY, CMD_FORGET, CMD_SCAN_TIMEOUT, CMD_JOIN_TIMEOUT, CMD_REVERT };
 typedef struct {
     int cmd;
     char ssid[33];
@@ -42,6 +43,9 @@ static bool ready, started, connected, joining, sntp_on;
 static bool scanning, scan_auto, scan_user;      /* scan_auto: do de chon mang da luu manh nhat; scan_user: trang Wi-Fi dang cho */
 static int retries;
 static char cur_ssid[33], cur_pass[65];          /* mang dang thu / dang noi */
+static char prev_ssid[33], prev_pass[65];        /* mang dang noi truoc khi doi: noi mang moi hong thi quay ve (nhu dien thoai) */
+static volatile bool leaving;                     /* dang tu ngat mang cu de doi mang: su kien mat ket noi do khong tinh la loi */
+static SemaphoreHandle_t left_sem;               /* bao da ngat xong mang cu */
 static TaskHandle_t wx_task;
 static esp_timer_handle_t retry_tmr, scan_tmr, join_tmr;
 static char c6_ver[24] = "?";                   /* phien ban firmware esp_hosted tren chip C6 */
@@ -328,18 +332,21 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         connected = false;
         if (was) ota_wifi_changed(false, NULL);
         if (was) ai_wifi_changed(false);
+        if (leaving) {                                           /* minh tu ngat de doi mang: khong phai loi */
+            leaving = false;
+            if (left_sem) xSemaphoreGive(left_sem);
+            return;
+        }
         if (!started) return;
         if (joining) {
-            /* Doi mang khi dang noi: connect_to tu ngat mang cu (ly do ASSOC_LEAVE). Su kien do toi sau lenh noi mang moi,
-             * goi esp_wifi_connect lan nua luc dang noi lam C6 ket: bo qua. */
-            if (last_reason == WIFI_REASON_ASSOC_LEAVE) { ESP_LOGI(TAG, "da roi mang cu, dang noi %s", cur_ssid); return; }
             if (++retries < 3) { esp_wifi_connect(); return; }
             joining = false;
             esp_timer_stop(join_tmr);
             ESP_LOGW(TAG, "khong ket noi duoc %s", cur_ssid);
             fail_hint();
             ui_state(UI_WIFI_FAIL, cur_ssid);
-            esp_timer_start_once(retry_tmr, 20 * 1000000ULL);  /* 20 s sau: do lai, chon mang da luu manh nhat */
+            if (prev_ssid[0]) post(CMD_REVERT, NULL, NULL);      /* quay ve mang vua dung */
+            else esp_timer_start_once(retry_tmr, 20 * 1000000ULL);  /* 20 s sau: do lai, chon mang da luu manh nhat */
             return;
         }
         if (was) ESP_LOGW(TAG, "mat Wi-Fi %s: thu lai sau 10 s", cur_ssid);
@@ -411,6 +418,22 @@ static void connect_to(const char *ssid, const char *pass, bool user)
     c.sta.pmf_cfg.capable = true;
     c.sta.sae_pwe_h2e = WPA3_SAE_PWE_BOTH;                       /* hotspot Android WPA3 (SAE H2E) */
     c.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    /* Dang noi mang khac: nho lai de quay ve neu mang moi hong, ngat han roi moi noi (khong chong lenh len chip C6) */
+    if (connected && strcmp(cur_ssid, ssid)) {
+        snprintf(prev_ssid, sizeof prev_ssid, "%s", cur_ssid);
+        snprintf(prev_pass, sizeof prev_pass, "%s", cur_pass);
+    } else if (!user) {
+        prev_ssid[0] = 0;                                        /* tu dong noi / quay ve: khong quay vong */
+    }
+    if (connected || joining) {
+        joining = false;
+        leaving = true;
+        xSemaphoreTake(left_sem, 0);
+        esp_wifi_disconnect();
+        if (xSemaphoreTake(left_sem, pdMS_TO_TICKS(3000)) != pdTRUE) ESP_LOGW(TAG, "ngat mang cu qua 3 s: noi tiep");
+        leaving = false;
+        connected = false;
+    }
     snprintf(cur_ssid, sizeof cur_ssid, "%s", ssid);
     snprintf(cur_pass, sizeof cur_pass, "%s", pass ? pass : "");
     joining = true;
@@ -420,7 +443,6 @@ static void connect_to(const char *ssid, const char *pass, bool user)
     esp_timer_stop(retry_tmr);
     esp_timer_stop(join_tmr);
     esp_timer_start_once(join_tmr, 30 * 1000000ULL);            /* chip C6 doi khi khong bao su kien: khong quay mai */
-    esp_wifi_disconnect();
     esp_wifi_set_config(WIFI_IF_STA, &c);
     ui_state(UI_WIFI_CONNECTING, ssid);
     esp_wifi_connect();
@@ -541,12 +563,25 @@ static void wifi_task(void *arg)
             if (!joining || connected) break;
             ESP_LOGW(TAG, "noi %s qua 30 s chua co IP: dung", cur_ssid);
             joining = false;
+            leaving = true;                                      /* su kien ngat sau day khong hen thu lai 10 s */
             esp_wifi_disconnect();
             last_reason = 0;
             fail_hint();
             ui_state(UI_WIFI_FAIL, cur_ssid);
-            esp_timer_start_once(retry_tmr, 20 * 1000000ULL);
+            if (prev_ssid[0]) post(CMD_REVERT, NULL, NULL);
+            else esp_timer_start_once(retry_tmr, 20 * 1000000ULL);
             break;
+        case CMD_REVERT: {
+            if (!prev_ssid[0] || connected) break;
+            char ss[33], pp[65];
+            snprintf(ss, sizeof ss, "%s", prev_ssid);
+            snprintf(pp, sizeof pp, "%s", prev_pass);
+            prev_ssid[0] = 0;
+            ESP_LOGI(TAG, "quay ve mang cu %s", ss);
+            vTaskDelay(pdMS_TO_TICKS(1500));                     /* de nguoi dung kip doc ly do loi */
+            if (!connected && !joining) connect_to(ss, pp, false);
+            break;
+        }
         case CMD_RETRY:
             if (started && !connected && !joining) connect_saved();
             break;
@@ -564,6 +599,7 @@ void wifi_link_start(void)
     esp_timer_create(&ts, &scan_tmr);
     esp_timer_create_args_t tj = {.callback = join_tmr_cb, .name = "wifi_join"};
     esp_timer_create(&tj, &join_tmr);
+    left_sem = xSemaphoreCreateBinary();
     bool on = settings_get_wifi_on();
     char s[33], p[65];
     bool saved = settings_get_wifi(s, p);
