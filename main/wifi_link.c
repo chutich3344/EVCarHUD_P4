@@ -18,6 +18,9 @@
 #include "esp_netif_sntp.h"
 #include "esp_wifi.h"
 #include "esp_hosted.h"
+#include "esp_attr.h"
+#include "esp_system.h"
+#include "driver/gpio.h"
 #include "c6_update.h"
 #include "cJSON.h"
 
@@ -30,7 +33,7 @@
 
 static const char *TAG = "wifi";
 
-enum { CMD_ENABLE, CMD_DISABLE, CMD_SCAN, CMD_JOIN, CMD_RETRY, CMD_FORGET, CMD_SCAN_TIMEOUT, CMD_JOIN_TIMEOUT, CMD_REVERT };
+enum { CMD_ENABLE, CMD_DISABLE, CMD_SCAN, CMD_JOIN, CMD_RETRY, CMD_FORGET, CMD_SCAN_TIMEOUT, CMD_JOIN_TIMEOUT, CMD_REVERT, CMD_C6_HEAL };
 typedef struct {
     int cmd;
     char ssid[33];
@@ -103,6 +106,52 @@ static void sntp_go(void)
 /* --- thoi tiet: vi tri GPS dien thoai (neu co, moi trong 3 gio) hoac theo IP (ip-api.com) -> Open-Meteo,
  *     30 phut/lan khi co mang; xe di xa hon 5 km tu cho lay lan truoc thi lay lai ngay --- */
 static int http_get(const char *url, char *buf, int cap);
+
+/* ---- Tu cuu chip Wi-Fi C6 ----
+ * C6 doi khi ket (do song rong / moi ket noi TCP-TLS loi) ma nut RST khong chua duoc: esp_hosted 3.x khoi dong lai P4 KHONG
+ * reset C6. Chi rut nguon moi het. Phat hien ket -> keo chan EN cua C6 (GPIO54) xuong roi khoi dong lai P4 = nhu rut nguon.
+ * Toi da 2 lan lien tiep (bien giu qua esp_restart) de khong khoi dong lai mai khi mang that su mat Internet. */
+#ifndef CONFIG_ESP_HOSTED_HOST_RESET_GPIO
+#define CONFIG_ESP_HOSTED_HOST_RESET_GPIO 54
+#endif
+#define HEAL_MAGIC 0xC6C6BEEFu
+static __NOINIT_ATTR uint32_t heal_magic, heal_count;
+static volatile int net_fail, scan_bad;
+
+static void c6_heal(const char *why)
+{
+    if (heal_magic != HEAL_MAGIC) { heal_magic = HEAL_MAGIC; heal_count = 0; }
+    if (heal_count >= 2) {
+        ESP_LOGW(TAG, "C6 co ve ket (%s) nhung da tu cuu 2 lan: thoi (co the mang khong co Internet)", why);
+        return;
+    }
+    heal_count++;
+    ESP_LOGW(TAG, "C6 co ve ket (%s): reset chip Wi-Fi + khoi dong lai (lan %u)", why, (unsigned)heal_count);
+    board_ui_lock();
+    ui_toast("Chip Wi-Fi bị kẹt: đang khởi động lại…");
+    board_ui_unlock();
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    const gpio_num_t pin = (gpio_num_t)CONFIG_ESP_HOSTED_HOST_RESET_GPIO;
+    gpio_config_t io = {.pin_bit_mask = 1ULL << pin, .mode = GPIO_MODE_OUTPUT};
+    gpio_config(&io);
+    gpio_set_level(pin, 0);                             /* EN thap = C6 tat */
+    vTaskDelay(pdMS_TO_TICKS(300));
+    gpio_set_level(pin, 1);
+    esp_restart();
+}
+
+void wifi_link_net_result(bool ok)
+{
+    if (ok) {
+        net_fail = 0;
+        heal_magic = 0;                                 /* mang tot: lan ket sau duoc tu cuu lai */
+        return;
+    }
+    if (connected && ++net_fail >= 3) {
+        net_fail = 0;
+        c6_heal("3 lan lien tiep khong ket noi duoc may chu");
+    }
+}
 static portMUX_TYPE pos_mux = portMUX_INITIALIZER_UNLOCKED;
 static double ph_lat, ph_lon, wx_lat = 999, wx_lon = 999;
 static char ph_name[48];
@@ -152,7 +201,9 @@ static int http_get(const char *url, char *buf, int cap)
     esp_http_client_handle_t h = esp_http_client_init(&c);
     if (!h) return -1;
     int n = -1;
-    if (esp_http_client_open(h, 0) == ESP_OK) {
+    esp_err_t oe = esp_http_client_open(h, 0);
+    wifi_link_net_result(oe == ESP_OK);
+    if (oe == ESP_OK) {
         esp_http_client_fetch_headers(h);
         if (esp_http_client_get_status_code(h) == 200) {
             n = 0;
@@ -290,6 +341,8 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         esp_timer_stop(scan_tmr);
         if (esp_wifi_scan_get_ap_records(&n, rec) != ESP_OK) n = 0;
         ESP_LOGI(TAG, "do song xong: %u mang", n);
+        if (n > 0) scan_bad = 0;
+        else if (connected && ++scan_bad >= 2) post(CMD_C6_HEAL, NULL, NULL);   /* dang noi mang ma khong thay mang nao */
         int ns = settings_wifi_list(ss, sp);
         int best = -1, best_rssi = -1000;
         for (int i = 0; i < n; i++) {
@@ -537,11 +590,18 @@ static void wifi_task(void *arg)
             }
             break;
         }
+        case CMD_C6_HEAL:
+            c6_heal("dang noi mang ma do song khong thay mang nao");
+            break;
         case CMD_SCAN_TIMEOUT:
             if (!scanning) break;
             ESP_LOGW(TAG, "do song qua 12 s chua xong: huy");
             esp_wifi_scan_stop();
             scanning = false;
+            if (++scan_bad >= 2) {
+                c6_heal("do song 2 lan khong xong");
+                break;
+            }
             if (scan_user) {
                 scan_user = false;
                 board_ui_lock();

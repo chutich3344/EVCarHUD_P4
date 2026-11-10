@@ -367,6 +367,7 @@ static bool server_check(char *why, size_t wn)
         esp_http_client_close(h);
         vTaskDelay(pdMS_TO_TICKS(1500));
     }
+    wifi_link_net_result(oe == ESP_OK);
     if (oe == ESP_OK) {
         esp_http_client_fetch_headers(h);
         st = esp_http_client_get_status_code(h);
@@ -429,6 +430,7 @@ static esp_http_client_handle_t dl_open(const char *url, size_t from, int64_t *l
         esp_http_client_close(h);
         vTaskDelay(pdMS_TO_TICKS(1500));
     }
+    wifi_link_net_result(oe == ESP_OK);
     if (oe != ESP_OK) {
         snprintf(why, wn, "Không kết nối được máy chủ khi tải (%s)", esp_err_to_name(oe));
         esp_http_client_cleanup(h);

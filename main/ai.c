@@ -34,6 +34,7 @@
 #include "board.h"
 #include "dashboard.h"
 #include "settings.h"
+#include "wifi_link.h"
 #include "ui_fonts.h"
 
 #define FRAME_MS   60
@@ -349,6 +350,7 @@ static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *w
     bool ok = false;
     char *buf = malloc(2048);
     esp_err_t e = buf ? esp_http_client_open(h, (int)strlen(body)) : ESP_ERR_NO_MEM;
+    if (buf) wifi_link_net_result(e == ESP_OK);
     if (e == ESP_OK && esp_http_client_write(h, body, (int)strlen(body)) == (int)strlen(body)) {
         esp_http_client_fetch_headers(h);
         int st = esp_http_client_get_status_code(h), n = 0, r;
