@@ -50,6 +50,8 @@ enum { ST_IDLE = 0, ST_CONN, ST_LISTEN, ST_THINK, ST_SPEAK };
 static float s_tts_peak = 8000.0f;                  /* dinh tieng Mi Mi gan day (luong loa) */
 static volatile bool s_heard;                         /* VAD da nghe thay anh noi trong luot nghe nay */
 static volatile float s_vad_peak, s_vad_thr;         /* luot nghe gan nhat: nang luong to nhat / nguong */
+static volatile int s_close_code, s_sock_errno;       /* ly do mat ket noi thoai: ma dong tu may chu / errno socket */
+static volatile char s_close_ev;
 static volatile bool s_greet;                         /* dang cho cau chao dau phien (de bao loi ro rang) */
 enum { M_TAP = 1, M_WAKE, M_JSON, M_CLOSED, M_DRAINED, M_WIFI_DOWN, M_VAD_END, M_VAD_NONE, M_VAD_HEARD };
 typedef struct {
@@ -279,9 +281,12 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t id, void *data)
     case WEBSOCKET_EVENT_ERROR:
         if (d && d->error_handle.esp_ws_handshake_status_code) s_ws_http = d->error_handle.esp_ws_handshake_status_code;
         if (d && d->error_handle.esp_tls_last_esp_err) s_ws_tls = d->error_handle.esp_tls_last_esp_err;
+        if (!s_close_ev) s_close_ev = id == WEBSOCKET_EVENT_CLOSED ? 'C' : id == WEBSOCKET_EVENT_ERROR ? 'E' : 'D';
+        if (d && d->error_handle.esp_transport_sock_errno && !s_sock_errno) s_sock_errno = d->error_handle.esp_transport_sock_errno;
         post(M_CLOSED, gen, NULL);
         break;
     case WEBSOCKET_EVENT_DATA:
+        if (d && d->op_code == 0x8 && d->data_len >= 2) s_close_code = ((uint8_t)d->data_ptr[0] << 8) | (uint8_t)d->data_ptr[1];
         if (gen != s_gen || !d || d->data_len <= 0) break;
         if (d->op_code == 0x2) {                      /* giong noi: mot goi Opus */
             if (s_drop || d->payload_len > d->data_len || d->data_len > 4000) break;
@@ -471,6 +476,8 @@ static bool session_connect(void)
     xEventGroupClearBits(s_ev, BIT_CONNECTED | BIT_HELLO);
     s_ws_http = 0;
     s_ws_tls = 0;
+    s_close_code = s_sock_errno = 0;
+    s_close_ev = 0;
     int gen = ++s_gen;
     esp_websocket_client_config_t wc = {
         .uri = url,
@@ -724,8 +731,12 @@ static void ctl_task(void *arg)
                 break;
             case M_CLOSED:
                 if (m.gen == s_gen && s_st != ST_IDLE && s_st != ST_CONN) {
+                    static char m[110];
+                    snprintf(m, sizeof m, "Mi Mi mất kết nối: %c mã %d errno %d TLS %x RAM %uK", s_close_ev ? s_close_ev : '?', s_close_code,
+                             s_sock_errno, (unsigned)s_ws_tls, (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+                    ESP_LOGW(TAG, "%s", m);
                     session_close();
-                    toast("Mi Mi: máy chủ đóng kết nối");
+                    toast(m);
                 }
                 break;
             case M_DRAINED:
