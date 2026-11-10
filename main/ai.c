@@ -49,6 +49,7 @@ static const char *TAG = "ai";
 enum { ST_IDLE = 0, ST_CONN, ST_LISTEN, ST_THINK, ST_SPEAK };
 static float s_tts_peak = 8000.0f;                  /* dinh tieng Mi Mi gan day (luong loa) */
 static volatile bool s_heard;                         /* VAD da nghe thay anh noi trong luot nghe nay */
+static volatile float s_vad_peak, s_vad_thr;         /* luot nghe gan nhat: nang luong to nhat / nguong */
 static volatile bool s_greet;                         /* dang cho cau chao dau phien (de bao loi ro rang) */
 enum { M_TAP = 1, M_WAKE, M_JSON, M_CLOSED, M_DRAINED, M_WIFI_DOWN, M_VAD_END, M_VAD_NONE, M_VAD_HEARD };
 typedef struct {
@@ -711,13 +712,21 @@ static void ctl_task(void *arg)
                 if (m.gen == s_gen && s_st == ST_LISTEN) ui_show("ĐANG NGHE", "Mi Mi đang nghe anh…", true);
                 break;
             case M_VAD_NONE:                          /* khong ai noi: ket thuc */
-                if (s_st == ST_LISTEN) session_close();
+                if (s_st == ST_LISTEN) {
+                    session_close();
+                    static char m[96];                /* so do de chinh nguong: to nhat nghe duoc / nguong can vuot */
+                    snprintf(m, sizeof m, "Mi Mi không nghe thấy anh (to nhất %d, cần %d)", (int)s_vad_peak, (int)s_vad_thr);
+                    toast(m);
+                }
                 break;
             case M_JSON:
                 if (m.gen == s_gen && s_st != ST_IDLE) on_json(m.json);
                 break;
             case M_CLOSED:
-                if (m.gen == s_gen && s_st != ST_IDLE && s_st != ST_CONN) session_close();
+                if (m.gen == s_gen && s_st != ST_IDLE && s_st != ST_CONN) {
+                    session_close();
+                    toast("Mi Mi: máy chủ đóng kết nối");
+                }
                 break;
             case M_DRAINED:
                 if (m.gen == s_gen && s_st == ST_SPEAK) go_listen();
@@ -875,6 +884,9 @@ static void mic_task(void *arg)
         if (thr > 2500.0f) thr = 2500.0f;
         /* tre (hysteresis): da noi thi chi can 0,7 nguong de coi la con noi, tranh cat giua cau */
         bool speech = fr >= ready && e > (started && run > 0 ? thr * 0.7f : thr);
+        if (fr == ready) s_vad_peak = 0;
+        if (fr >= ready && e > s_vad_peak) s_vad_peak = e;
+        s_vad_thr = thr;
         if (fr >= ready) {
             if (!speech) floor_e = floor_e * 0.95f + e * 0.05f;
             else floor_e = floor_e * 0.998f + e * 0.002f;   /* on xe tang dan van theo kip, khong "noi mai" */
