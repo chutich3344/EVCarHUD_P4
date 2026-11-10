@@ -1,6 +1,7 @@
 /* EVCarHUD cho board Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5 (man 3.5" ngang 480x320), cung chuc nang voi ban S3 (2.8"):
  * dien thoai chay Waze Mod (HLP/1) hoac app GOFA gui du lieu dan duong qua Bluetooth LE -> giai ma -> giao dien 480x320.
  * Giu BOOT 5 giay: bat/tat che do trinh dien (du lieu gia, khong can dien thoai). */
+#include "driver/gpio.h"
 #include <stdio.h>
 #include <string.h>
 #include "sdkconfig.h"
@@ -207,8 +208,25 @@ static void light_task(void *arg)                            /* quang tro: Tu do
 }
 #endif
 
+/* Chip Wi-Fi C6 khong bi reset khi P4 khoi dong lai (OTA, nut RST, loi): esp_hosted 3.x noi lai voi C6 dang o trang thai cu
+ * -> Wi-Fi nghen (khong thoi tiet, khong toi may chu) cho den khi rut nguon. Moi lan bat may: keo EN C6 xuong de no khoi
+ * dong sach cung P4. Lam truoc moi thu dung esp_hosted (BLE, Wi-Fi), con ket noi C6 chi bat dau khi goi Wi-Fi/BLE lan dau. */
+#ifndef CONFIG_ESP_HOSTED_HOST_RESET_GPIO
+#define CONFIG_ESP_HOSTED_HOST_RESET_GPIO 54
+#endif
+static void c6_reset_on_boot(void)
+{
+    const gpio_num_t pin = (gpio_num_t)CONFIG_ESP_HOSTED_HOST_RESET_GPIO;
+    gpio_config_t io = {.pin_bit_mask = 1ULL << pin, .mode = GPIO_MODE_OUTPUT};
+    gpio_config(&io);
+    gpio_set_level(pin, 0);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    gpio_set_level(pin, 1);                               /* C6 khoi dong (~0,5 s) trong luc P4 dung man hinh */
+}
+
 void app_main(void)
 {
+    c6_reset_on_boot();
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
