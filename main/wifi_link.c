@@ -387,7 +387,17 @@ static esp_err_t scan_begin(void)
 }
 
 static void scan_tmr_cb(void *arg) { (void)arg; post(CMD_SCAN_TIMEOUT, NULL, NULL); }
-static void join_tmr_cb(void *arg) { (void)arg; post(CMD_JOIN_TIMEOUT, NULL, NULL); }
+/* Het gio noi mang: bao loi len man ngay tai day (luong Wi-Fi co the dang ket trong lenh gui C6 khong tra loi),
+ * phan don dep (ngat, hen thu lai) de luong Wi-Fi lam khi ranh. */
+static void join_tmr_cb(void *arg)
+{
+    (void)arg;
+    if (joining && !connected) {
+        fail_hint();
+        ui_state(UI_WIFI_FAIL, cur_ssid);
+    }
+    post(CMD_JOIN_TIMEOUT, NULL, NULL);
+}
 
 static void connect_to(const char *ssid, const char *pass, bool user)
 {
