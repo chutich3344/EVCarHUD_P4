@@ -317,7 +317,10 @@ static void tls_why(esp_http_client_handle_t h, char *out, size_t n)
 {
     int code = 0, flags = 0;
     esp_err_t te = esp_http_client_get_and_clear_last_tls_error(h, &code, &flags);
-    snprintf(out, n, "%s, -0x%04x/%x, RAM %uK", te ? esp_err_to_name(te) : "-", (unsigned)(-code) & 0xFFFF, (unsigned)flags,
+    const char *tn = te ? esp_err_to_name(te) : "-";
+    if (strncmp(tn, "ESP_ERR_", 8) == 0) tn += 8;      /* rut gon: thong bao tren HUD bi cat neu qua dai */
+    if (strncmp(tn, "ESP_TLS_", 8) == 0) tn += 8;
+    snprintf(out, n, "%s -%04x RAM %uK", tn, (unsigned)(-code) & 0xFFFF,
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
 }
 
@@ -372,7 +375,7 @@ static bool fetch_ws(char *url, size_t url_n, char *token, size_t tok_n, char *w
     } else {
         char tw[96];
         tls_why(h, tw, sizeof tw);
-        snprintf(why, why_n, "Mi Mi: không hỏi được máy chủ (%s; %s)", esp_err_to_name(e), tw);
+        snprintf(why, why_n, "Mi Mi lỗi mạng: %s", tw);   /* chi tiet truoc, de khong bi cat */
         ESP_LOGW(TAG, "POST %s: %s", CONFIG_EVCARHUD_AI_URL, esp_err_to_name(e));
     }
     free(buf);
@@ -443,7 +446,14 @@ static bool session_connect(void)
     static char url[256], token[256], why[200];
     why[0] = 0;
     ui_show("ĐANG KẾT NỐI", s_ws_url[0] ? "Mi Mi đang tới… (1/3 dùng lại token)" : "Mi Mi đang tới… (1/3 hỏi máy chủ)", true);
-    if (!fetch_ws(url, sizeof url, token, sizeof token, why, sizeof why)) {
+    bool got = fetch_ws(url, sizeof url, token, sizeof token, why, sizeof why);
+    if (!got && strncmp(why, "Mi Mi lỗi mạng", strlen("Mi Mi lỗi mạng")) == 0 && s_st == ST_CONN) {
+        ESP_LOGW(TAG, "%s: thu lai", why);            /* loi mang thoang qua (vua doi mang, TLS het gio): thu them 1 lan */
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        why[0] = 0;
+        got = fetch_ws(url, sizeof url, token, sizeof token, why, sizeof why);
+    }
+    if (!got) {
         session_close();
         toast(why);
         return true;                                  /* loi tu may chu: khong thu lai */
