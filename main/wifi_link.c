@@ -17,6 +17,7 @@
 #include "esp_netif_sntp.h"
 #include "esp_wifi.h"
 #include "esp_hosted.h"
+#include "c6_update.h"
 #include "cJSON.h"
 
 #include "board.h"
@@ -447,6 +448,7 @@ static bool wifi_up(void)
                 snprintf(c6_ver, sizeof c6_ver, "không đọc được");
             ESP_LOGI(TAG, "firmware C6 (esp_hosted): %s", c6_ver);
         }
+        c6_update_check();                                       /* co anh C6 kem theo (nap USB): nang C6 roi khoi dong lai */
         esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
         esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
         esp_wifi_set_mode(WIFI_MODE_STA);
