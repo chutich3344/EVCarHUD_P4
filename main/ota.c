@@ -1,6 +1,7 @@
 /* Cap nhat firmware OTA: xem ota.h. Moi viec mang / flash chay trong task "ota" (lenh tu giao dien qua hang doi);
  * trang tai len tu trinh duyet chay trong task cua esp_http_server. Chi mot lan ghi flash tai mot thoi diem (s_busy). */
 #include "ota.h"
+#include "wifi_link.h"
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
@@ -256,9 +257,10 @@ static void render(void)
         } else {
             snprintf(t, sizeof t, "Phiên bản đang chạy %s", cur_ver());
         }
-        snprintf(d, sizeof d, "%s\nHoặc tải file .bin lên từ trình duyệt trên điện thoại / máy tính cùng mạng Wi-Fi.",
+        snprintf(b, sizeof b, "Chip Wi-Fi C6: %s", wifi_link_c6_ver());
+        snprintf(d, sizeof d, "%s\nHoặc tải file .bin lên từ trình duyệt trên điện thoại / máy tính cùng mạng Wi-Fi.\n%s",
                  s_wifi ? "Kiểm tra bản mới trên máy chủ EVCarHUD qua Wi-Fi."
-                        : "Chưa có Wi-Fi: kết nối Wi-Fi (hotspot điện thoại) để kiểm tra bản mới.");
+                        : "Chưa có Wi-Fi: kết nối Wi-Fi (hotspot điện thoại) để kiểm tra bản mới.", b);
         v.btn_a = "Kiểm tra bản mới";
         v.act_a = UI_OTA_ACT_CHECK;
         v.btn_b = "Tải lên từ trình duyệt";
@@ -290,7 +292,7 @@ static void render(void)
     case V_FAIL:
         v.tone = UI_OTA_FAIL;
         snprintf(t, sizeof t, "Không cập nhật được");
-        snprintf(d, sizeof d, "%s\nHUD vẫn chạy bản %s.", s_fail, cur_ver());
+        snprintf(d, sizeof d, "%s\nHUD vẫn chạy bản %s · chip Wi-Fi C6 %s.", s_fail, cur_ver(), wifi_link_c6_ver());
         v.btn_a = "Thử lại";
         v.act_a = UI_OTA_ACT_CHECK;
         v.btn_b = "Tải lên từ trình duyệt";

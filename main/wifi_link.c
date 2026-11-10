@@ -16,6 +16,7 @@
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
 #include "esp_wifi.h"
+#include "esp_hosted.h"
 #include "cJSON.h"
 
 #include "board.h"
@@ -42,6 +43,8 @@ static int retries;
 static char cur_ssid[33], cur_pass[65];          /* mang dang thu / dang noi */
 static TaskHandle_t wx_task;
 static esp_timer_handle_t retry_tmr, scan_tmr, join_tmr;
+static char c6_ver[24] = "?";                   /* phien ban firmware esp_hosted tren chip C6 */
+const char *wifi_link_c6_ver(void) { return c6_ver; }
 static int last_reason;                          /* ma ly do mat ket noi gan nhat (wifi_err_reason_t) */
 static bool got_assoc;                           /* lan noi nay da vao duoc diem phat (cho DHCP) */
 
@@ -436,6 +439,14 @@ static bool wifi_up(void)
             return false;
         }
         esp_wifi_set_storage(WIFI_STORAGE_RAM);
+        {   /* C6 phai cung doi esp_hosted voi P4, lech ban thi Wi-Fi chap chon (do song rong, TCP het gio) */
+            esp_hosted_coprocessor_fwver_t fw = {0};
+            if (esp_hosted_get_coprocessor_fwversion(&fw) == 0)
+                snprintf(c6_ver, sizeof c6_ver, "%u.%u.%u", (unsigned)fw.major1, (unsigned)fw.minor1, (unsigned)fw.patch1);
+            else
+                snprintf(c6_ver, sizeof c6_ver, "không đọc được");
+            ESP_LOGI(TAG, "firmware C6 (esp_hosted): %s", c6_ver);
+        }
         esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL);
         esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL);
         esp_wifi_set_mode(WIFI_MODE_STA);

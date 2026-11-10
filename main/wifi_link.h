@@ -5,3 +5,4 @@ void wifi_link_start(void);
 
 /* Vi tri dien thoai (app gui qua BLE 4556d004): thoi tiet lay theo day thay vi theo IP. name co the rong. */
 void wifi_set_phone_pos(double lat, double lon, const char *name);
+const char *wifi_link_c6_ver(void);   /* phien ban esp_hosted tren chip Wi-Fi C6 */
