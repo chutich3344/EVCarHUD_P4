@@ -52,6 +52,7 @@ static volatile bool s_heard;                         /* VAD da nghe thay anh no
 static volatile float s_vad_peak, s_vad_thr;         /* luot nghe gan nhat: nang luong to nhat / nguong */
 static volatile int s_close_code, s_sock_errno;       /* ly do mat ket noi thoai: ma dong tu may chu / errno socket */
 static volatile char s_close_ev;
+static volatile int s_rx_txt, s_rx_bin;               /* so tin chu / goi tieng nhan duoc trong phien (chan doan) */
 static volatile bool s_greet;                         /* dang cho cau chao dau phien (de bao loi ro rang) */
 enum { M_TAP = 1, M_WAKE, M_JSON, M_CLOSED, M_DRAINED, M_WIFI_DOWN, M_VAD_END, M_VAD_NONE, M_VAD_HEARD };
 typedef struct {
@@ -287,6 +288,10 @@ static void ws_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         break;
     case WEBSOCKET_EVENT_DATA:
         if (d && d->op_code == 0x8 && d->data_len >= 2) s_close_code = ((uint8_t)d->data_ptr[0] << 8) | (uint8_t)d->data_ptr[1];
+        if (d && d->data_len > 0 && d->payload_offset == 0) {
+            if (d->op_code == 0x1) s_rx_txt++;
+            else if (d->op_code == 0x2) s_rx_bin++;
+        }
         if (gen != s_gen || !d || d->data_len <= 0) break;
         if (d->op_code == 0x2) {                      /* giong noi: mot goi Opus */
             if (s_drop || d->payload_len > d->data_len || d->data_len > 4000) break;
@@ -477,6 +482,7 @@ static bool session_connect(void)
     s_ws_http = 0;
     s_ws_tls = 0;
     s_close_code = s_sock_errno = 0;
+    s_rx_txt = s_rx_bin = 0;
     s_close_ev = 0;
     int gen = ++s_gen;
     esp_websocket_client_config_t wc = {
@@ -759,7 +765,15 @@ static void ctl_task(void *arg)
             } else {
                 bool think = s_st == ST_THINK, greet = s_greet;
                 session_close();
-                if (think) toast(greet ? "Mi Mi: đã kết nối nhưng máy chủ không chào lại (20 s)" : "Mi Mi: máy chủ không trả lời sau 20 s");
+                if (think) {
+                    static char m[110];
+                    snprintf(m, sizeof m, "Mi Mi: %s sau 20 s (nhận %d tin, %d gói tiếng, RAM %uK)",
+                             greet ? "máy chủ không chào lại" : "máy chủ không trả lời", s_rx_txt, s_rx_bin,
+                             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+                    ESP_LOGW(TAG, "%s", m);
+                    toast(m);
+                    if (greet && s_rx_txt <= 1) wifi_link_net_result(false);   /* chi co loi chao "hello": mang/C6 nghen */
+                }
             }
         }
     }
