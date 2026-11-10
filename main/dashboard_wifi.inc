@@ -428,6 +428,9 @@ void ui_open_wifi(void)
 
 void ui_set_wifi_hooks(const ui_wifi_hooks_t *h) { if (h) wf_h = *h; }
 
+static char wf_hint[96] = "Sai mật khẩu hoặc sóng yếu";
+void ui_wifi_fail_hint(const char *hint) { snprintf(wf_hint, sizeof wf_hint, "%s", hint && *hint ? hint : "Sai mật khẩu hoặc sóng yếu"); }
+
 void ui_wifi_set_state(int st, const char *ssid)
 {
     wifi_st = st;
@@ -440,7 +443,7 @@ void ui_wifi_set_state(int st, const char *ssid)
         if (st == UI_WIFI_CONNECTED || st == UI_WIFI_FAIL) wf_joining = false;
         return;
     }
-    char b[80];
+    char b[128];
     if (st == UI_WIFI_CONNECTED) {
         wf_joining = false;
         snprintf(b, sizeof b, "Đã kết nối %s", wifi_ssid);
@@ -454,7 +457,8 @@ void ui_wifi_set_state(int st, const char *ssid)
         wf_joining = false;
         snprintf(b, sizeof b, "Không kết nối được %s", wf_sel);
         lv_label_set_text(wf_conn_t, b);
-        lv_label_set_text(wf_conn_s, "Sai mật khẩu hoặc sóng yếu · chạm để nhập lại");
+        snprintf(b, sizeof b, "%s · chạm để nhập lại", wf_hint);
+        lv_label_set_text(wf_conn_s, b);
         show(wf_conn_spin, false);
         show(wf_conn_icon, true);
         wifi_icon_color(wf_conn_icon, lv_color_hex(0xFF4D4F), true);

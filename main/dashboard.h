@@ -75,6 +75,7 @@ typedef struct {
 } ui_wifi_hooks_t;
 void ui_set_wifi_hooks(const ui_wifi_hooks_t *h);
 void ui_wifi_set_state(int state, const char *ssid);   /* UI_WIFI_*; ssid: mang dang/da ket noi */
+void ui_wifi_fail_hint(const char *hint);              /* ly do lan ket noi Wi-Fi hong gan nhat (goi truoc UI_WIFI_FAIL) */
 void ui_wifi_scan_done(const ui_wifi_ap_t *aps, int n);
 void ui_open_wifi(void);
 void ui_wifi_test_pass(const char *ssid, const char *pwd, bool err);   /* chi de chup anh xem truoc */
