@@ -154,6 +154,8 @@ void wifi_link_net_result(bool ok)
 }
 static portMUX_TYPE pos_mux = portMUX_INITIALIZER_UNLOCKED;
 static double ph_lat, ph_lon, wx_lat = 999, wx_lon = 999;
+static char wx_txt[96];                                 /* thoi tiet dang hien (cho Mi Mi doc lai) */
+static bool wx_gps;
 static char ph_name[48];
 static int64_t ph_us;                               /* luc nhan vi tri (esp_timer), 0 = chua co */
 #define PH_FRESH_US (3LL * 3600 * 1000000)
@@ -274,6 +276,10 @@ static bool weather_once(void)
         if (city[0]) snprintf(txt, sizeof txt, "%s · %d°C · %s", city, deg, name);
         else snprintf(txt, sizeof txt, "%d°C · %s", deg, name);
         ESP_LOGI(TAG, "thoi tiet: %s", txt);
+        portENTER_CRITICAL(&pos_mux);
+        memcpy(wx_txt, txt, sizeof wx_txt);
+        wx_gps = gps;
+        portEXIT_CRITICAL(&pos_mux);
         board_ui_lock();
         ui_set_weather(kind, txt);
         board_ui_unlock();
@@ -669,4 +675,16 @@ void wifi_link_start(void)
     board_ui_unlock();
     xTaskCreate(wifi_task, "wifi", 6144, NULL, 3, NULL);
     xTaskCreate(weather_task, "thoi_tiet", 10240, NULL, 2, &wx_task);
+}
+
+bool wifi_link_weather(double *lat, double *lon, char *txt, size_t n, bool *gps)
+{
+    portENTER_CRITICAL(&pos_mux);
+    bool ok = wx_lat < 900;
+    *lat = wx_lat;
+    *lon = wx_lon;
+    *gps = wx_gps;
+    snprintf(txt, n, "%s", wx_txt);
+    portEXIT_CRITICAL(&pos_mux);
+    return ok;
 }

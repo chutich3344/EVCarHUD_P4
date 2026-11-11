@@ -9,3 +9,6 @@ const char *wifi_link_c6_ver(void);   /* phien ban esp_hosted tren chip Wi-Fi C6
 /* Ket qua mo ket noi toi may chu (ai.c, ota.c, thoi tiet): 3 lan loi lien tiep khi dang noi Wi-Fi = chip C6 ket -> tu reset */
 #include <stdbool.h>
 void wifi_link_net_result(bool ok);
+#include <stddef.h>
+/* Vi tri + thoi tiet dang hien tren HUD (lan lay gan nhat). false neu chua co. gps=false: vi tri uoc theo IP. */
+bool wifi_link_weather(double *lat, double *lon, char *txt, size_t n, bool *gps);

@@ -303,13 +303,16 @@ static void send_json(cJSON *j)
 
 /* Dem tieng gui len trong luot nghe (chan doan "may chu nhan 0 goi"): gui kem listen stop, may chu hien len HUD */
 static volatile int s_fr_n, s_enc_err, s_tx_ok, s_tx_err;
+static volatile float s_agc_g = 1.0f;               /* he so AGC phan mem cuoi luot nghe */
 
 static void send_listen(const char *state, const char *extra)
 {
     char b[256], st[96] = "";
     if (!extra && strcmp(state, "stop") == 0) {
-        snprintf(st, sizeof st, ",\"hud\":{\"fr\":%d,\"enc_err\":%d,\"tx_ok\":%d,\"tx_err\":%d}", s_fr_n, s_enc_err, s_tx_ok, s_tx_err);
-        ESP_LOGI(TAG, "het nghe: %d khung, ma hoa loi %d, gui duoc %d, gui loi %d", s_fr_n, s_enc_err, s_tx_ok, s_tx_err);
+        snprintf(st, sizeof st, ",\"hud\":{\"fr\":%d,\"enc_err\":%d,\"tx_ok\":%d,\"tx_err\":%d,\"peak\":%d,\"gain\":%.1f}",
+                 s_fr_n, s_enc_err, s_tx_ok, s_tx_err, (int)s_vad_peak, (double)s_agc_g);
+        ESP_LOGI(TAG, "het nghe: %d khung, gui duoc %d, loi %d/%d, to nhat %d, khuech dai x%.1f", s_fr_n, s_tx_ok, s_enc_err,
+                 s_tx_err, (int)s_vad_peak, (double)s_agc_g);
         extra = st;
     }
     snprintf(b, sizeof b, "{\"session_id\":\"%s\",\"type\":\"listen\",\"state\":\"%s\"%s}", s_session, state, extra ? extra : "");
@@ -669,6 +672,15 @@ static void on_mcp(const cJSON *pl)
         cJSON_AddObjectToObject(sc, "properties");
         cJSON_AddItemToArray(tools, t);
         t = cJSON_CreateObject();
+        cJSON_AddStringToObject(t, "name", "self.get_location_weather");
+        cJSON_AddStringToObject(t, "description",
+                                "Vị trí hiện tại của xe (vĩ độ, kinh độ, theo GPS điện thoại hoặc ước theo IP nếu gps=false) và thời tiết "
+                                "đang hiện trên HUD. Dùng khi hỏi thời tiết ở đây, đang ở đâu, hoặc cần vị trí để tìm trạm sạc / dự báo.");
+        sc = cJSON_AddObjectToObject(t, "inputSchema");
+        cJSON_AddStringToObject(sc, "type", "object");
+        cJSON_AddObjectToObject(sc, "properties");
+        cJSON_AddItemToArray(tools, t);
+        t = cJSON_CreateObject();
         cJSON_AddStringToObject(t, "name", "self.set_voice_volume");
         cJSON_AddStringToObject(t, "description",
                                 "Chỉnh âm lượng giọng nói của trợ lý (30 đến 100 phần trăm), riêng với tiếng tít cảnh báo. Gọi khi người dùng "
@@ -687,13 +699,22 @@ static void on_mcp(const cJSON *pl)
     } else if (strcmp(meth, "tools/call") == 0) {
         const cJSON *prm = cJSON_GetObjectItem(pl, "params");
         const cJSON *nm = cJSON_GetObjectItem(prm, "name");
-        char txt[200];
+        char txt[320];
         if (cJSON_IsString(nm) && strcmp(nm->valuestring, "self.set_voice_volume") == 0) {
             const cJSON *v = cJSON_GetObjectItem(cJSON_GetObjectItem(prm, "arguments"), "volume");
             int nv = cJSON_IsNumber(v) ? v->valueint : settings_get_ai_volume();
             settings_set_ai_volume(nv);
             if (s_st == ST_SPEAK || s_st == ST_THINK) audio_set_volume(settings_get_ai_volume());
             snprintf(txt, sizeof txt, "{\"ai_volume\":%d}", settings_get_ai_volume());
+        } else if (cJSON_IsString(nm) && strcmp(nm->valuestring, "self.get_location_weather") == 0) {
+            double la, lo;
+            bool gps;
+            char wx[96];
+            if (wifi_link_weather(&la, &lo, wx, sizeof wx, &gps))
+                snprintf(txt, sizeof txt, "{\"lat\":%.4f,\"lon\":%.4f,\"gps\":%s,\"weather_on_hud\":\"%s\"}", la, lo,
+                         gps ? "true" : "false", wx);
+            else
+                snprintf(txt, sizeof txt, "{\"error\":\"HUD chưa lấy được vị trí và thời tiết (chưa có mạng)\"}");
         } else if (cJSON_IsString(nm) && strcmp(nm->valuestring, "self.get_device_status") == 0) {
             snprintf(txt, sizeof txt, "{\"speed_kmh\":%d,\"volume\":%d,\"ai_volume\":%d,\"sound_on\":%s,\"firmware\":\"%s\"}",
                      ui_get_speed(), settings_get_volume(), settings_get_ai_volume(), settings_get_sound() ? "true" : "false",
@@ -1080,6 +1101,7 @@ static void mic_task(void *arg)
     uint8_t hist = 0;
     bool started = false, sent_end = false;
     float floor_e = 0;
+    float agc_g = 4.0f;                               /* AGC phan mem (khong con AFE): keo giong nho len cho Whisper */
     int last_listen_gen = -1;
     TickType_t last_since = 0;
     for (;;) {
@@ -1122,6 +1144,7 @@ static void mic_task(void *arg)
             hist = 0;
             started = sent_end = false;
             floor_e = 0;
+            agc_g = 4.0f;
         }
         /* nang luong khung (RMS) + nen on thich nghi */
         int64_t acc = 0;
@@ -1172,6 +1195,28 @@ static void mic_task(void *arg)
                 sent_end = true;
                 post(M_VAD_NONE, s_gen, NULL);
             }
+        }
+        /* AGC phan mem: giong do duoc chi ~500-1500 RMS -> Whisper (loc VAD) tra ve rong "nghe khong ra chu".
+         * Dua khung co tieng ve ~5000 RMS (toi da x10), tang cham / giam nhanh, gioi han bien do chong meo.
+         * Lam SAU VAD de nguong VAD giu nguyen. */
+        if (!s_afed) {
+            if (speech && e > 50.0f) {
+                float want = 5000.0f / e;
+                if (want > 10.0f) want = 10.0f;
+                if (want < 1.0f) want = 1.0f;
+                agc_g += (want - agc_g) * (want < agc_g ? 0.5f : 0.1f);
+            }
+            int32_t peak = 0;
+            for (int i = 0; i < FRAME; i++) {
+                int32_t a = pcm[i] < 0 ? -pcm[i] : pcm[i];
+                if (a > peak) peak = a;
+            }
+            float g = agc_g;
+            if (peak > 0 && peak * g > 30000.0f) g = 30000.0f / peak;   /* khong cat dinh */
+            if (g > 1.01f) {
+                for (int i = 0; i < FRAME; i++) pcm[i] = (int16_t)((float)pcm[i] * g);
+            }
+            s_agc_g = g;
         }
         esp_audio_enc_in_frame_t in = {.buffer = (uint8_t *)pcm, .len = (uint32_t)in_sz};
         esp_audio_enc_out_frame_t o = {.buffer = out, .len = (uint32_t)(out_sz > 0 ? out_sz : 1500)};
