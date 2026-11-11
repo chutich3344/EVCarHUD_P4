@@ -23,6 +23,11 @@ jobs:
           printf 'dependencies:\n  espressif/esp_hosted: "==3.1.0"\n  idf:\n    version: ">=5.5"\n' \
             > eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/main/idf_component.yml
           cat eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/main/idf_component.yml
+          # 2026-11-12: tu khi len 3.1.0 Bluetooth khong tra loi lenh HCI (Waze Mod/nRF khong thay HUD) du RPC bat BT bao OK.
+          # Nghi bo dieu khien BLE cua C6 ngu (BT_LE_SLEEP_ENABLE, board khong co thach anh 32 kHz) -> tat ngu BT,
+          # ghi ro HCI qua VHCI + tu khoi tao BT luc khoi dong.
+          printf '\nCONFIG_BT_LE_SLEEP_ENABLE=n\nCONFIG_ESP_HOSTED_CP_FEAT_BT=y\nCONFIG_ESP_HOSTED_CP_BT_ENABLED=y\nCONFIG_ESP_HOSTED_CP_FEAT_BT_HCI_VHCI=y\nCONFIG_BT_LE_HCI_INTERFACE_USE_RAM=y\nCONFIG_ESP_HOSTED_CP_AUTO_FEAT_INIT=y\nCONFIG_ESP_HOSTED_CP_FEAT_BT_AUTO_INIT=y\n' \
+            >> eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/sdkconfig.defaults.esp32c6
       - name: Build C6 (Wi-Fi + BLE HCI qua SDIO)
         uses: espressif/esp-idf-ci-action@v1
         with:
@@ -34,6 +39,8 @@ jobs:
         run: |
           D=eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/build
           ls -la $D/*.bin
+          # In cau hinh BT/hosted that su dung de doi chieu
+          grep -E '^(# )?CONFIG_(BT_LE_|BT_CTRL|BT_ENABLED|BT_CONTROLLER|ESP_HOSTED_CP_(FEAT_BT|BT|AUTO))' eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/sdkconfig | head -80 || true
           APP=$(ls $D/*.bin | grep -v -e bootloader -e partition -e ota_data | head -1)
           cp "$APP" c6-hosted-3.1.0.bin
           cp $D/partition_table/partition-table.bin c6-partition-table.bin
