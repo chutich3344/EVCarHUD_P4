@@ -212,7 +212,9 @@ static char s_new_ver[24], s_new_sha[65], s_new_notes[160];
 static int s_new_size;
 static httpd_handle_t s_web;
 static char s_code[5];
-static esp_timer_handle_t s_web_tmr, s_ok_tmr;
+static esp_timer_handle_t s_web_tmr, s_ok_tmr, s_auto_tmr;
+static int s_auto_fail;                     /* so lan tu kiem tra loi lien tiep */
+static char s_toasted[24];                  /* ban moi da bao (khong bao lai moi lan hoi) */
 static enum { V_HOME, V_CHECKING, V_LATEST, V_NEW, V_WEB, V_FAIL } s_view;
 static char s_fail[192];
 
@@ -677,13 +679,22 @@ static void check(bool manual)
     bool ok = server_check(why, sizeof why);
     board_ui_lock();
     ui_ota_badge(ok && s_has_new ? s_new_ver : NULL);
-    if (ok && s_has_new && !manual) {
+    if (ok && s_has_new && !manual && strcmp(s_toasted, s_new_ver) != 0) {
+        snprintf(s_toasted, sizeof s_toasted, "%s", s_new_ver);
         char t[80];
         snprintf(t, sizeof t, "Có firmware mới %s: Cài đặt > Hệ thống", s_new_ver);
         ui_toast(t);
     }
     board_ui_unlock();
-    if (!manual) { if (!ok) ESP_LOGW(TAG, "tu kiem tra: %s", why); return; }
+    if (!manual) {
+        /* Truoc chi hoi 1 lan luc bat may: lan do loi (mang chua on) la ca ngay khong bao ban moi. Gio loi thi hoi lai
+         * sau 1, 2, 4... phut (toi da 30), on thi hoi lai moi 6 gio. */
+        if (!ok) ESP_LOGW(TAG, "tu kiem tra: %s", why);
+        s_auto_fail = ok ? 0 : s_auto_fail + 1;
+        uint64_t min = ok ? 360 : (s_auto_fail >= 5 ? 30 : (1u << (s_auto_fail - 1)));
+        if (s_auto_tmr) { esp_timer_stop(s_auto_tmr); esp_timer_start_once(s_auto_tmr, min * 60 * 1000000ULL); }
+        return;
+    }
     if (!ok) { fail(why); return; }
     s_view = s_has_new ? V_NEW : V_LATEST;
     render();
@@ -731,12 +742,18 @@ static void ota_task(void *arg)
     }
 }
 
+static void auto_cb(void *a)
+{
+    (void)a;
+    if (s_wifi) post(CMD_AUTO_CHECK);
+}
+
 void ota_wifi_changed(bool up, const char *ip)
 {
     s_wifi = up;
     snprintf(s_ip, sizeof s_ip, "%s", up && ip ? ip : "");
     if (!up) { post(CMD_WEB_STOP); return; }
-    if (!s_auto_done) {                                            /* moi lan bat may hoi may chu 1 lan */
+    if (!s_auto_done || s_auto_fail > 0) {                         /* bat may / co mang lai sau lan hoi loi: hoi may chu */
         s_auto_done = true;
         post(CMD_AUTO_CHECK);
     }
@@ -796,6 +813,8 @@ void ota_start(void)
     } else {
         report_rollback();
     }
+    esp_timer_create_args_t ac = {.callback = auto_cb, .name = "ota_auto"};
+    esp_timer_create(&ac, &s_auto_tmr);
     esp_timer_create_args_t w = {.callback = web_idle_cb, .name = "ota_web"};
     esp_timer_create(&w, &s_web_tmr);
     q = xQueueCreate(6, sizeof(int));
