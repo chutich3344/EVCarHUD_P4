@@ -46,6 +46,7 @@ static const ble_uuid128_t UUID_RX = HLP_UUID(0x03);
 static const ble_uuid128_t UUID_CAPS = HLP_UUID(0x04);
 static const char CAPS[] = "{\"v\":1,\"caps\":{\"transport\":\"ble\",\"maxFrame\":512}}";
 
+#define BT_TRIES 6                       /* so lan bat Bluetooth (C6) truoc khi bo cuoc */
 #define START_DELAY_MS 2000              /* de man hinh len truoc va cau noi SDIO toi chip C6 san sang */
 #define BLE_LINE_MAX 640                     /* 1 dong HLP toi da 512 byte */
 #define EV_RX   (1u << 0)
@@ -464,7 +465,7 @@ static bool bt_up(void)
     esp_err_t e = ESP_FAIL;
 #if !CONFIG_EVCARHUD_BLE_DIRECT_HCI
     esp_hosted_bt_host_stack_cfg_t cfg = ESP_HOSTED_BT_HOST_STACK_CONFIG_DEFAULT();
-    cfg.controller_ready_timeout_ms = 100;
+    cfg.controller_ready_timeout_ms = 3000;                       /* sau khi tat han de thu lai, C6 can vai giay */
     e = esp_hosted_bt_host_stack_setup(&cfg);
     if (e != ESP_OK) ESP_LOGW(TAG, "C6 khong tra loi lenh bat Bluetooth (%s): thu dung thang kenh HCI", esp_err_to_name(e));
 #endif
@@ -503,10 +504,13 @@ static bool bt_up(void)
         return false;
     }
     nimble_port_freertos_init(host_task);
-    for (int i = 0; i < 50 && !s_synced; i++) vTaskDelay(pdMS_TO_TICKS(100));
+    /* NimBLE tu gui lai lenh HCI Reset moi ~2 s. Luc khoi dong C6 con ban do song / vao Wi-Fi nen bo dieu khien BT co the
+     * khong tra loi vai giay dau (log: "HCI wait for ack returned 19") -> cho 20 s thay vi 5 s. */
+    for (int i = 0; i < 200 && !s_synced; i++) vTaskDelay(pdMS_TO_TICKS(100));
     if (!s_synced) {
-        ESP_LOGW(TAG, "bo dieu khien Bluetooth khong tra loi: bo qua Bluetooth");
+        ESP_LOGW(TAG, "bo dieu khien Bluetooth khong tra loi 20 s: tat han roi thu lai");
         if (nimble_port_stop() == 0) nimble_port_deinit();
+        esp_hosted_bt_host_stack_teardown();                  /* tat + deinit bo dieu khien tren C6 de lan sau bat lai tu dau */
         return false;
     }
     return true;
@@ -518,7 +522,14 @@ static void ble_task(void *arg)
     static char line[BLE_LINE_MAX + 2];
     static uint8_t rx[256];
     vTaskDelay(pdMS_TO_TICKS(START_DELAY_MS));
-    if (!bt_up()) {
+    bool up = false;
+    s_resets = 0;
+    for (int k = 0; k < BT_TRIES && !(up = bt_up()); k++) {
+        ESP_LOGW(TAG, "Bluetooth chua len (lan %d/%d): thu lai sau 10 s", k + 1, BT_TRIES);
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+    if (!up) {
+        ESP_LOGE(TAG, "Bluetooth khong len sau %d lan: bo qua (rut dien HUD de C6 khoi dong lai)", BT_TRIES);
         s_state = -1;
         s_task = NULL;
         vTaskDelete(NULL);
