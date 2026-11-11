@@ -301,9 +301,17 @@ static void send_json(cJSON *j)
     cJSON_Delete(j);
 }
 
+/* Dem tieng gui len trong luot nghe (chan doan "may chu nhan 0 goi"): gui kem listen stop, may chu hien len HUD */
+static volatile int s_fr_n, s_enc_err, s_tx_ok, s_tx_err;
+
 static void send_listen(const char *state, const char *extra)
 {
-    char b[160];
+    char b[256], st[96] = "";
+    if (!extra && strcmp(state, "stop") == 0) {
+        snprintf(st, sizeof st, ",\"hud\":{\"fr\":%d,\"enc_err\":%d,\"tx_ok\":%d,\"tx_err\":%d}", s_fr_n, s_enc_err, s_tx_ok, s_tx_err);
+        ESP_LOGI(TAG, "het nghe: %d khung, ma hoa loi %d, gui duoc %d, gui loi %d", s_fr_n, s_enc_err, s_tx_ok, s_tx_err);
+        extra = st;
+    }
     snprintf(b, sizeof b, "{\"session_id\":\"%s\",\"type\":\"listen\",\"state\":\"%s\"%s}", s_session, state, extra ? extra : "");
     send_text(b);
 }
@@ -496,6 +504,7 @@ static void go_listen(void)
     s_tts_stop = false;
     s_heard = false;
     s_emo = EMO_HAPPY;
+    s_fr_n = s_enc_err = s_tx_ok = s_tx_err = 0;
     send_listen("start", ",\"mode\":\"manual\"");   /* VAD tren chip bao noi xong (listen stop) */
     s_st = ST_LISTEN;
     s_since = xTaskGetTickCount();
@@ -1166,10 +1175,19 @@ static void mic_task(void *arg)
         }
         esp_audio_enc_in_frame_t in = {.buffer = (uint8_t *)pcm, .len = (uint32_t)in_sz};
         esp_audio_enc_out_frame_t o = {.buffer = out, .len = (uint32_t)(out_sz > 0 ? out_sz : 1500)};
-        if (esp_opus_enc_process(enc, &in, &o) != ESP_AUDIO_ERR_OK || o.encoded_bytes == 0) continue;
+        s_fr_n++;
+        esp_audio_err_t er = esp_opus_enc_process(enc, &in, &o);
+        if (er != ESP_AUDIO_ERR_OK || o.encoded_bytes == 0) {
+            if (s_enc_err++ == 0) ESP_LOGW(TAG, "Opus ma hoa loi %d (%u byte)", (int)er, (unsigned)o.encoded_bytes);
+            continue;
+        }
         esp_websocket_client_handle_t ws = s_ws;
-        if (ws && s_st == ST_LISTEN && esp_websocket_client_is_connected(ws))
-            esp_websocket_client_send_bin(ws, (const char *)out, (int)o.encoded_bytes, pdMS_TO_TICKS(1000));   /* gui qua han -> thu vien cat ket noi (transport_poll_write): cho lau hon */
+        if (ws && s_st == ST_LISTEN && esp_websocket_client_is_connected(ws)) {
+            /* gui qua han -> thu vien cat ket noi (transport_poll_write): cho lau hon */
+            int r = esp_websocket_client_send_bin(ws, (const char *)out, (int)o.encoded_bytes, pdMS_TO_TICKS(1000));
+            if (r > 0) s_tx_ok++;
+            else if (s_tx_err++ == 0) ESP_LOGW(TAG, "gui tieng loi %d", r);
+        }
     }
 }
 
