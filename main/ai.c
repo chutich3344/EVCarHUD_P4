@@ -32,6 +32,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "sdkconfig.h"
 
 #include "audio.h"
@@ -1037,7 +1038,6 @@ static int mic_get(int16_t *pcm, int n)
 static void mic_task(void *arg)
 {
     (void)arg;
-    wake_init();
     esp_opus_enc_config_t cfg = ESP_OPUS_ENC_CONFIG_DEFAULT();
     cfg.sample_rate = RATE;
     cfg.channel = 1;
@@ -1244,12 +1244,25 @@ static void spk_task(void *arg)
     }
 }
 
+/* Nap mo hinh tu danh thuc doc flash (esp_partition_read): luong co ngan xep o PSRAM ma doc flash thi chip tu
+ * khoi dong lai (assert esp_task_stack_is_sane_cache_disabled, 1.0.28). Chay tam trong luong ngan xep RAM chip roi
+ * giai phong. */
+static void wake_init_entry(void *arg)
+{
+    wake_init();
+    xSemaphoreGive((SemaphoreHandle_t)arg);
+    vTaskDelete(NULL);
+}
+
 static bool tasks_start(void)
 {
     if (s_tasks) return true;
-    /* libopus can ngan xep lon (~24-32 KB); de trong RAM trong chip cho nhanh */
+    SemaphoreHandle_t done = xSemaphoreCreateBinary();
+    if (done && xTaskCreate(wake_init_entry, "ai_wake", 20480, done, 5, NULL) == pdPASS)
+        xSemaphoreTake(done, portMAX_DELAY);
+    if (done) vSemaphoreDelete(done);
     /* Ngan xep lon dat o PSRAM: RAM trong chip chi con ~18 KB (Wi-Fi/BLE qua C6 het cho -> do song, TLS, BLE hong).
-     * Hai luong nay khong ghi flash nen ngan xep ngoai an toan. */
+     * Hai luong nay KHONG duoc doc/ghi flash (NVS, phan vung): moi viec dung flash lam o luong khac. */
     if (xTaskCreateWithCaps(mic_task, "ai_mic", 32768, NULL, 5, NULL, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) return false;
     if (xTaskCreateWithCaps(spk_task, "ai_spk", 24576, NULL, 5, NULL, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) return false;
     s_tasks = true;
