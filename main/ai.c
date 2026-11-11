@@ -985,6 +985,9 @@ static void afe_flush(void)
 
 /* Tra RAM cua AFE khi Mi Mi nghi: luc mo ket noi TLS can nhieu RAM trong chip, AFE tao san tu luc bat may lam
  * bat tay TLS hong ("2/3 ... ERR HTTP TLS" o 1.0.23-1.0.24). Nay AFE chi tao khi bat dau nghe (TLS da xong). */
+/* Tat AFE (1.0.30): tren bo nay AFE nap 160 mau / lay 512 mau, khong tra du lieu (log 2026-11-11 "AFE khong tra du
+ * lieu") va an ~40 KB RAM trong chip (con 62K) -> dung micro tho + VAD do do lon nhu 1.0.22. */
+#define AI_USE_AFE 0
 static bool s_afe_broken;                             /* AFE tung ket: khong dung lai cho toi khi khoi dong lai */
 static void afe_teardown(void)
 {
@@ -1077,7 +1080,7 @@ static void mic_task(void *arg)
             if (s_afed) afe_teardown();               /* het phien: tra RAM */
             afe_tried = false;
         }
-        if (st == ST_LISTEN && !s_afed && !s_afe_broken && !afe_tried) {
+        if (AI_USE_AFE && st == ST_LISTEN && !s_afed && !s_afe_broken && !afe_tried) {
             afe_tried = true;                         /* tao hong (thieu RAM) thi phien nay dung micro tho */
             afe_setup();
         }
@@ -1166,7 +1169,7 @@ static void mic_task(void *arg)
         if (esp_opus_enc_process(enc, &in, &o) != ESP_AUDIO_ERR_OK || o.encoded_bytes == 0) continue;
         esp_websocket_client_handle_t ws = s_ws;
         if (ws && s_st == ST_LISTEN && esp_websocket_client_is_connected(ws))
-            esp_websocket_client_send_bin(ws, (const char *)out, (int)o.encoded_bytes, pdMS_TO_TICKS(200));
+            esp_websocket_client_send_bin(ws, (const char *)out, (int)o.encoded_bytes, pdMS_TO_TICKS(1000));   /* gui qua han -> thu vien cat ket noi (transport_poll_write): cho lau hon */
     }
 }
 
