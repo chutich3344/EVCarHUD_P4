@@ -24,6 +24,9 @@
 #include "esp_mn_models.h"
 #include "esp_mn_speech_commands.h"
 #include "model_path.h"
+#include "esp_afe_sr_iface.h"
+#include "esp_afe_sr_models.h"
+#include "esp_afe_config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/queue.h"
@@ -838,10 +841,98 @@ static void wake_feed(const int16_t *pcm, int n)
     }
 }
 
+/* Bo xu ly am thanh AFE cua Espressif (esp-sr, giong Xiaozhi): loc on WebRTC + tu chinh do lon (AGC) + nhan giong nguoi
+ * (WebRTC VAD) thay cho cach do do lon tu viet. Khong can mo hinh trong vung flash "model". Tao loi (thieu RAM) thi
+ * quay ve doc micro tho nhu cu. Bo nay chi co 1 micro va khong co kenh tham chieu loa nen khong khu vong (AEC). */
+static const esp_afe_sr_iface_t *s_afe;
+static esp_afe_sr_data_t *s_afed;
+static int s_afe_chunk;
+static int16_t *s_afe_in, *s_afe_out;
+static int s_afe_have;                                /* mau da xu ly con trong s_afe_out */
+static int s_afe_speech, s_afe_total;                 /* so khung AFE co giong / tong trong goi 60 ms vua lay */
+
+static void afe_setup(void)
+{
+    afe_config_t *c = afe_config_init("M", NULL, AFE_TYPE_VC, AFE_MODE_LOW_COST);
+    if (!c) return;
+    c->aec_init = false;
+    c->se_init = false;
+    c->ns_init = true;
+    c->afe_ns_mode = AFE_NS_MODE_WEBRTC;
+    c->ns_model_name = NULL;
+    c->vad_init = true;
+    c->vad_mode = VAD_MODE_1;
+    c->vad_model_name = NULL;                         /* WebRTC VAD */
+    c->vad_min_speech_ms = 128;
+    c->vad_min_noise_ms = 400;
+    c->wakenet_init = false;
+    c->agc_init = true;
+    c->agc_mode = AFE_AGC_MODE_WEBRTC;
+    c->agc_compression_gain_db = 15;                  /* micro bo nay nho: AGC keo giong len */
+    c->agc_target_level_dbfs = 3;
+    c->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
+    c = afe_config_check(c);
+    s_afe = c ? esp_afe_handle_from_config(c) : NULL;
+    s_afed = s_afe ? s_afe->create_from_config(c) : NULL;
+    if (c) afe_config_free(c);
+    if (!s_afed) {
+        s_afe = NULL;
+        ESP_LOGW(TAG, "khong tao duoc AFE: dung micro tho");
+        return;
+    }
+    s_afe_chunk = s_afe->get_feed_chunksize(s_afed);
+    int fetch = s_afe->get_fetch_chunksize(s_afed);
+    s_afe_in = heap_caps_malloc((size_t)s_afe_chunk * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+    s_afe_out = heap_caps_malloc((size_t)(FRAME + fetch * 2) * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+    if (!s_afe_in || !s_afe_out || s_afe_chunk <= 0 || fetch <= 0) {
+        s_afe->destroy(s_afed);
+        s_afe = NULL;
+        s_afed = NULL;
+        ESP_LOGW(TAG, "AFE: thieu bo nho, dung micro tho");
+        return;
+    }
+    ESP_LOGI(TAG, "AFE san sang: loc on + AGC + VAD (nap %d, lay %d mau), RAM trong con %uK", s_afe_chunk, fetch,
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+}
+
+static void afe_flush(void)
+{
+    if (s_afed) s_afe->reset_buffer(s_afed);
+    s_afe_have = 0;
+}
+
+/* Lay n mau (= FRAME) da qua AFE. Tra ve n, hoac -1 khi micro loi. */
+static int mic_get(int16_t *pcm, int n)
+{
+    if (!s_afed) return audio_mic_read(pcm, n);
+    s_afe_speech = s_afe_total = 0;
+    while (s_afe_have < n) {
+        if (audio_mic_read(s_afe_in, s_afe_chunk) != s_afe_chunk) return -1;
+        s_afe->feed(s_afed, s_afe_in);
+        afe_fetch_result_t *r;
+        while ((r = s_afe->fetch_with_delay(s_afed, pdMS_TO_TICKS(s_afe_have + s_afe_chunk >= n ? 40 : 0))) &&
+               r->ret_value == ESP_OK && r->data && r->data_size > 0) {
+            int k = r->data_size / (int)sizeof(int16_t);
+            if (s_afe_have + k > n + s_afe_chunk * 2) k = n + s_afe_chunk * 2 - s_afe_have;
+            if (k <= 0) break;
+            memcpy(s_afe_out + s_afe_have, r->data, (size_t)k * sizeof(int16_t));
+            s_afe_have += k;
+            s_afe_total++;
+            if (r->vad_state == VAD_SPEECH) s_afe_speech++;
+            if (s_afe_have >= n) break;
+        }
+    }
+    memcpy(pcm, s_afe_out, (size_t)n * sizeof(int16_t));
+    s_afe_have -= n;
+    if (s_afe_have > 0) memmove(s_afe_out, s_afe_out + n, (size_t)s_afe_have * sizeof(int16_t));
+    return n;
+}
+
 static void mic_task(void *arg)
 {
     (void)arg;
     wake_init();
+    afe_setup();
     esp_opus_enc_config_t cfg = ESP_OPUS_ENC_CONFIG_DEFAULT();
     cfg.sample_rate = RATE;
     cfg.channel = 1;
@@ -879,12 +970,13 @@ static void mic_task(void *arg)
         bool wake = st == ST_IDLE && s_wake_ok && s_wifi;
         if (st != ST_LISTEN && !wake) {
             if (was) esp_opus_enc_reset(enc);
+            if (was || s_afe_have) afe_flush();
             was = false;
             s_wfill = 0;
             vTaskDelay(pdMS_TO_TICKS(30));
             continue;
         }
-        if (audio_mic_read(pcm, FRAME) != FRAME) {
+        if (mic_get(pcm, FRAME) != FRAME) {
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
@@ -915,10 +1007,16 @@ static void mic_task(void *arg)
         if (thr < 250.0f) thr = 250.0f;                 /* micro bo nay nho: giong noi do duoc ~500-800 */
         if (thr > 2500.0f) thr = 2500.0f;
         /* tre (hysteresis): da noi thi chi can 0,7 nguong de coi la con noi, tranh cat giua cau */
-        bool speech = fr >= ready && e > (started && run > 0 ? thr * 0.7f : thr);
-        if (fr == ready) s_vad_peak = 0;
-        if (fr >= ready && e > s_vad_peak) s_vad_peak = e;
+        bool speech = s_afed ? (fr >= VAD_SKIP_FR && s_afe_speech * 2 >= s_afe_total && s_afe_total > 0)   /* AFE VAD */
+                             : (fr >= ready && e > (started && run > 0 ? thr * 0.7f : thr));
+        if (!s_afed && fr == ready) s_vad_peak = 0;
+        if (!s_afed && fr >= ready && e > s_vad_peak) s_vad_peak = e;
         s_vad_thr = thr;
+        if (s_afed) {                                 /* AFE: so do = so khung 60 ms co giong nguoi / can 3 */
+            if (fr == VAD_SKIP_FR) s_vad_peak = 0;
+            if (speech) s_vad_peak += 1;
+            s_vad_thr = 2;
+        }
         if (fr >= ready) {
             if (!speech) floor_e = floor_e * 0.95f + e * 0.05f;
             else floor_e = floor_e * 0.998f + e * 0.002f;   /* on xe tang dan van theo kip, khong "noi mai" */
