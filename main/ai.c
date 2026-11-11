@@ -13,6 +13,7 @@
 #include "esp_app_desc.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
+#include "freertos/idf_additions.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -932,6 +933,7 @@ static int s_afe_speech, s_afe_total;                 /* so khung AFE co giong /
 
 static void afe_setup(void)
 {
+    esp_log_level_set("AFE", ESP_LOG_ERROR);          /* canh bao AFE in hang tram dong/giay qua UART cham, chan ca he thong */
     afe_config_t *c = afe_config_init("M", NULL, AFE_TYPE_VC, AFE_MODE_LOW_COST);
     if (!c) return;
     c->aec_init = false;
@@ -1005,16 +1007,17 @@ static int mic_get(int16_t *pcm, int n)
         s_afe->feed(s_afed, s_afe_in);
         int before = s_afe_have;
         afe_fetch_result_t *r;
-        while ((r = s_afe->fetch_with_delay(s_afed, pdMS_TO_TICKS(s_afe_have + s_afe_chunk >= n ? 40 : 0))) &&
-               r->ret_value == ESP_OK && r->data && r->data_size > 0) {
+        /* moi lan nap lay dung 1 lan: goi khi vong dem rong lam AFE in canh bao lien tuc (nghen cong log) */
+        if ((r = s_afe->fetch_with_delay(s_afed, pdMS_TO_TICKS(40))) &&
+            r->ret_value == ESP_OK && r->data && r->data_size > 0) {
             int k = r->data_size / (int)sizeof(int16_t);
             if (s_afe_have + k > n + s_afe_chunk * 2) k = n + s_afe_chunk * 2 - s_afe_have;
-            if (k <= 0) break;
-            memcpy(s_afe_out + s_afe_have, r->data, (size_t)k * sizeof(int16_t));
-            s_afe_have += k;
-            s_afe_total++;
-            if (r->vad_state == VAD_SPEECH) s_afe_speech++;
-            if (s_afe_have >= n) break;
+            if (k > 0) {
+                memcpy(s_afe_out + s_afe_have, r->data, (size_t)k * sizeof(int16_t));
+                s_afe_have += k;
+                s_afe_total++;
+                if (r->vad_state == VAD_SPEECH) s_afe_speech++;
+            }
         }
         /* AFE ket (khong tra tieng ~1,5 s): bo AFE, quay ve micro tho de Mi Mi van nghe duoc */
         if (s_afe_have == before && ++dry > 45) {
@@ -1245,8 +1248,10 @@ static bool tasks_start(void)
 {
     if (s_tasks) return true;
     /* libopus can ngan xep lon (~24-32 KB); de trong RAM trong chip cho nhanh */
-    if (xTaskCreate(mic_task, "ai_mic", 32768, NULL, 5, NULL) != pdPASS) return false;
-    if (xTaskCreate(spk_task, "ai_spk", 24576, NULL, 5, NULL) != pdPASS) return false;
+    /* Ngan xep lon dat o PSRAM: RAM trong chip chi con ~18 KB (Wi-Fi/BLE qua C6 het cho -> do song, TLS, BLE hong).
+     * Hai luong nay khong ghi flash nen ngan xep ngoai an toan. */
+    if (xTaskCreateWithCaps(mic_task, "ai_mic", 32768, NULL, 5, NULL, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) return false;
+    if (xTaskCreateWithCaps(spk_task, "ai_spk", 24576, NULL, 5, NULL, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) return false;
     s_tasks = true;
     return true;
 }

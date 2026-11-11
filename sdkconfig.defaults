@@ -65,3 +65,4 @@ CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 # Tro ly Mi Mi: tu danh thuc "mi mi" bang MultiNet7 tieng Trung (esp-sr); khong nap mo hinh WakeNet nao khac
 CONFIG_SR_MN_CN_MULTINET7_QUANT=y
 CONFIG_SR_MN_EN_NONE=y
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y

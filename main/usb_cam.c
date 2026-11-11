@@ -18,6 +18,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"
 #include "esp_intr_alloc.h"
 #include "usb/usb_host.h"
 #include "usb/uvc_host.h"
@@ -491,7 +492,7 @@ void usb_cam_start(void)
         ESP_LOGE(TAG, "khong cai duoc driver UVC");
         return;
     }
-    xTaskCreatePinnedToCore(cam_task, "usb_cam", 16384, NULL, 5, NULL, 0);   /* stack lon: ESP-DL chay trong task nay */
+    xTaskCreatePinnedToCoreWithCaps(cam_task, "usb_cam", 16384, NULL, 5, NULL, 0, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);   /* stack lon: ESP-DL chay trong task nay */
     ESP_LOGI(TAG, "cho camera USB o cong OTG...");
 }
 #endif /* CONFIG_EVCARHUD_USB_CAM */
