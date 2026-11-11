@@ -975,9 +975,11 @@ static int mic_get(int16_t *pcm, int n)
 {
     if (!s_afed) return audio_mic_read(pcm, n);
     s_afe_speech = s_afe_total = 0;
+    int dry = 0;                                      /* so lan nap ma AFE khong tra ra gi */
     while (s_afe_have < n) {
         if (audio_mic_read(s_afe_in, s_afe_chunk) != s_afe_chunk) return -1;
         s_afe->feed(s_afed, s_afe_in);
+        int before = s_afe_have;
         afe_fetch_result_t *r;
         while ((r = s_afe->fetch_with_delay(s_afed, pdMS_TO_TICKS(s_afe_have + s_afe_chunk >= n ? 40 : 0))) &&
                r->ret_value == ESP_OK && r->data && r->data_size > 0) {
@@ -989,6 +991,14 @@ static int mic_get(int16_t *pcm, int n)
             s_afe_total++;
             if (r->vad_state == VAD_SPEECH) s_afe_speech++;
             if (s_afe_have >= n) break;
+        }
+        /* AFE ket (khong tra tieng ~1,5 s): bo AFE, quay ve micro tho de Mi Mi van nghe duoc */
+        if (s_afe_have == before && ++dry > 45) {
+            ESP_LOGE(TAG, "AFE khong tra du lieu, quay ve micro tho");
+            s_afed = NULL;
+            s_afe_have = 0;
+            toast("Bộ lọc ồn lỗi: Mi Mi dùng micro thường");
+            return audio_mic_read(pcm, n);
         }
     }
     memcpy(pcm, s_afe_out, (size_t)n * sizeof(int16_t));
@@ -1045,7 +1055,10 @@ static void mic_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(30));
             continue;
         }
-        if (mic_get(pcm, FRAME) != FRAME) {
+        /* Cho "Mi Mi oi": doc micro tho nhu 1.0.22 (mo hinh danh thuc hoc tren tieng tho, AGC/loc on cua AFE
+         * lam lech -> goi khong an; AFE chay lien tuc luc ranh cung ton CPU). AFE chi dung luc dang nghe. */
+        int got = st == ST_IDLE ? audio_mic_read(pcm, FRAME) : mic_get(pcm, FRAME);
+        if (got != FRAME) {
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
