@@ -970,6 +970,20 @@ static void afe_flush(void)
     s_afe_have = 0;
 }
 
+/* Tra RAM cua AFE khi Mi Mi nghi: luc mo ket noi TLS can nhieu RAM trong chip, AFE tao san tu luc bat may lam
+ * bat tay TLS hong ("2/3 ... ERR HTTP TLS" o 1.0.23-1.0.24). Nay AFE chi tao khi bat dau nghe (TLS da xong). */
+static bool s_afe_broken;                             /* AFE tung ket: khong dung lai cho toi khi khoi dong lai */
+static void afe_teardown(void)
+{
+    if (s_afed) s_afe->destroy(s_afed);
+    s_afed = NULL;
+    s_afe = NULL;
+    free(s_afe_in);
+    free(s_afe_out);
+    s_afe_in = s_afe_out = NULL;
+    s_afe_have = 0;
+}
+
 /* Lay n mau (= FRAME) da qua AFE. Tra ve n, hoac -1 khi micro loi. */
 static int mic_get(int16_t *pcm, int n)
 {
@@ -995,8 +1009,8 @@ static int mic_get(int16_t *pcm, int n)
         /* AFE ket (khong tra tieng ~1,5 s): bo AFE, quay ve micro tho de Mi Mi van nghe duoc */
         if (s_afe_have == before && ++dry > 45) {
             ESP_LOGE(TAG, "AFE khong tra du lieu, quay ve micro tho");
-            s_afed = NULL;
-            s_afe_have = 0;
+            afe_teardown();
+            s_afe_broken = true;
             toast("Bộ lọc ồn lỗi: Mi Mi dùng micro thường");
             return audio_mic_read(pcm, n);
         }
@@ -1011,7 +1025,6 @@ static void mic_task(void *arg)
 {
     (void)arg;
     wake_init();
-    afe_setup();
     esp_opus_enc_config_t cfg = ESP_OPUS_ENC_CONFIG_DEFAULT();
     cfg.sample_rate = RATE;
     cfg.channel = 1;
@@ -1037,7 +1050,7 @@ static void mic_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
-    bool was = false;
+    bool was = false, afe_tried = false;
     int fr = 0, run = 0, quiet = 0;
     uint8_t hist = 0;
     bool started = false, sent_end = false;
@@ -1047,6 +1060,14 @@ static void mic_task(void *arg)
     for (;;) {
         int st = s_st;
         bool wake = st == ST_IDLE && s_wake_ok && s_wifi;
+        if (st == ST_IDLE) {
+            if (s_afed) afe_teardown();               /* het phien: tra RAM */
+            afe_tried = false;
+        }
+        if (st == ST_LISTEN && !s_afed && !s_afe_broken && !afe_tried) {
+            afe_tried = true;                         /* tao hong (thieu RAM) thi phien nay dung micro tho */
+            afe_setup();
+        }
         if (st != ST_LISTEN && !wake) {
             if (was) esp_opus_enc_reset(enc);
             if (was || s_afe_have) afe_flush();
