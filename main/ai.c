@@ -98,6 +98,9 @@ static char s_ws_url[256], s_ws_tok[256];             /* nho dia chi + token: ph
 
 /* ---------------- giao dien ---------------- */
 static lv_obj_t *g_btn, *g_strip, *g_orb, *g_cap, *g_text;
+static lv_obj_t *g_eye[2], *g_mouth;                  /* khuon mat tren qua cau (kieu man hinh Xiaozhi) */
+enum { EMO_NEUTRAL, EMO_HAPPY, EMO_LAUGH, EMO_SAD, EMO_SURPRISE, EMO_LOVE, EMO_THINK, EMO_LISTEN };
+static volatile int s_emo = EMO_HAPPY;                /* cam xuc cau tra loi hien tai (may chu gui "llm") */
 
 static void orb_anim_cb(void *o, int32_t v) { lv_obj_set_style_bg_opa((lv_obj_t *)o, (lv_opa_t)v, 0); }
 
@@ -164,6 +167,14 @@ static void ui_build(void)
     lv_obj_set_style_bg_grad_color(g_orb, lv_color_hex(0x22B8FF), 0);
     lv_obj_set_style_bg_grad_dir(g_orb, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(g_orb, LV_OPA_COVER, 0);
+    for (int i = 0; i < 2; i++) {
+        g_eye[i] = box(g_orb, 0, 0, 4, 7);
+        lv_obj_set_style_bg_color(g_eye[i], lv_color_white(), 0);
+        lv_obj_set_style_bg_opa(g_eye[i], LV_OPA_COVER, 0);
+    }
+    g_mouth = box(g_orb, 0, 0, 14, 8);
+    lv_obj_set_style_border_color(g_mouth, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(g_mouth, lv_color_white(), 0);
     g_cap = lv_label_create(g_strip);
     lv_obj_set_style_text_font(g_cap, &ui_font_sm12, 0);
     lv_obj_set_style_text_color(g_cap, lv_color_hex(0xC9BCFF), 0);
@@ -177,6 +188,52 @@ static void ui_build(void)
     lv_label_set_text(g_text, "");
     lv_obj_add_flag(g_strip, LV_OBJ_FLAG_HIDDEN);
     ui_below_settings(g_strip);
+}
+
+/* Ve khuon mat (goi khi da khoa giao dien). Mat: 2 khoi trang; mieng: khoi vien duoi (cuoi) / tren (buon) / tron (ngac nhien). */
+static void mouth(int x, int y, int w, int h, int r, bool fill, lv_border_side_t side)
+{
+    lv_obj_set_pos(g_mouth, x, y);
+    lv_obj_set_size(g_mouth, w, h);
+    lv_obj_set_style_radius(g_mouth, r, 0);
+    lv_obj_set_style_bg_opa(g_mouth, fill ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(g_mouth, fill ? 0 : 2, 0);
+    lv_obj_set_style_border_side(g_mouth, side, 0);
+}
+
+static void face_draw(int e)
+{
+    if (!g_mouth) return;
+    int ey = 10, eh = 7, ew = 4, ex = 0, er = 2;
+    lv_color_t ec = lv_color_white();
+    switch (e) {
+    case EMO_SAD: ey = 12; eh = 5; mouth(10, 22, 14, 8, 7, false, LV_BORDER_SIDE_TOP); break;
+    case EMO_SURPRISE: ey = 8; eh = 8; mouth(13, 19, 8, 8, LV_RADIUS_CIRCLE, false, LV_BORDER_SIDE_FULL); break;
+    case EMO_LAUGH: eh = 4; ey = 11; mouth(10, 19, 14, 8, 7, true, LV_BORDER_SIDE_NONE); break;
+    case EMO_LOVE: ew = 6; eh = 6; er = LV_RADIUS_CIRCLE; ec = lv_color_hex(0xFF7AB6); mouth(10, 17, 14, 8, 7, false, LV_BORDER_SIDE_BOTTOM); break;
+    case EMO_THINK: ey = 7; eh = 4; ex = 2; mouth(15, 22, 6, 2, 1, true, LV_BORDER_SIDE_NONE); break;
+    case EMO_LISTEN: ey = 9; eh = 8; mouth(12, 19, 10, 6, 5, false, LV_BORDER_SIDE_BOTTOM); break;
+    case EMO_NEUTRAL: mouth(12, 22, 10, 2, 1, true, LV_BORDER_SIDE_NONE); break;
+    default: mouth(10, 17, 14, 8, 7, false, LV_BORDER_SIDE_BOTTOM); break;   /* vui */
+    }
+    for (int i = 0; i < 2; i++) {
+        lv_obj_set_size(g_eye[i], ew, eh);
+        lv_obj_set_pos(g_eye[i], (i ? 20 : 10) + ex - (ew - 4) / 2, ey);
+        lv_obj_set_style_radius(g_eye[i], er, 0);
+        lv_obj_set_style_bg_color(g_eye[i], ec, 0);
+    }
+}
+
+static int emo_from(const char *e)
+{
+    static const struct { const char *n; int v; } t[] = {
+        {"happy", EMO_HAPPY}, {"laughing", EMO_LAUGH}, {"funny", EMO_LAUGH}, {"sad", EMO_SAD}, {"crying", EMO_SAD},
+        {"surprised", EMO_SURPRISE}, {"shocked", EMO_SURPRISE}, {"loving", EMO_LOVE}, {"kissy", EMO_LOVE},
+        {"thinking", EMO_THINK}, {"confused", EMO_THINK}, {"neutral", EMO_NEUTRAL}, {"relaxed", EMO_HAPPY},
+    };
+    for (size_t i = 0; e && i < sizeof t / sizeof t[0]; i++)
+        if (strcmp(e, t[i].n) == 0) return t[i].v;
+    return EMO_HAPPY;
 }
 
 /* cap = NULL: an dai; text = NULL: giu chu cu */
@@ -195,6 +252,11 @@ static void ui_show(const char *cap, const char *text, bool pulse)
         lv_obj_set_style_bg_color(g_btn, lv_color_hex(0x7C5CFF), 0);
         lv_label_set_text(g_cap, cap);
         if (text) lv_label_set_text(g_text, text);
+        /* khuon mat theo trang thai: nghe = mat to, nghi = liec len, noi = cam xuc may chu gui */
+        face_draw(strncmp(cap, "ĐANG NGHE", 10) == 0 ? EMO_LISTEN
+                  : strncmp(cap, "ĐANG KẾT", 9) == 0 ? EMO_NEUTRAL
+                  : strcmp(cap, "ANH HỎI") == 0 || (text && strcmp(text, "Đang nghĩ…") == 0) ? EMO_THINK
+                  : s_emo);
         lv_anim_delete(g_orb, orb_anim_cb);
         if (pulse) {
             lv_anim_t a;
@@ -430,6 +492,7 @@ static void go_listen(void)
     s_drop = false;
     s_tts_stop = false;
     s_heard = false;
+    s_emo = EMO_HAPPY;
     send_listen("start", ",\"mode\":\"manual\"");   /* VAD tren chip bao noi xong (listen stop) */
     s_st = ST_LISTEN;
     s_since = xTaskGetTickCount();
@@ -660,6 +723,12 @@ static void on_json(cJSON *j)
             if (s_st == ST_SPEAK && text) ui_show("MI MI", text, true);
         } else if (strcmp(state, "stop") == 0) {
             if (s_st == ST_SPEAK) s_tts_stop = true;  /* luong loa phat het hang doi thi bao M_DRAINED */
+        }
+    } else if (strcmp(type, "llm") == 0) {           /* cam xuc cua cau tra loi sap noi */
+        const cJSON *em = cJSON_GetObjectItem(j, "emotion");
+        if (cJSON_IsString(em)) {
+            int v = emo_from(em->valuestring);
+            if (v != EMO_THINK) s_emo = v;            /* "thinking" la luc dang nghi, khong phai cam xuc cau tra loi */
         }
     } else if (strcmp(type, "mcp") == 0) {
         on_mcp(cJSON_GetObjectItem(j, "payload"));
