@@ -9,6 +9,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "esp_app_desc.h"
+#include "cloud_log.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
@@ -751,6 +752,7 @@ static void auto_cb(void *a)
 void ota_wifi_changed(bool up, const char *ip)
 {
     s_wifi = up;
+    cloud_log_wifi(up);
     snprintf(s_ip, sizeof s_ip, "%s", up && ip ? ip : "");
     if (!up) { post(CMD_WEB_STOP); return; }
     if (!s_auto_done || s_auto_fail > 0) {                         /* bat may / co mang lai sau lan hoi loi: hoi may chu */
