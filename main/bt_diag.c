@@ -35,3 +35,9 @@ void __wrap_eh_host_mcu_hci_rx_deliver(const uint8_t *frame, uint16_t len)
                  len > 5 ? frame[5] : 0);
     __real_eh_host_mcu_hci_rx_deliver(frame, len);
 }
+
+/* Goi tu ble_link.c de linker chac chan giu file nay (cac ham __wrap_ chi duoc tham chieu qua --wrap) */
+void bt_diag_log(void)
+{
+    ESP_LOGW(TAG, "tong: P4->C6 %d lenh (loi %d), C6->P4 %d goi", s_tx, s_tx_err, s_rx);
+}

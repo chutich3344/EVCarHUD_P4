@@ -516,6 +516,8 @@ static bool bt_up(void)
     return true;
 }
 
+void bt_diag_log(void);   /* bt_diag.c */
+
 static void ble_task(void *arg)
 {
     (void)arg;
@@ -525,6 +527,7 @@ static void ble_task(void *arg)
     bool up = false;
     s_resets = 0;
     for (int k = 0; k < BT_TRIES && !(up = bt_up()); k++) {
+        bt_diag_log();
         ESP_LOGW(TAG, "Bluetooth chua len (lan %d/%d): thu lai sau 10 s", k + 1, BT_TRIES);
         vTaskDelay(pdMS_TO_TICKS(10000));
     }
