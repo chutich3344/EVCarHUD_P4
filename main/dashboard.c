@@ -844,6 +844,15 @@ static void build_top(void)
     top_line = mk_fill(scr, 0, TOP_H - 1, UI_W, 1, 0);
 }
 
+/* o nguon "waze"/"GOFA": xam khi chua noi dien thoai, noi roi moi doi mau theo ung dung (waze xanh duong, GOFA xanh la) */
+static void src_chip_style(lv_obj_t *chip, lv_obj_t *lab, bool g)
+{
+    uint32_t bg = phone ? (g ? 0x0B8F4D : 0x33CCFF) : (night ? 0x4A5068 : 0xB9BDCA);
+    uint32_t fg = phone ? (g ? 0xFFFFFF : 0x05263A) : (night ? 0xFFFFFF : 0x14112B);
+    lv_obj_set_style_bg_color(chip, lv_color_hex(bg), 0);
+    lv_obj_set_style_text_color(lab, lv_color_hex(fg), 0);
+}
+
 static void render_top(void)
 {
     bool on = screen != SCR_STANDBY;
@@ -889,8 +898,7 @@ static void render_top(void)
     bool g = src == UI_SRC_GOFA;
     const char *sn = g ? "GOFA" : "waze";
     lv_label_set_text(t_src_l, sn);
-    lv_obj_set_style_text_color(t_src_l, g ? lv_color_white() : lv_color_hex(0x05263A), 0);
-    lv_obj_set_style_bg_color(t_src, g ? lv_color_hex(0x0B8F4D) : lv_color_hex(0x33CCFF), 0);
+    src_chip_style(t_src, t_src_l, g);
     int gw = text_w(sn, &ui_font_cap12) + 12;
     lv_obj_set_width(t_src, gw);
     lv_obj_set_x(t_src, UI_W - PAD - gw);
@@ -2108,8 +2116,7 @@ static void render_standby(void)
     bool g = src == UI_SRC_GOFA;
     const char *sn = g ? "GOFA" : "waze";
     lv_label_set_text(sb_chip_l, sn);
-    lv_obj_set_style_text_color(sb_chip_l, g ? lv_color_white() : lv_color_hex(0x05263A), 0);
-    lv_obj_set_style_bg_color(sb_chip, g ? lv_color_hex(0x0B8F4D) : lv_color_hex(0x33CCFF), 0);
+    src_chip_style(sb_chip, sb_chip_l, g);
     int cw = text_w(sn, &ui_font_cap12) + 12, cx = UI_W - PAD - cw;
     lv_obj_set_width(sb_chip, cw);
     lv_obj_set_x(sb_chip, cx);

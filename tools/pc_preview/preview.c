@@ -341,6 +341,8 @@ int main(int argc, char **argv)
     /* Nut BOOT trong cai dat: 1 lan = muc ke (khung vang), 2 lan = chon */
     /* Gia lap app Gofa: ban tin protobuf giong tai lieu (so truong = thu tu trong bang) */
     ui_set_source(UI_SRC_GOFA);
+    run(300);
+    snprintf(p, sizeof p, "%s/gofa_cho_chua_noi.bmp", dir); save_bmp(p);   /* o GOFA xam: chua noi dien thoai */
     gofa_connected(true);
     run(2600);                                      /* het man "Da ket noi dien thoai" */
     {
