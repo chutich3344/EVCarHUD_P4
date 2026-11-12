@@ -86,7 +86,7 @@ static void ring_drop(size_t k)
     xSemaphoreGive(s_mux);
 }
 
-static bool send(const char *body, size_t n)
+static bool log_send(const char *body, size_t n)
 {
     char url[200];
     snprintf(url, sizeof url, "%s?model=%s&mac=%s&v=%s&boot=%08lx&seq=%lu", LOG_URL, CONFIG_EVCARHUD_OTA_MODEL, s_mac,
@@ -129,7 +129,7 @@ static void up_task(void *a)
             s_drop = 0;
         }
         size_t k = ring_peek(buf + pre, CHUNK);
-        if (send(buf, pre + k)) {
+        if (log_send(buf, pre + k)) {
             ring_drop(k);
             fails = 0;
             if (s_len) s_urgent = true;          /* con nua: gui tiep sau 5 s */
