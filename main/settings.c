@@ -48,7 +48,7 @@ void settings_set_wake_sens(int v) { set_u8("wakesens", v < 1 ? 1 : v > 5 ? 5 : 
 int settings_wake_threshold(void)
 {
     int b = CONFIG_EVCARHUD_WAKE_THRESHOLD, l = settings_get_wake_sens();
-    static const int pct[5] = {170, 135, 100, 70, 45};   /* % so voi nguong goc: muc 1 kho goi nhat, muc 5 nhay nhat */
+    static const int pct[5] = {150, 120, 100, 87, 75};   /* % so voi nguong goc (12/11: muc 4 cu 70% tu bat khi khong goi -> buoc nho lai) */
     int t = b * pct[l - 1] / 100;
     return t < 3 ? 3 : t > 95 ? 95 : t;
 }
