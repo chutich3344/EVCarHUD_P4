@@ -43,6 +43,7 @@ class MainActivity : Activity() {
     companion object {
         const val HUB = "https://evcarhud.com/tram-sac"
         private const val REQ_LOC = 8
+        private const val REQ_AUTO = 9
         /** Trang tram-sac la man chinh cua app: doi nut cuoi thanh dieu huong (thong tin EVCarHUD) thanh nut mo man HUD. */
         private const val NAV_JS = """(function(){ if (window.__hudNav) return; window.__hudNav = 1;
   function fix(){ var a = document.querySelector('nav.nav a[href="/"]'); if (!a || a.dataset.hud) return;
@@ -103,8 +104,12 @@ class MainActivity : Activity() {
         root.addView(web, ViewGroup.LayoutParams(-1, -1))
         setContentView(root)
         openHub("")                                      // mo app vao thang trang chu tram sac
-        // Xin vi tri ngay khi mo app de trang chu hien ban do va tram quanh xe (Bluetooth de luc bam Bat dau)
-        if (!hasLoc())
+        // Xin vi tri ngay khi mo app de trang chu hien ban do va tram quanh xe.
+        // Da chon HUD: xin luon Bluetooth va tu gui vi tri GPS cho HUD (Mi Mi tim tram can GPS that), khong can bam chon tram.
+        if (prefs.hudMac.isNotBlank()) {
+            val need = neededPerms()
+            if (need.isEmpty()) TramSacService.startPos(this) else requestPermissions(need, REQ_AUTO)
+        } else if (!hasLoc())
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOC)
         handleLink(intent)
     }
@@ -321,6 +326,11 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_AUTO) {
+            if (hasLoc()) hub?.reload()
+            if (neededPerms().none { it != Manifest.permission.POST_NOTIFICATIONS }) TramSacService.startPos(this)
+            return
+        }
         if (requestCode == REQ_LOC) {
             // Vua cho phep vi tri: tai lai trang chu de web lay vi tri that thay vi "dang xem quanh TP.HCM"
             if (hasLoc()) hub?.reload()
@@ -364,7 +374,7 @@ class MainActivity : Activity() {
     }
 
     private fun toggleRun() {
-        if (AppState.running) { TramSacService.stop(this); return }
+        if (AppState.running) { TramSacService.stopFind(this); return }
         askBattery()
         withPerms {
             if (prefs.hudMac.isBlank()) pickHud { TramSacService.start(this) } else TramSacService.start(this)
@@ -433,6 +443,7 @@ class MainActivity : Activity() {
                     prefs.hudMac = mac; prefs.hudName = found[mac] ?: ""
                     pushState()
                     if (AppState.running) TramSacService.start(this)
+                    else if (done == null) TramSacService.startPos(this, reconnect = true)   // vua doi HUD: gui vi tri cho HUD moi
                     done?.invoke()
                 }
                 .setNegativeButton("Đóng", null)

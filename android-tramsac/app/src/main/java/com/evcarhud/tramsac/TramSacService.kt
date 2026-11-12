@@ -31,6 +31,8 @@ class TramSacService : Service() {
         const val STOP = "stop"
         const val TEST = "test"
         const val SEND = "send"     // gui ngay tram dang chon (vua chon tram dich)
+        const val STOP_FIND = "stopfind"
+        const val POS = "pos"       // chi gui vi tri GPS cho HUD (Mi Mi / thoi tiet), khong tim tram; tu bat khi mo app
         private const val CH = "tramsac"
         private const val NID = 1
         private const val FETCH_MIN_MS = 30_000L
@@ -40,6 +42,17 @@ class TramSacService : Service() {
         fun start(ctx: Context) {
             val i = Intent(ctx, TramSacService::class.java)
             if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
+        }
+
+        /** Bat che do chi gui vi tri (neu dich vu chua chay). Dang tim tram thi khong doi gi. */
+        fun startPos(ctx: Context, reconnect: Boolean = false) {
+            val i = Intent(ctx, TramSacService::class.java).setAction(POS).putExtra("reconnect", reconnect)
+            try { if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i) } catch (_: Exception) {}
+        }
+
+        /** Nut Dung trong app: thoi tim tram nhung van gui vi tri cho HUD (Mi Mi can GPS that). */
+        fun stopFind(ctx: Context) {
+            ctx.startService(Intent(ctx, TramSacService::class.java).setAction(STOP_FIND))
         }
 
         fun stop(ctx: Context) {
@@ -65,6 +78,8 @@ class TramSacService : Service() {
     private var picked: Nearby? = null
     private var lastPayload = ""
     private var lastSentAt = 0L
+    private var active = false                 // GPS + BLE dang chay (ca 2 che do)
+    private var posOnly = false                // chi gui vi tri, khong tim/gui tram
     private var posSent: Location? = null      // vi tri da gui HUD (thoi tiet), gui lai khi di xa ~500 m
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -75,7 +90,7 @@ class TramSacService : Service() {
         lm = getSystemService(LOCATION_SERVICE) as LocationManager
         ble = HudBle(this) { s ->
             AppState.update { hud = s }
-            if (ble.ready) { push(force = true); posSent = null; last?.let { sendPos(it) } }   // vua noi: gui lai vi tri cho thoi tiet
+            if (ble.ready) { if (!posOnly) push(force = true); posSent = null; last?.let { sendPos(it) } }   // vua noi: gui lai vi tri cho thoi tiet
         }
     }
 
@@ -84,6 +99,28 @@ class TramSacService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        val svc = getSharedPreferences("svc", MODE_PRIVATE)
+        if (intent?.action == STOP_FIND) {
+            if (!active) { stopSelf(); return START_NOT_STICKY }
+            main.removeCallbacks(tick)
+            if (!posOnly && ble.ready) ble.send(HudProto.encode(null, 0))   // xoa o tram tren HUD
+            posOnly = true
+            svc.edit().putBoolean("posOnly", true).apply()
+            AppState.update { running = false; data = "—"; picked = null; ranked = emptyList() }
+            goForeground("Đang gửi vị trí cho HUD")
+            return START_STICKY
+        }
+        // Android tu khoi dong lai dich vu (intent null) sau khi giet: giu dung che do truoc do
+        if (intent?.action == POS || (intent == null && svc.getBoolean("posOnly", false))) {
+            if (!active) {
+                posOnly = true
+                svc.edit().putBoolean("posOnly", true).apply()
+                goForeground("Đang gửi vị trí cho HUD")
+                startCore()
+            } else if (posOnly && intent?.getBooleanExtra("reconnect", false) == true) ble.start(prefs.hudMac)
+            return START_STICKY
+        }
+        svc.edit().putBoolean("posOnly", false).apply()
         goForeground("Đang tìm trạm sạc…")
         if (intent?.action == SEND) {
             if (!AppState.running) onStartCommand(null, flags, startId)
@@ -100,13 +137,15 @@ class TramSacService : Service() {
         }
         if (!AppState.running) {
             AppState.update { running = true; gps = "Đang chờ GPS…"; data = "—" }
-            // Tat man hinh: may ngu sau thi bo dem 30 giay khong chay, GPS dung yen khong bao -> HUD mat tram.
-            wake = (getSystemService(POWER_SERVICE) as android.os.PowerManager)
-                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EVCarHUD:tramsac").apply {
-                    setReferenceCounted(false); acquire(12 * 3600_000L)
-                }
-            startGps()
-            ble.start(prefs.hudMac)
+            val wasPosOnly = posOnly
+            posOnly = false
+            if (!active) startCore()
+            else {                                    // dang chi gui vi tri: chuyen sang tim tram, giu nguyen ket noi HUD
+                fetchedAt = 0; fetchTriedAt = 0
+                last?.let { onFix(it) }
+                if (wasPosOnly && ble.ready) push(force = true)
+            }
+            main.removeCallbacks(tick)
             main.postDelayed(tick, RESEND_MS)
         } else {
             ble.start(prefs.hudMac)          // vua doi HUD / cai dat: noi lai
@@ -116,12 +155,24 @@ class TramSacService : Service() {
         return START_STICKY
     }
 
+    private fun startCore() {
+        active = true
+        // Tat man hinh: may ngu sau thi bo dem 30 giay khong chay, GPS dung yen khong bao -> HUD mat tram.
+        wake = (getSystemService(POWER_SERVICE) as android.os.PowerManager)
+            .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "EVCarHUD:tramsac").apply {
+                setReferenceCounted(false); acquire(12 * 3600_000L)
+            }
+        startGps()
+        ble.start(prefs.hudMac)
+    }
+
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         try { wake?.release() } catch (_: Exception) {}
         wake = null
         try { lm.removeUpdates(loc) } catch (_: Exception) {}
-        ble.send(HudProto.encode(null, 0))  // xoa o tram sac tren HUD (neu con noi), cho ghi xong roi moi ngat
+        getSharedPreferences("svc", MODE_PRIVATE).edit().putBoolean("posOnly", false).apply()
+        if (!posOnly) ble.send(HudProto.encode(null, 0))  // xoa o tram sac tren HUD (neu con noi), cho ghi xong roi moi ngat
         val b = ble
         Handler(Looper.getMainLooper()).postDelayed({ b.stop() }, 800)
         io.shutdownNow()
@@ -173,8 +224,7 @@ class TramSacService : Service() {
             heading = Geo.bearing(prev.latitude, prev.longitude, l.latitude, l.longitude)
         val acc = if (l.hasAccuracy()) " ±${l.accuracy.roundToInt()} m" else ""
         AppState.update { gps = "Có vị trí$acc"; lastFix = l.latitude to l.longitude; speedKmh = kmh }
-        maybeFetch(l)
-        recompute()
+        if (!posOnly) { maybeFetch(l); recompute() }
         sendPos(l)
     }
 
