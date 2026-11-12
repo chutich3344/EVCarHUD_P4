@@ -537,8 +537,10 @@ static hgeo_t head_geo(int y, int hgt, bool three)
      * 3 chu so (1xx): so giu co, bien co lai ~80% cho vua be ngang. */
     hgeo_t g;
     int W = UI_W - 2 * PAD;
-    int unit = UNIT_DY + CAP_H(16) + 2;            /* cho cho "km/h" duoi so */
-    int rs = hgt - 6 - unit;
+    int unit = 0;                                  /* "km/h" co dinh o goc trai tren, doi xung voi dong ho qua vach thanh tren */
+    int ktop = TOP_H - 2;                          /* chan chu "km/h" (trong trang): so khong de len */
+    if (y < ktop) { hgt -= ktop - y; y = ktop; }
+    int rs = hgt - 6;
     if (rs > 170) rs = 170;
     int ww = w88 ? w88 : NCAP, gap = 12;
     if (rs * ww / NCAP + gap + rs > W) rs = (W - gap) * NCAP / (ww + NCAP);   /* hep: so va bien cung nho lai, van bang nhau */
@@ -621,10 +623,9 @@ static void render_head(head_t *h, const int *w)
     lv_image_set_pivot(n, px, py);
     lv_image_set_scale(n, (uint32_t)(g.cap * 256 / NCAP));
     lv_obj_set_pos(n, g.ncx - px, g.ncy - py);
-    lv_obj_t *u = h->unit;                                         /* km/h: duoi so, canh giua theo truc doc cua so */
+    lv_obj_t *u = h->unit;      /* km/h: goc trai, ngay duoi vach thanh tren, doi xung voi dong ho "07:16" qua vach */
     lv_obj_set_style_text_color(u, th->fg, 0);
-    lv_obj_set_pos(u, g.ncx - text_w("km/h", &ui_font_txt16) / 2,
-                   g.ncy + g.cap / 2 + UNIT_DY - (baseline(&ui_font_txt16) - CAP_H(16)));
+    lv_obj_set_pos(u, PAD, (TOP_H - (int)ui_font_txt16.line_height) / 2);
 
     lv_obj_set_size(h->ring, g.rs, g.rs);
     lv_obj_set_pos(h->ring, g.rcx - g.rs / 2, g.rcy - g.rs / 2);
