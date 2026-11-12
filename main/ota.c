@@ -338,6 +338,11 @@ static void server_url(char *u, size_t n, bool download)
     nvs_handle_t nh;
     if (nvs_open("ota", NVS_READONLY, &nh) == ESP_OK) {
         if (nvs_get_str(nh, "sha", sha, &sn) != ESP_OK) sha[0] = 0;
+        /* SHA chi dung cho DUNG ban da cai qua OTA. Nap tay qua USB / trang nap web thi ban dang chay khac ban luu SHA
+         * -> khong gui (12/11: chay 1.0.44 nap USB, SHA cu cua ban OTA truoc -> may chu bao "co ban moi 1.0.44" mai). */
+        char sv[32] = "";
+        size_t vn = sizeof sv;
+        if (nvs_get_str(nh, "shav", sv, &vn) != ESP_OK || strcmp(sv, cur_ver()) != 0) sha[0] = 0;
         nvs_close(nh);
     }
     snprintf(u, n, "%s?model=%s&mac=%s&v=%s%s%s%s", CONFIG_EVCARHUD_OTA_URL, CONFIG_EVCARHUD_OTA_MODEL, s_mac, cur_ver(),
@@ -522,6 +527,7 @@ out:
         nvs_handle_t nh;                                           /* SHA file vua cai: may chu biet HUD da chay dung file nao */
         if (nvs_open("ota", NVS_READWRITE, &nh) == ESP_OK) {
             nvs_set_str(nh, "sha", s_new_sha);
+            nvs_set_str(nh, "shav", s_new_ver);
             nvs_commit(nh);
             nvs_close(nh);
         }
