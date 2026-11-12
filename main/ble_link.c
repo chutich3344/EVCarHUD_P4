@@ -273,7 +273,8 @@ static void gofa_show(const char *state, const char *last)       /* task ble: da
     char head[128];
     snprintf(head, sizeof head, "MTU%u đọc%u biển%u tốc%u âm%u quá%u dẫn%u giờ%u%s", s_mtu, s_gofa_rd,
              s_gofa_cnt[0], s_gofa_cnt[1], s_gofa_snd, s_gofa_ovr, s_gofa_cnt[2], s_gofa_cnt[3], s_gofa_bad ? " · LỖI" : "");
-    ui_gofa_debug(head, last);
+    /* da chay that voi app GOFA (12/11): khong che dai cham doan len man dan duong nua, chi ghi log (doc tu xa) */
+    ESP_LOGI(TAG, "GOFA %s | %s", head, last ? last : "");
 }
 
 static void gofa_drain(void)
