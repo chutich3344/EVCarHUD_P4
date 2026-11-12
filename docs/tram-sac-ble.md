@@ -54,6 +54,7 @@ P1|<vĩ độ>|<kinh độ>|<tên nơi>
 Ví dụ `P1|10.77690|106.70090|TP. Hồ Chí Minh`. Tên nơi có thể để trống, khi đó HUD tự tra BigDataCloud. App lấy tên bằng Android Geocoder (locality, không có thì subAdminArea/adminArea).
 
 - App gửi một lần ngay khi nối HUD (nếu đã có vị trí), sau đó gửi lại mỗi khi xe đi xa hơn 500 m so với lần gửi trước (đủ dày để HUD tìm trạm gần nhất).
+- Khi đã chọn HUD, mở app là dịch vụ nền tự bật ở chế độ "chỉ gửi vị trí" (không tìm trạm, không ghi T1), không cần chọn trạm. Bấm Dừng trong app chỉ thôi tìm trạm, vẫn gửi vị trí; nút Dừng trên thông báo mới tắt hẳn.
 - HUD lấy lại thời tiết khi nhận lần đầu hoặc khi vị trí lệch hơn 5 km. Vị trí còn hiệu lực trong 3 giờ.
 - Firmware cũ không có characteristic này thì app bỏ qua, không báo lỗi.
 
