@@ -208,7 +208,7 @@ static int gofa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt
         const esp_app_desc_t *ad = esp_app_get_description();
         /* dinh dang theo vi du tai lieu GOFA: firmware "G1.1.2", hardware "EX-REV1", model "EX1" (12/11: app khong gui
          * dan duong / gio, nghi app doc phien ban theo mau "G<so>.<so>.<so>") */
-        static char fw[24];
+        static char fw[40];
         snprintf(fw, sizeof fw, "G%s", ad ? ad->version : "1.0.0");
         const char *v = id == 0x2A26 ? fw : id == 0x2A27 ? "P4-REV1" : id == 0x2A24 ? "EVH1" : NULL;
         ESP_LOGI(TAG, "GOFA doc 0x%04X", id);
