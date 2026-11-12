@@ -65,7 +65,7 @@ class TramSacService : Service() {
     private var picked: Nearby? = null
     private var lastPayload = ""
     private var lastSentAt = 0L
-    private var posSent: Location? = null      // vi tri da gui HUD (thoi tiet), gui lai khi di xa ~5 km
+    private var posSent: Location? = null      // vi tri da gui HUD (thoi tiet), gui lai khi di xa ~500 m
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -178,11 +178,11 @@ class TramSacService : Service() {
         sendPos(l)
     }
 
-    /** Vi tri cho thoi tiet tren HUD: lan dau sau khi noi, roi moi khi lech > 5 km. Ten noi lay tu Geocoder (neu co). */
+    /** Vi tri cho thoi tiet tren HUD: lan dau sau khi noi, roi moi khi lech > 500 m (HUD dung ca de tim tram gan nhat). Ten noi lay tu Geocoder (neu co). */
     private fun sendPos(l: Location) {
         if (!ble.ready || !ble.hasPos) return
         val p = posSent
-        if (p != null && Geo.distM(p.latitude, p.longitude, l.latitude, l.longitude) < 5000) return
+        if (p != null && Geo.distM(p.latitude, p.longitude, l.latitude, l.longitude) < 500) return
         posSent = l
         Thread {
             val place = try {
