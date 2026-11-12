@@ -1,6 +1,6 @@
 # Chính sách quyền riêng tư – HUD Trạm sạc
 
-Cập nhật: 12/11/2026 · Ứng dụng: **EVCarHUD Charge – Trạm sạc** (`com.evcarhud.charge`) · Nhà phát triển: EVCarHUD (liên hệ: support@evcarhud.com)
+Cập nhật: 12/11/2026 · Ứng dụng: **EVCarHUD Charge – Trạm sạc** (`com.evcarhud.charge`) · Nhà phát triển: EVCarHUD (liên hệ: evcar.vf7@gmail.com)
 
 HUD Trạm sạc tìm trạm sạc ô tô điện gần bạn và gửi thông tin trạm lên màn hình HUD EVCarHUD qua Bluetooth. Chúng tôi không yêu cầu tài khoản, không hiển thị quảng cáo và không bán dữ liệu.
 
@@ -44,4 +44,4 @@ Khi chính sách thay đổi, chúng tôi cập nhật trang này và ngày ở 
 
 ## 7. Liên hệ
 
-support@evcarhud.com
+evcar.vf7@gmail.com

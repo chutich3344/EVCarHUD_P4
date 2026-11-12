@@ -37,7 +37,7 @@ All apps → **Create app** → tên "EVCarHUD Charge", package `com.evcarhud.ch
 
 ## 4. 👤 Khai báo trong mục "App content"
 
-- **Privacy policy**: URL công khai tới nội dung `docs/chinh-sach-quyen-rieng-tu.md` (nên đăng thành trang `evcarhud.com/privacy-tram-sac`; Play không nhận file PDF hay trang cần đăng nhập). Sửa email liên hệ trong file trước khi đăng.
+- **Privacy policy**: URL công khai tới nội dung `docs/chinh-sach-quyen-rieng-tu.md` (nên đăng thành trang `evcarhud.com/privacy-tram-sac`; Play không nhận file PDF hay trang cần đăng nhập).
 - **Ads**: Không có quảng cáo.
 - **App access**: Toàn bộ chức năng dùng được không cần đăng nhập. Ghi chú cho người duyệt: "Cần HUD EVCarHUD để thấy trạm trên HUD; không có HUD, app vẫn tìm và hiện trạm trên màn hình điện thoại."
 - **Content rating**: điền bảng câu hỏi IARC, chọn danh mục Tiện ích/Bản đồ, trả lời "Không" cho mọi nội dung nhạy cảm → kết quả "Mọi lứa tuổi".

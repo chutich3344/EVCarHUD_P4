@@ -35,4 +35,4 @@ Bản đồ & Dẫn đường
 trạm sạc, xe điện, VinFast, HUD, ô tô điện
 
 ## Thông tin liên hệ
-Email: support@evcarhud.com (sửa thành email thật) · Website: https://evcarhud.com
+Email: evcar.vf7@gmail.com · Website: https://evcarhud.com
