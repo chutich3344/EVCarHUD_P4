@@ -50,7 +50,7 @@ static int hook(const char *fmt, va_list ap)
     va_list ap2;
     va_copy(ap2, ap);
     int r = s_orig ? s_orig(fmt, ap) : vprintf(fmt, ap);
-    if (s_ring && s_mux && !xPortInIsrContext() && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING &&
+    if (s_ring && s_mux && !xPortInIsrContext() && xTaskGetCurrentTaskHandle() != s_task && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING &&
         xSemaphoreTake(s_mux, 0) == pdTRUE) {
         int n = vsnprintf(s_line, sizeof s_line, fmt, ap2);
         if (n > 0) {
@@ -132,7 +132,7 @@ static void up_task(void *a)
         if (log_send(buf, pre + k)) {
             ring_drop(k);
             fails = 0;
-            if (s_len) s_urgent = true;          /* con nua: gui tiep sau 5 s */
+            if (s_len > 8192) s_urgent = true;   /* con nhieu: gui tiep sau 5 s */
         } else {
             fails++;
         }
@@ -148,6 +148,7 @@ void cloud_log_init(void)
     esp_efuse_mac_get_default(m);
     snprintf(s_mac, sizeof s_mac, "%02X:%02X:%02X:%02X:%02X:%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
     s_boot = esp_random();
+    esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);   /* moi lan TLS in 1 dong: bo */
     s_orig = esp_log_set_vprintf(hook);
     /* ngan xep PSRAM: task nay khong doc/ghi flash (chi HTTP), tiet kiem RAM chip */
     xTaskCreateWithCaps(up_task, "cloud_log", 8192, NULL, 1, &s_task, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

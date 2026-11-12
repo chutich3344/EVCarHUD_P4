@@ -2,6 +2,14 @@
 #include "hlp.h"
 #include <stdio.h>
 #include <string.h>
+#ifdef ESP_PLATFORM
+#include "esp_log.h"
+#define DLOG(...) ESP_LOGI("hlp", __VA_ARGS__)
+#else
+#define DLOG(...) ((void)0)
+#endif
+/* chan doan (log len may chu): dem dong nhan theo loai, in vai dong dau / dong hong */
+static unsigned d_cnt[8], d_bad;
 
 #define STALE_MS 3000                 /* theo spec: 3s khong co tin -> mat tin hieu */
 #define WEAK_MS  1500                 /* khong co tin `s` qua 1,5 s (binh thuong 4 tin/giay) -> chu GPS vang */
@@ -170,7 +178,14 @@ static void on_line(const char *line, size_t len, void *user)
 {
     (void)len; (void)user;
     hlp_msg_t m;
-    if (!hlp_parse_line(line, &m)) return;           /* hong / v khac 1: bo qua */
+    if (!hlp_parse_line(line, &m)) {                 /* hong / v khac 1: bo qua */
+        if (++d_bad <= 5) DLOG("dong hong #%u (%u byte): %.160s", d_bad, (unsigned)len, line);
+        return;
+    }
+    unsigned ty = (unsigned)m.type < 8 ? (unsigned)m.type : 7;
+    if (++d_cnt[ty] <= 3 && m.type != HLP_MSG_PING) DLOG("nhan loai %u #%u (%u byte): %.160s", ty, d_cnt[ty], (unsigned)len, line);
+    if ((d_cnt[ty] % 60) == 0) DLOG("da nhan: hi %u, ping %u, state %u, khac %u, hong %u, qua dai %u", d_cnt[HLP_MSG_HI],
+                                    d_cnt[HLP_MSG_PING], d_cnt[HLP_MSG_STATE], d_cnt[0], d_bad, (unsigned)rx.oversized);
 
     switch (m.type) {
     case HLP_MSG_HI:
@@ -309,7 +324,9 @@ void hlp_dash_on_disconnect(void)
 
 void hlp_dash_feed(const uint8_t *data, size_t len)
 {
+    uint32_t ov = rx.oversized;
     hlp_rx_feed(&rx, data, len);
+    if (rx.oversized != ov && rx.oversized <= 5) DLOG("bo dong qua dai #%u (> %d byte)", (unsigned)rx.oversized, HLP_MAX_FRAME);
 }
 
 void hlp_dash_external(bool on)
