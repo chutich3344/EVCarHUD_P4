@@ -209,7 +209,7 @@ static void on_line(const char *line, size_t len, void *user)
                 DLOG("Waze: nav=%d spd=%d lim=%d trn=%d dst=%d st=\"%.60s\" eta=%s", m.s.nav, m.s.spd, m.s.lim, m.s.trn,
                      m.s.dst, m.s.st, m.s.eta);
                 d_nav = m.s.nav;
-                snprintf(d_st, sizeof d_st, "%s", m.s.st);
+                strncpy(d_st, m.s.st, sizeof d_st - 1);
                 if (m.s.spd > 0) d_spd_seen = 1;
             }
         }
