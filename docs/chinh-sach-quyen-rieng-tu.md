@@ -1,6 +1,6 @@
 # Chính sách quyền riêng tư – HUD Trạm sạc
 
-Cập nhật: 03/11/2026 · Ứng dụng: **EVCarHUD Charge – Trạm sạc** (`com.evcarhud.charge`) · Nhà phát triển: EVCarHUD (liên hệ: support@evcarhud.com)
+Cập nhật: 12/11/2026 · Ứng dụng: **EVCarHUD Charge – Trạm sạc** (`com.evcarhud.charge`) · Nhà phát triển: EVCarHUD (liên hệ: support@evcarhud.com)
 
 HUD Trạm sạc tìm trạm sạc ô tô điện gần bạn và gửi thông tin trạm lên màn hình HUD EVCarHUD qua Bluetooth. Chúng tôi không yêu cầu tài khoản, không hiển thị quảng cáo và không bán dữ liệu.
 
@@ -9,7 +9,8 @@ HUD Trạm sạc tìm trạm sạc ô tô điện gần bạn và gửi thông t
 | Dữ liệu | Dùng để | Gửi đi đâu |
 |---|---|---|
 | Vị trí chính xác (GPS) | Tìm trạm sạc quanh bạn, tính khoảng cách và hướng tới trạm | Toạ độ được gửi kèm truy vấn tới nguồn dữ liệu trạm bạn chọn (xem mục 2). Không lưu lại trên máy chủ của chúng tôi để nhận diện bạn. |
-| Thiết bị Bluetooth lân cận | Tìm và kết nối HUD EVCarHUD | Không gửi đi đâu; địa chỉ HUD chỉ lưu trên điện thoại. |
+| Thiết bị Bluetooth lân cận | Tìm và kết nối HUD EVCarHUD; gửi trạm sạc và vị trí GPS xuống HUD (để HUD hiện thời tiết) | Vị trí gửi xuống HUD qua Bluetooth chỉ đi giữa điện thoại và HUD của bạn. Địa chỉ HUD lưu trên điện thoại. |
+| Thông tin HUD (mẫu máy, địa chỉ Bluetooth, phiên bản firmware) | Kiểm tra và tải bản cập nhật firmware cho HUD | Gửi tới evcarhud.com khi bạn kiểm tra cập nhật, chỉ để tìm bản firmware phù hợp với HUD bạn đã đăng ký. |
 | Cài đặt trong app (bán kính, nguồn dữ liệu, khoá API bạn tự nhập) | Ghi nhớ lựa chọn của bạn | Chỉ lưu trên điện thoại. |
 
 Ứng dụng **không** thu thập tên, số điện thoại, email, danh bạ, ảnh, hay mã định danh quảng cáo.
@@ -23,7 +24,7 @@ Tuỳ nguồn bạn chọn trong Cài đặt, toạ độ hiện tại được 
 - **Open Charge Map** (api.openchargemap.io) – chỉ khi bạn bật nguồn này.
 - **Máy chủ tuỳ chỉnh** – chỉ khi bạn tự nhập địa chỉ.
 
-Dữ liệu trạm VinFast được tải dưới dạng tệp từ GitHub (không kèm vị trí). Các dịch vụ trên có chính sách riêng và có thể ghi nhật ký truy cập (địa chỉ IP, thời gian) theo thông lệ.
+Dữ liệu trạm VinFast và dữ liệu trạm cộng đồng được tải dưới dạng tệp chung từ GitHub và data.evcarhud.com (không kèm vị trí của bạn). Các dịch vụ trên có chính sách riêng và có thể ghi nhật ký truy cập (địa chỉ IP, thời gian) theo thông lệ.
 
 ## 3. Chạy khi tắt màn hình
 
