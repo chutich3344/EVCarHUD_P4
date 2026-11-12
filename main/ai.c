@@ -1228,8 +1228,9 @@ static void mic_task(void *arg)
         }
         esp_websocket_client_handle_t ws = s_ws;
         if (ws && s_st == ST_LISTEN && esp_websocket_client_is_connected(ws)) {
-            /* gui qua han -> thu vien cat ket noi (transport_poll_write): cho lau hon */
-            int r = esp_websocket_client_send_bin(ws, (const char *)out, (int)o.encoded_bytes, pdMS_TO_TICKS(1000));
+            /* gui qua han -> thu vien cat ket noi (transport_poll_write). Mang 4G qua diem phat song luc xe chay hay khung
+             * chieu len 1-3 s (log 12/11: dut sau ~4 s noi chuyen): cho toi 5 s thay vi 1 s */
+            int r = esp_websocket_client_send_bin(ws, (const char *)out, (int)o.encoded_bytes, pdMS_TO_TICKS(5000));
             if (r > 0) s_tx_ok++;
             else if (s_tx_err++ == 0) ESP_LOGW(TAG, "gui tieng loi %d", r);
         }
