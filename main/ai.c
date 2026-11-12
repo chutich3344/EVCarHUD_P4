@@ -16,6 +16,7 @@
 #include "freertos/idf_additions.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_mac.h"
 #include "esp_random.h"
 #include "esp_websocket_client.h"
@@ -655,6 +656,66 @@ static void mcp_reply(const cJSON *id, cJSON *result, int err, const char *emsg)
     send_json(r);
 }
 
+/* ---- Mi Mi dua tram sac len HUD (cong cu self.show_charging_station) ----
+ * Dai tram cua HUD tu an sau 90 s khong co ban tin, nen cu 10 s gui lai, khoang cach tinh lai tu GPS dien thoai
+ * (app EVCarHUD Charge). Giu toi da 45 phut, toi noi (<= 50 m), bi xoa, hoac app Charge gui tram khac thi thoi. */
+#define ST_HOLD_US (45LL * 60 * 1000000)
+static esp_timer_handle_t s_st_tmr;
+static char s_st_name[64];
+static double s_st_lat, s_st_lon;
+static int s_st_kw, s_st_ports, s_st_dist0;
+static int64_t s_st_t0;
+
+static int st_dist_now(void)
+{
+    double la, lo;
+    if (!wifi_phone_pos(&la, &lo)) return s_st_dist0;
+    double dy = (s_st_lat - la) * 111195.0, dx = (s_st_lon - lo) * 111195.0 * cos(la * M_PI / 180);
+    return (int)sqrt(dx * dx + dy * dy);
+}
+
+static void st_tick(void *arg)
+{
+    (void)arg;
+    if (!s_st_name[0]) return;
+    double la, lo;
+    bool live = wifi_phone_pos(&la, &lo);                          /* khong GPS: giu khoang cach may chu bao, khong bao toi */
+    int d = st_dist_now();
+    bool end = esp_timer_get_time() - s_st_t0 > ST_HOLD_US || (live && d >= 0 && d <= 50);
+    board_ui_lock();
+    ui_set_station(s_st_name, d, '?', UI_TS_NO_ANGLE, s_st_kw, s_st_ports, 1, 'D');
+    board_ui_unlock();
+    if (end) { s_st_name[0] = 0; esp_timer_stop(s_st_tmr); }
+}
+
+void ai_station_cancel(void)
+{
+    if (!s_st_name[0]) return;
+    s_st_name[0] = 0;
+    if (s_st_tmr) esp_timer_stop(s_st_tmr);
+}
+
+static void st_show(const char *name, double lat, double lon, int kw, int ports, int dist)
+{
+    if (!s_st_tmr) {
+        const esp_timer_create_args_t a = {.callback = st_tick, .name = "mimi_tram"};
+        if (esp_timer_create(&a, &s_st_tmr) != ESP_OK) return;
+    }
+    esp_timer_stop(s_st_tmr);
+    if (!name || !name[0]) {
+        s_st_name[0] = 0;
+        board_ui_lock();
+        ui_set_station(NULL, 0, '?', UI_TS_NO_ANGLE, 0, 0, 0, 'N');
+        board_ui_unlock();
+        return;
+    }
+    snprintf(s_st_name, sizeof s_st_name, "%s", name);
+    s_st_lat = lat; s_st_lon = lon; s_st_kw = kw; s_st_ports = ports; s_st_dist0 = dist;
+    s_st_t0 = esp_timer_get_time();
+    st_tick(NULL);
+    if (s_st_name[0]) esp_timer_start_periodic(s_st_tmr, 10 * 1000000);
+}
+
 static void on_mcp(const cJSON *pl)
 {
     const cJSON *id = cJSON_GetObjectItem(pl, "id"), *m = cJSON_GetObjectItem(pl, "method");
@@ -704,6 +765,20 @@ static void on_mcp(const cJSON *pl)
         cJSON *rq = cJSON_AddArrayToObject(sc, "required");
         cJSON_AddItemToArray(rq, cJSON_CreateString("volume"));
         cJSON_AddItemToArray(tools, t);
+        t = cJSON_CreateObject();
+        cJSON_AddStringToObject(t, "name", "self.show_charging_station");
+        cJSON_AddStringToObject(t, "description",
+                                "Đưa một trạm sạc lên màn HUD (tên, khoảng cách tự cập nhật theo GPS điện thoại, kW) như app EVCarHUD Charge. "
+                                "Gọi sau khi tim_tram_sac khi người dùng muốn tới trạm hoặc hỏi trạm gần nhất. name rỗng = xoá trạm khỏi HUD.");
+        sc = cJSON_AddObjectToObject(t, "inputSchema");
+        cJSON_AddStringToObject(sc, "type", "object");
+        pr = cJSON_AddObjectToObject(sc, "properties");
+        const char *num[] = {"lat", "lon", "kw", "ports", "dist_m"};
+        cJSON_AddStringToObject(cJSON_AddObjectToObject(pr, "name"), "type", "string");
+        for (int i = 0; i < 5; i++) cJSON_AddStringToObject(cJSON_AddObjectToObject(pr, num[i]), "type", "number");
+        rq = cJSON_AddArrayToObject(sc, "required");
+        cJSON_AddItemToArray(rq, cJSON_CreateString("name"));
+        cJSON_AddItemToArray(tools, t);
         mcp_reply(id, res, 0, NULL);
     } else if (strcmp(meth, "tools/call") == 0) {
         const cJSON *prm = cJSON_GetObjectItem(pl, "params");
@@ -719,11 +794,27 @@ static void on_mcp(const cJSON *pl)
             double la, lo;
             bool gps;
             char wx[96];
-            if (wifi_link_weather(&la, &lo, wx, sizeof wx, &gps))
+            bool ok = wifi_link_weather(&la, &lo, wx, sizeof wx, &gps);
+            double pla, plo;
+            if (wifi_phone_pos(&pla, &plo)) { la = pla; lo = plo; gps = true; ok = true; }   /* toa do moi nhat, khong doi thoi tiet tai lai */
+            if (ok)
                 snprintf(txt, sizeof txt, "{\"lat\":%.4f,\"lon\":%.4f,\"gps\":%s,\"weather_on_hud\":\"%s\"}", la, lo,
                          gps ? "true" : "false", wx);
             else
                 snprintf(txt, sizeof txt, "{\"error\":\"HUD chưa lấy được vị trí và thời tiết (chưa có mạng)\"}");
+        } else if (cJSON_IsString(nm) && strcmp(nm->valuestring, "self.show_charging_station") == 0) {
+            const cJSON *ar = cJSON_GetObjectItem(prm, "arguments");
+            const cJSON *n = cJSON_GetObjectItem(ar, "name");
+            #define NUM(k, d) (cJSON_IsNumber(cJSON_GetObjectItem(ar, k)) ? cJSON_GetObjectItem(ar, k)->valuedouble : (d))
+            const char *name = cJSON_IsString(n) ? n->valuestring : "";
+            double la = NUM("lat", 999), lo = NUM("lon", 999);
+            if (name[0] && (fabs(la) > 90 || fabs(lo) > 180)) {
+                snprintf(txt, sizeof txt, "{\"error\":\"thiếu lat/lon của trạm\"}");
+            } else {
+                st_show(name, la, lo, (int)NUM("kw", 0), (int)NUM("ports", 0), (int)NUM("dist_m", -1));
+                snprintf(txt, sizeof txt, name[0] ? "{\"ok\":true,\"shown_on_hud\":true}" : "{\"ok\":true,\"cleared\":true}");
+            }
+            #undef NUM
         } else if (cJSON_IsString(nm) && strcmp(nm->valuestring, "self.get_device_status") == 0) {
             snprintf(txt, sizeof txt, "{\"speed_kmh\":%d,\"volume\":%d,\"ai_volume\":%d,\"sound_on\":%s,\"firmware\":\"%s\"}",
                      ui_get_speed(), settings_get_volume(), settings_get_ai_volume(), settings_get_sound() ? "true" : "false",

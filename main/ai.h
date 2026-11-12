@@ -8,4 +8,5 @@
 
 void ai_start(void);                 /* goi sau dashboard_create + audio_start (ngoai khoa LVGL) */
 void ai_wifi_changed(bool up);
+void ai_station_cancel(void);        /* app Charge gui tram qua BLE: Mi Mi thoi giu dai tram cua minh */
 void ai_wake_sens_changed(void);     /* Cai dat doi do nhay goi "Mi Mi": ap nguong moi ngay */       /* wifi_link.c: co / mat mang */

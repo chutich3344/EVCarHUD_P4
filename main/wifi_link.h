@@ -12,3 +12,4 @@ void wifi_link_net_result(bool ok);
 #include <stddef.h>
 /* Vi tri + thoi tiet dang hien tren HUD (lan lay gan nhat). false neu chua co. gps=false: vi tri uoc theo IP. */
 bool wifi_link_weather(double *lat, double *lon, char *txt, size_t n, bool *gps);
+bool wifi_phone_pos(double *lat, double *lon);   /* vi tri GPS dien thoai con han (3 gio) */

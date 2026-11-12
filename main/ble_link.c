@@ -26,6 +26,7 @@
 
 #include "link.h"
 #include "board.h"
+#include "ai.h"
 #include "dashboard.h"
 #include "settings.h"
 #include "gofa.h"
@@ -115,6 +116,7 @@ static int ts_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *
     b[n] = 0;
     ESP_LOGI(TAG, "tram sac: %s", b);
     if (strncmp(b, "T1|", 3) != 0) return 0;                      /* phien ban khac: bo qua */
+    ai_station_cancel();                                           /* app Charge chon tram: thay tram Mi Mi dua len */
     char *f[9] = {0};                                              /* ten, met, phia, goc, kW, cong, so tram, che do */
     int k = 0;
     for (char *p = b + 3; k < 8; ) {

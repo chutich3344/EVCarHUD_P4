@@ -677,6 +677,17 @@ void wifi_link_start(void)
     xTaskCreate(weather_task, "thoi_tiet", 10240, NULL, 2, &wx_task);
 }
 
+/* Vi tri dien thoai moi nhat (app EVCarHUD Charge gui), con han 3 gio. Mi Mi dung tinh khoang cach toi tram. */
+bool wifi_phone_pos(double *lat, double *lon)
+{
+    portENTER_CRITICAL(&pos_mux);
+    bool ok = ph_us && esp_timer_get_time() - ph_us < PH_FRESH_US;
+    *lat = ph_lat;
+    *lon = ph_lon;
+    portEXIT_CRITICAL(&pos_mux);
+    return ok;
+}
+
 bool wifi_link_weather(double *lat, double *lon, char *txt, size_t n, bool *gps)
 {
     portENTER_CRITICAL(&pos_mux);
