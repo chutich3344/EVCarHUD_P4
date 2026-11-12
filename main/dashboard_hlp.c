@@ -202,6 +202,17 @@ static void on_line(const char *line, size_t len, void *user)
         if (have_ts && m.s.ts < last_ts) return;     /* tin cu hon: bo (cung sess) */
         have_ts = true;
         last_ts = m.s.ts;
+        {
+            static int d_nav = -2, d_spd_seen;
+            static char d_st[48];
+            if (m.s.nav != d_nav || strncmp(d_st, m.s.st, sizeof d_st - 1) != 0 || (m.s.spd > 0 && !d_spd_seen)) {
+                DLOG("Waze: nav=%d spd=%d lim=%d trn=%d dst=%d st=\"%.60s\" eta=%s", m.s.nav, m.s.spd, m.s.lim, m.s.trn,
+                     m.s.dst, m.s.st, m.s.eta);
+                d_nav = m.s.nav;
+                snprintf(d_st, sizeof d_st, "%s", m.s.st);
+                if (m.s.spd > 0) d_spd_seen = 1;
+            }
+        }
         apply_state(&m.s);
         have_state = true;
         last_state_tick = lv_tick_get();
