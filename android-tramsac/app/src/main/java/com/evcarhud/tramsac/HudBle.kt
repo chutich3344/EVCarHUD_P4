@@ -30,6 +30,8 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
     private var posPending: ByteArray? = null
     private var stopped = true
     private var refreshed = false
+    private var fails = 0          // so lan noi hong lien tiep: 3 lan dau noi truc tiep (nhanh), sau do de Android tu noi
+    private var writeErr = 0       // ghi loi lien tiep (bang thuoc tinh cu sau khi HUD doi firmware) -> noi lai
 
     val ready get() = chr != null
 
@@ -37,6 +39,7 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
         stop()
         mac = address
         stopped = false
+        fails = 0
         if (mac.isBlank()) { onState("Chưa chọn HUD"); return }
         connect()
     }
@@ -69,8 +72,11 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
         write(g, c, data) { pending = data }
     }
 
+    private var lastData: ByteArray? = null    // ban tin dang ghi, de giu lai neu HUD bao loi
+
     private fun write(g: BluetoothGatt, c: BluetoothGattCharacteristic, data: ByteArray, keep: () -> Unit) {
         busy = true
+        lastData = data
         val ok = if (Build.VERSION.SDK_INT >= 33) {
             g.writeCharacteristic(c, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == 0
         } else {
@@ -104,8 +110,10 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
         }
         val shared = mgr.getConnectedDevices(BluetoothProfile.GATT).any { it.address.equals(mac, true) }
         onState(if (shared) "Đang mở kênh (dùng chung kết nối Waze/GOFA)…" else "Đang kết nối HUD…")
-        // autoConnect = true: tu noi lai khi HUD bat len / vao vung song, khong can quet
-        gatt = dev.connectGatt(ctx, !shared, cb, BluetoothDevice.TRANSPORT_LE)
+        // HUD vua khoi dong lai (vd. sau OTA): noi truc tiep vai lan cho nhanh; autoConnect cua Android quet cham,
+        // co khi vai phut moi noi. Sau 3 lan hong moi chuyen sang autoConnect (tu noi khi HUD bat len / vao vung song).
+        val auto = !shared && fails >= 3
+        gatt = dev.connectGatt(ctx, auto, cb, BluetoothDevice.TRANSPORT_LE)
     }
 
     private fun retry(ms: Long) {
@@ -114,7 +122,8 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
     }
 
     private fun dropAndRetry(msg: String, ms: Long) {
-        chr = null; posChr = null; busy = false
+        chr = null; posChr = null; busy = false; writeErr = 0
+        fails++
         gatt?.let { try { it.close() } catch (_: Exception) {} }
         gatt = null
         onState(msg)
@@ -127,7 +136,10 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
                 if (g != gatt) return@post
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     onState("Đã nối, đang đọc dịch vụ…")
-                    if (!g.requestMtu(247)) g.discoverServices()
+                    // Moi lan noi deu xoa bo nho dem dich vu: HUD doi firmware (OTA) thi bang thuoc tinh doi,
+                    // Android van dung bang cu -> ghi vao sai cho, HUD khong nhan duoc tram/vi tri.
+                    try { g.javaClass.getMethod("refresh").invoke(g) } catch (_: Exception) {}
+                    main.postDelayed({ if (g == gatt && !g.requestMtu(247)) g.discoverServices() }, 300)
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     dropAndRetry("HUD mất kết nối, đang thử lại…", 3000)
                 }
@@ -158,6 +170,7 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
                 chr = c
                 posChr = c.service.getCharacteristic(HudProto.POS)
                 refreshed = false
+                fails = 0
                 onState("Đã kết nối HUD")
                 flush()
             }
@@ -167,6 +180,15 @@ class HudBle(private val ctx: Context, private val onState: (String) -> Unit) {
             main.post {
                 if (g != gatt) return@post
                 busy = false
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    // Giu lai ban tin; ghi hong 3 lan lien tiep thi noi lai tu dau (doc lai dich vu)
+                    val d = lastData
+                    if (d != null) { if (c.uuid == HudProto.POS) { if (posPending == null) posPending = d } else if (pending == null) pending = d }
+                    if (++writeErr >= 3) { dropAndRetry("HUD không nhận dữ liệu, đang nối lại…", 1000); return@post }
+                    main.postDelayed({ flush() }, 500)
+                    return@post
+                }
+                writeErr = 0
                 flush()
             }
         }
