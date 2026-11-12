@@ -28,6 +28,9 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ArrayAdapter
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -205,6 +208,7 @@ class MainActivity : Activity() {
         }
         @JavascriptInterface fun setRadius(km: Int) = ui { prefs.radiusKm = km; applySettings() }
         @JavascriptInterface fun setOcmKey(k: String) = ui { prefs.ocmKey = k; applySettings() }
+        @JavascriptInterface fun otaCheck() = ui { this@MainActivity.otaCheck() }
     }
 
     private fun ui(f: () -> Unit) { main.post(f) }
@@ -434,6 +438,70 @@ class MainActivity : Activity() {
                 .setNegativeButton("Đóng", null)
                 .setOnDismissListener { h.removeCallbacks(stopScan); stopScan.run() }
                 .show()
+        }
+    }
+
+    // ---------------- Cap nhat firmware HUD qua Bluetooth (HudOta) ----------------
+    private var ota: HudOta? = null
+
+    private fun otaCheck() {
+        withPerms {
+            if (prefs.hudMac.isBlank()) { pickHud { otaCheck() }; return@withPerms }
+            val dp = resources.displayMetrics.density
+            val tv = TextView(this).apply { textSize = 15f; setPadding((24 * dp).toInt(), (12 * dp).toInt(), (24 * dp).toInt(), 0) }
+            val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100; isIndeterminate = true; setPadding((24 * dp).toInt(), (12 * dp).toInt(), (24 * dp).toInt(), (8 * dp).toInt())
+            }
+            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(tv); addView(bar) }
+            val dlg = AlertDialog.Builder(this).setTitle("Cập nhật firmware HUD").setView(box).setCancelable(false)
+                .setPositiveButton("Cập nhật", null).setNegativeButton("Đóng", null).create()
+            var installing = false
+            val o = HudOta(this, object : HudOta.Listener {
+                override fun status(text: String) { tv.text = text; bar.visibility = View.VISIBLE }
+                override fun info(cur: String, latest: String, notes: String, update: Boolean) {
+                    bar.visibility = View.GONE
+                    if (update) {
+                        tv.text = "HUD đang chạy bản $cur.\nCó bản mới $latest." + (if (notes.isNotBlank()) "\n\n$notes" else "") +
+                            "\n\nGiữ điện thoại gần HUD, xe đứng yên. Mất khoảng 1–3 phút."
+                        dlg.getButton(AlertDialog.BUTTON_POSITIVE).visibility = View.VISIBLE
+                    } else {
+                        tv.text = "Đã là bản mới nhất ($cur)."
+                    }
+                }
+                override fun progress(sent: Int, total: Int) {
+                    bar.isIndeterminate = false; bar.visibility = View.VISIBLE
+                    bar.progress = (sent * 100L / total.coerceAtLeast(1)).toInt()
+                    tv.text = "Đang gửi xuống HUD ${bar.progress}% (${sent / 1024} / ${total / 1024} KB)\nGiữ điện thoại gần HUD."
+                }
+                override fun done(ok: Boolean, text: String) {
+                    installing = false
+                    bar.visibility = View.GONE
+                    tv.text = text
+                    dlg.getButton(AlertDialog.BUTTON_POSITIVE).visibility = View.GONE
+                    dlg.getButton(AlertDialog.BUTTON_NEGATIVE).text = "Đóng"
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            })
+            ota = o
+            dlg.setOnShowListener {
+                val pos = dlg.getButton(AlertDialog.BUTTON_POSITIVE)
+                val neg = dlg.getButton(AlertDialog.BUTTON_NEGATIVE)
+                pos.visibility = View.GONE
+                pos.setOnClickListener {
+                    installing = true
+                    pos.visibility = View.GONE
+                    neg.text = "Huỷ"
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    o.install()
+                }
+                neg.setOnClickListener {
+                    o.close()
+                    if (installing) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    dlg.dismiss()
+                }
+            }
+            dlg.show()
+            o.check(prefs.hudMac)
         }
     }
 }
