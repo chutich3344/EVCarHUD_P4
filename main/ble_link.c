@@ -292,13 +292,52 @@ static void gofa_drain(void)
     }
 }
 
+/* GOFA (dev GOFA xac nhan 12/11/2026): Service UUID dinh danh phai la chuoi DAU TIEN trong goi quang ba, 10 byte dau
+ * tuy y (app khong doc), app lay MAC o 6 byte cuoi. ble_gap_adv_set_fields luon dat Flags truoc nen tu xep goi tho:
+ * [UUID 128 bit][ten][Flags] = 18 + (2 + ten) + 3 <= 31 byte; ten dai thi chuyen sang goi tra loi quet. */
+static int gofa_adv_data(const char *name)
+{
+    uint8_t d[31], r[31];
+    int n = 0, rn = 0, nl = (int)strlen(name);
+    d[n++] = 17;
+    d[n++] = BLE_HS_ADV_TYPE_COMP_UUIDS128;
+    memcpy(d + n, s_gofa_id.value, 16);                            /* thu tu byte nhu chuan BLE (little endian) */
+    n += 16;
+    if (n + 2 + nl + 3 <= (int)sizeof d) {
+        d[n++] = (uint8_t)(nl + 1);
+        d[n++] = BLE_HS_ADV_TYPE_COMP_NAME;
+        memcpy(d + n, name, nl);
+        n += nl;
+    } else if (nl + 2 <= (int)sizeof r) {
+        r[rn++] = (uint8_t)(nl + 1);
+        r[rn++] = BLE_HS_ADV_TYPE_COMP_NAME;
+        memcpy(r + rn, name, nl);
+        rn += nl;
+    }
+    d[n++] = 2;
+    d[n++] = BLE_HS_ADV_TYPE_FLAGS;
+    d[n++] = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    int rc = ble_gap_adv_set_data(d, n);
+    if (rc == 0 && rn) rc = ble_gap_adv_rsp_set_data(r, rn);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, d, n, ESP_LOG_INFO);
+    return rc;
+}
+
 static void advertise(void)
 {
     const char *name = ble_svc_gap_device_name();
+    if (s_gofa) {
+        int grc = gofa_adv_data(name);
+        if (grc != 0) {
+            ESP_LOGW(TAG, "GOFA: khong dat duoc goi quang ba (rc=%d)", grc);
+            return;
+        }
+        goto start;
+    }
     struct ble_hs_adv_fields f;
     memset(&f, 0, sizeof f);
     f.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    f.uuids128 = (ble_uuid128_t *)(s_gofa ? &s_gofa_id : &UUID_SVC);   /* GOFA: UUID dinh danh dat dau tien */
+    f.uuids128 = (ble_uuid128_t *)&UUID_SVC;
     f.num_uuids128 = 1;
     f.uuids128_is_complete = 1;
     f.name = (const uint8_t *)name;
@@ -321,6 +360,7 @@ static void advertise(void)
         ESP_LOGW(TAG, "khong dat duoc du lieu quang ba (rc=%d)", rc);
         return;
     }
+start:;
     struct ble_gap_adv_params p;
     memset(&p, 0, sizeof p);
     p.conn_mode = BLE_GAP_CONN_MODE_UND;
