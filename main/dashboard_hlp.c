@@ -213,6 +213,19 @@ static void on_line(const char *line, size_t len, void *user)
                 if (m.s.spd > 0) d_spd_seen = 1;
             }
         }
+        {
+            /* Hai app Waze cung noi (vd Waze beta + Waze Mod tren cung dien thoai): mot app dang dan (nav=1), app kia
+             * khong (nav=0), xen ke ~2 lan/giay -> man hinh nhay. Vua co tin dang dan trong 3 s thi bo tin nav=0. */
+            static uint32_t nav_tick;
+            static unsigned d_skip;
+            if (m.s.nav) nav_tick = lv_tick_get() | 1;
+            else if (nav_tick && lv_tick_elaps(nav_tick) < 3000) {
+                if (d_skip++ % 60 == 0) DLOG("bo tin nav=0 xen giua luc dang dan (%u lan) - co 2 app Waze cung gui?", d_skip);
+                last_rx_tick = lv_tick_get();
+                set_signal(true);
+                return;
+            }
+        }
         apply_state(&m.s);
         have_state = true;
         last_state_tick = lv_tick_get();
