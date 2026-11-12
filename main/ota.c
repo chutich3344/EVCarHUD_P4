@@ -146,9 +146,13 @@ static int sink_feed(sink_t *s, const uint8_t *d, size_t n)
         d += take;
         n -= take;
         if (s->head_n < HEAD_BUF) return 0;
-        if (s->head[0] != 0xE9) { snprintf(s->err, sizeof s->err, "File không phải firmware ESP32"); return -1; }
+        /* File gop cua ESP32-P4: bootloader o 0x2000, 0x0..0x1FFF la 0xFF -> phai nhan file gop qua bang phan vung
+         * (0xAA50 o 0x8000) TRUOC khi doi byte dau 0xE9. Truoc 12/11 kiem 0xE9 truoc nen OTA file gop luon bao
+         * "File khong phai firmware ESP32". */
+        bool full = s->head[0x8000] == 0xAA && s->head[0x8001] == 0x50;
+        if (!full && s->head[0] != 0xE9) { snprintf(s->err, sizeof s->err, "File không phải firmware ESP32"); return -1; }
         s->decided = true;
-        s->skip = s->head[0x8000] == 0xAA && s->head[0x8001] == 0x50 ? APP_OFF_FULL : 0;
+        s->skip = full ? APP_OFF_FULL : 0;
         ESP_LOGI(TAG, "file %s", s->skip ? "gop (nap 0x0): bo qua bootloader + bang phan vung" : "firmware (0x10000)");
         int r = s->skip ? 0 : sink_write_app(s, s->head, s->head_n);
         free(s->head);
