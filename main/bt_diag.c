@@ -34,6 +34,9 @@ void __wrap_eh_host_mcu_hci_rx_deliver(const uint8_t *frame, uint16_t len)
                       "dang ky=%d, san sang=%u, RAM C6 %u KB, cau v%u",
                  frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], (int8_t)frame[11], frame[12],
                  frame[13], frame[14]);
+        if (len >= 19)
+            ESP_LOGW(TAG, "C6 tu bat BLE: khoi tao 0x%x, bat 0x%x (0=OK, ffff=chua goi)",
+                     (frame[15] << 8) | frame[16], (frame[17] << 8) | frame[18]);
         return;
     }
     s_rx++;
