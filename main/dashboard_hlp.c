@@ -184,7 +184,7 @@ static void on_line(const char *line, size_t len, void *user)
     }
     unsigned ty = (unsigned)m.type < 8 ? (unsigned)m.type : 7;
     if (++d_cnt[ty] <= 3 && m.type != HLP_MSG_PING) DLOG("nhan loai %u #%u (%u byte): %.160s", ty, d_cnt[ty], (unsigned)len, line);
-    if ((d_cnt[ty] % 60) == 0) DLOG("da nhan: hi %u, ping %u, state %u, khac %u, hong %u, qua dai %u", d_cnt[HLP_MSG_HI],
+    if ((d_cnt[ty] % 600) == 0) DLOG("da nhan: hi %u, ping %u, state %u, khac %u, hong %u, qua dai %u", d_cnt[HLP_MSG_HI],
                                     d_cnt[HLP_MSG_PING], d_cnt[HLP_MSG_STATE], d_cnt[0], d_bad, (unsigned)rx.oversized);
 
     switch (m.type) {
@@ -205,7 +205,7 @@ static void on_line(const char *line, size_t len, void *user)
         {
             static int d_nav = -2, d_spd_seen;
             static char d_st[48];
-            if (m.s.nav != d_nav || strncmp(d_st, m.s.st, sizeof d_st - 1) != 0 || (m.s.spd > 0 && !d_spd_seen)) {
+            if (m.s.nav != d_nav || (m.s.spd > 0 && !d_spd_seen)) {   /* chi khi bat / tat dan duong (truoc: moi lan doi ten duong) */
                 DLOG("Waze: nav=%d spd=%d lim=%d trn=%d dst=%d st=\"%.60s\" eta=%s", m.s.nav, m.s.spd, m.s.lim, m.s.trn,
                      m.s.dst, m.s.st, m.s.eta);
                 d_nav = m.s.nav;

@@ -99,6 +99,7 @@ static char s_ws_url[256], s_ws_tok[256];             /* nho dia chi + token: ph
 #define VAD_FOLLOW_FR 334                             /* ~20 s cho hoi tiep sau khi Mi Mi tra loi xong, roi tu tat */
 #define LISTEN_FOLLOW_MS 37000                        /* luoi an toan luot hoi tiep: 20 s cho + 15 s cau dai nhat */
 static volatile bool s_follow;                        /* luot nghe hien tai la hoi tiep (sau cau tra loi) */
+static int s_keep;                                    /* so lan may chu bao "dang nghi" trong luot nay */
 static volatile int s_wake_thr = -1;                  /* nguong tu danh thuc moi (%), luong danh thuc ap dung */
 #define VAD_MAX_FR    250                             /* cau dai nhat 15 s */
 
@@ -283,6 +284,7 @@ static void ui_show(const char *cap, const char *text, bool pulse)
 
 static void toast(const char *t)
 {
+    ESP_LOGW(TAG, "bao: %s", t);                     /* moi thong bao cho nguoi dung deu vao log (doc tu xa) */
     board_ui_lock();
     ui_toast(t);
     board_ui_unlock();
@@ -507,6 +509,7 @@ static void session_close(void)
 static void go_listen(void)
 {
     s_follow = false;
+    s_keep = 0;
     audio_set_volume(settings_get_volume());          /* het noi: tra am luong tieng tit */
     s_drop = false;
     s_tts_stop = false;
@@ -616,9 +619,10 @@ static bool session_connect(void)
     send_text("{\"type\":\"hello\",\"version\":1,\"features\":{\"mcp\":true},\"transport\":\"websocket\","
               "\"audio_params\":{\"format\":\"opus\",\"sample_rate\":16000,\"channels\":1,\"frame_duration\":60}}");
     ui_show("ĐANG KẾT NỐI", "Mi Mi đang tới… (3/3 chờ máy chủ chào)", true);
-    if (!(xEventGroupWaitBits(s_ev, BIT_HELLO, pdFALSE, pdFALSE, pdMS_TO_TICKS(5000)) & BIT_HELLO)) {
+    /* 4G: may chu chao lai mat toi ~8 s (log 12/11: 7,7 s) -> cho 12 s, truoc day 5 s nen phien bi dong oan */
+    if (!(xEventGroupWaitBits(s_ev, BIT_HELLO, pdFALSE, pdFALSE, pdMS_TO_TICKS(12000)) & BIT_HELLO)) {
         session_close();
-        toast("Mi Mi: máy chủ không trả lời");
+        toast("Mi Mi: máy chủ không chào lại sau 12 s");
         return true;
     }
     ESP_LOGI(TAG, "da noi phien %s", s_session);
@@ -746,6 +750,11 @@ static void on_json(cJSON *j)
     const cJSON *t = cJSON_GetObjectItem(j, "type");
     if (!cJSON_IsString(t)) return;
     const char *type = t->valuestring;
+    if (s_st == ST_THINK) {                           /* chan doan "may chu khong tra loi": luc cho, may chu gui gi */
+        const cJSON *sx = cJSON_GetObjectItem(j, "state");
+        ESP_LOGI(TAG, "cho tra loi: nhan %s%s%s sau %u ms", type, cJSON_IsString(sx) ? " " : "", cJSON_IsString(sx) ? sx->valuestring : "",
+                 (unsigned)pdTICKS_TO_MS(xTaskGetTickCount() - s_since));
+    }
     const cJSON *txt = cJSON_GetObjectItem(j, "text");
     const char *text = cJSON_IsString(txt) ? txt->valuestring : NULL;
     if (strcmp(type, "stt") == 0) {
@@ -773,6 +782,10 @@ static void on_json(cJSON *j)
         }
     } else if (strcmp(type, "llm") == 0) {           /* cam xuc cua cau tra loi sap noi */
         const cJSON *em = cJSON_GetObjectItem(j, "emotion");
+        if (s_st == ST_THINK && cJSON_IsString(em) && strcmp(em->valuestring, "thinking") == 0 && s_keep < 4) {
+            s_keep++;                                 /* may chu bao "dang nghi" moi 6 s: con song, cho them (toi da ~44 s) */
+            s_since = xTaskGetTickCount();
+        }
         if (cJSON_IsString(em)) {
             int v = emo_from(em->valuestring);
             if (v != EMO_THINK) s_emo = v;            /* "thinking" la luc dang nghi, khong phai cam xuc cau tra loi */
@@ -868,7 +881,6 @@ static void ctl_task(void *arg)
                     static char m[110];
                     snprintf(m, sizeof m, "Mi Mi mất kết nối: %c mã %d errno %d TLS %x RAM %uK", s_close_ev ? s_close_ev : '?', s_close_code,
                              s_sock_errno, (unsigned)s_ws_tls, (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
-                    ESP_LOGW(TAG, "%s", m);
                     session_close();
                     toast(m);
                 }
@@ -898,7 +910,6 @@ static void ctl_task(void *arg)
                     snprintf(m, sizeof m, "Mi Mi: %s sau 20 s (nhận %d tin, %d gói tiếng, RAM %uK)",
                              greet ? "máy chủ không chào lại" : "máy chủ không trả lời", s_rx_txt, s_rx_bin,
                              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
-                    ESP_LOGW(TAG, "%s", m);
                     toast(m);
                     if (greet && s_rx_txt <= 1) wifi_link_net_result(false);   /* chi co loi chao "hello": mang/C6 nghen */
                 }

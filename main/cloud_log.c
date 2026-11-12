@@ -149,6 +149,7 @@ void cloud_log_init(void)
     snprintf(s_mac, sizeof s_mac, "%02X:%02X:%02X:%02X:%02X:%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
     s_boot = esp_random();
     esp_log_level_set("esp-x509-crt-bundle", ESP_LOG_WARN);   /* moi lan TLS in 1 dong: bo */
+    esp_log_level_set("NimBLE", ESP_LOG_WARN);                /* moi lan gui notify in 2 dong: 2/3 log la dong nay */
     s_orig = esp_log_set_vprintf(hook);
     /* ngan xep PSRAM: task nay khong doc/ghi flash (chi HTTP), tiet kiem RAM chip */
     xTaskCreateWithCaps(up_task, "cloud_log", 8192, NULL, 1, &s_task, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
