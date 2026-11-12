@@ -35,4 +35,5 @@ if(CONFIG_EVCARHUD_DETECT)
 endif()
 
 # Chan doan Bluetooth C6 (main/bt_diag.c): boc ham gui/nhan HCI cua esp_hosted de dem goi
-target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=eh_host_transport_tx" "-Wl,--wrap=eh_host_mcu_hci_rx_deliver")
+target_link_libraries(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=eh_host_transport_tx" "-Wl,--wrap=eh_host_mcu_hci_rx_deliver"
+    "-u __wrap_eh_host_transport_tx" "-u __wrap_eh_host_mcu_hci_rx_deliver")
