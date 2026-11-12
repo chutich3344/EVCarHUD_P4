@@ -537,8 +537,8 @@ static hgeo_t head_geo(int y, int hgt, bool three)
     int W = UI_W - 2 * PAD;
     int rs = hgt - 10;
     if (rs > 170) rs = 170;
-    int cap = hgt - 34;                            /* chua cho "km/h" ben duoi */
-    if (cap > rs - 6) cap = rs - 6;
+    int cap = hgt - 4 - (UNIT_DY + CAP_H(16));     /* "km/h" nho nam tren goc trai so: so cao gan bang bien */
+    if (cap > rs - 2) cap = rs - 2;
     int avail;
     if (three) {
         rs = rs * 72 / 100;
@@ -547,8 +547,7 @@ static hgeo_t head_geo(int y, int hgt, bool three)
         int cw = NCAP * avail / (w188 ? w188 : 1);
         if (cap > cw) cap = cw;
     } else {
-        int colR = W * 45 / 100;
-        if (colR < rs) colR = rs;
+        int colR = rs + 4;                         /* cot bien vua khit bien: nhuong be ngang cho so to bang bien */
         avail = W - colR - 8;
         g.rcx = UI_W - PAD - colR / 2;
         int cw = NCAP * avail / (w88 ? w88 : 1);
@@ -559,7 +558,7 @@ static hgeo_t head_geo(int y, int hgt, bool three)
     g.bd = rs * 115 / 1000;
     g.cap = cap;
     g.rcy = y + hgt / 2;
-    g.ncy = g.rcy - (UNIT_DY + CAP_H(16)) / 2 - 2;  /* ca khoi so + km/h can giua theo bien */
+    g.ncy = g.rcy + (UNIT_DY + CAP_H(16)) / 2;      /* ca khoi km/h (tren) + so can giua theo bien */
     return g;
 }
 
@@ -622,10 +621,11 @@ static void render_head(head_t *h, const int *w)
     lv_image_set_pivot(n, px, py);
     lv_image_set_scale(n, (uint32_t)(g.cap * 256 / NCAP));
     lv_obj_set_pos(n, g.ncx - px, g.ncy - py);
-    lv_obj_t *u = h->unit;                                         /* km/h: duoi so, canh giua theo truc doc cua so */
+    lv_obj_t *u = h->unit;                                         /* km/h: goc tren ben trai cua so */
     lv_obj_set_style_text_color(u, th->fg, 0);
-    lv_obj_set_pos(u, g.ncx - text_w("km/h", &ui_font_txt16) / 2,
-                   g.ncy + g.cap / 2 + UNIT_DY - (baseline(&ui_font_txt16) - CAP_H(16)));
+    int sw = tw * g.cap / NCAP;                                    /* be rong so sau khi thu */
+    lv_obj_set_pos(u, g.ncx - sw / 2 + 2,
+                   g.ncy - g.cap / 2 - UNIT_DY / 2 - baseline(&ui_font_txt16));
 
     lv_obj_set_size(h->ring, g.rs, g.rs);
     lv_obj_set_pos(h->ring, g.rcx - g.rs / 2, g.rcy - g.rs / 2);
