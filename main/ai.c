@@ -969,6 +969,11 @@ static void ctl_task(void *arg)
                 break;
             case M_CLOSED:
                 if (m.gen == s_gen && s_st != ST_IDLE && s_st != ST_CONN) {
+                    if (s_close_code == 1000) {                /* may chu chu dong dong (het han muc phien / ranh roi) */
+                        session_close();
+                        toast("Mi Mi tạm nghỉ, gọi \"Mi Mi ơi\" khi cần");
+                        break;
+                    }
                     static char m[110];
                     snprintf(m, sizeof m, "Mi Mi mất kết nối: %c mã %d errno %d TLS %x RAM %uK", s_close_ev ? s_close_ev : '?', s_close_code,
                              s_sock_errno, (unsigned)s_ws_tls, (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
