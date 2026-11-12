@@ -234,6 +234,19 @@ int main(int argc, char **argv)
     ui_set_nav(true, 2, 600, 0, "Nguyễn Hữu Thọ", 0);
     run(600);
     snprintf(p, sizeof p, "%s/re_gan.bmp", dir); save_bmp(p);
+    ui_set_nav(true, 0, -1, 0, "Đi đến đường được chỉ dẫn", 0);   /* co lo trinh, dien thoai chua co GPS */
+    ui_set_route("14:39", 8200, 21);
+    run(6000);
+    snprintf(p, sizeof p, "%s/cho_gps.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "", 0);
+    run(4000);
+    ui_set_nav(true, 0, -1, 0, "Đi đến đường được chỉ dẫn", 0);
+    ui_set_route("14:39", 8200, 21);
+    run(600);
+    snprintf(p, sizeof p, "%s/cho_gps_moi.bmp", dir); save_bmp(p);
+    ui_set_nav(true, 2, 2500, 0, "Nguyễn Hữu Thọ", 0);
+    ui_set_route("20:05", 6500, 18);
+    run(600);
     {                                               /* kieu C: co canh bao -> hang day len, dai vao cho day */
         ui_alert_t a[1] = {{2, 300, -1}};
         ui_set_alerts(a, 1);

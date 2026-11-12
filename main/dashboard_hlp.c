@@ -144,7 +144,7 @@ static void apply_state(const hlp_state_t *s)
     /* ten duong: dang re -> duong SAU khi re (st2); khong thi duong hien tai (st) */
     char tmp[HLP_STR_MAX], street[HLP_STR_MAX];
     const char *st2 = held_st2(s);
-    const char *src = (s->nav && s->trn != 0 && st2[0]) ? st2 : s->st;
+    const char *src = (s->nav && st2[0] && (s->trn != 0 || !s->st[0])) ? st2 : s->st;   /* chua co GPS: st rong, st2 la goi y */
     strncpy(tmp, src, sizeof tmp - 1);
     tmp[sizeof tmp - 1] = 0;
     strip_paren(tmp);                                /* bo "(Lan hon hop)" */

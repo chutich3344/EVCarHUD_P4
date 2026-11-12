@@ -1189,12 +1189,20 @@ static void render_nav(void)
     lv_obj_set_style_image_recolor(n_cell_img[0], lv_color_white(), 0);
     char num[12], d[20];
     const char *u;
+    /* co lo trinh nhung chua co lenh re (dien thoai chua bat duoc GPS): mui ten thang + "Chờ GPS" */
+    bool wait = !arr && !nav_is_ts;
+    const lv_font_t *df = wait ? &ui_font_txt20 : &ui_font_dist26;
     fmt_dist2(num, sizeof num, &u, dist_now);
-    if (num[0]) snprintf(d, sizeof d, "%s %s", num, u);
+    if (wait) snprintf(d, sizeof d, "Chờ GPS");
+    else if (num[0]) snprintf(d, sizeof d, "%s %s", num, u);
     else d[0] = 0;
+    lv_obj_set_style_text_font(n_cell_d[0], df, 0);
+    lv_obj_set_y(n_cell_d[0], wait ? (N_ROW_H - 2 - ui_font_txt20.line_height) / 2
+                                   : (N_ROW_H - 2) / 2 + CAP_H(26) / 2 - baseline(&ui_font_dist26));
     lv_label_set_text(n_cell_d[0], d);
     lv_obj_set_style_text_color(n_cell_d[0], lv_color_white(), 0);
-    int gw = 26 + (d[0] ? 8 + lv_text_get_width(d, strlen(d), &ui_font_dist26, -1) : 0);
+    lv_obj_set_style_image_opa(n_cell_img[0], wait ? LV_OPA_60 : LV_OPA_COVER, 0);
+    int gw = 26 + (d[0] ? 8 + lv_text_get_width(d, strlen(d), df, -1) : 0);
     int x0 = (N_TURN_W - 2 - gw) / 2;
     lv_obj_set_x(n_cell_img[0], x0);
     lv_obj_set_x(n_cell_d[0], x0 + 34);
@@ -2588,7 +2596,16 @@ static void nav_hold_cb(lv_timer_t *t)
 void ui_set_nav(bool active, int turn, int dist_m, int exit_n, const char *street, int turn2)
 {
     if (!nav_tmr) nav_tmr = lv_timer_create(nav_hold_cb, 1000, NULL);
-    bool a = active && arrow_for_turn(turn);
+    /* Waze dang dan nhung chua co lenh re (trn=0: dien thoai chua co GPS) van vao man dan duong, o re hien "Chờ GPS".
+     * Dang co lenh re ma mat lenh thoang qua (< 5 s): giu lenh cu, tranh nhay "Chờ GPS". */
+    static uint32_t unk_tick;
+    bool known = arrow_for_turn(turn) != NULL;
+    if (known) unk_tick = 0;
+    if (active && !known && wz_on && !wz_hold && arrow_for_turn(wz_turn)) {
+        if (!unk_tick) unk_tick = lv_tick_get() | 1;
+        if (lv_tick_elaps(unk_tick) < 5000) { apply_nav(); return; }
+    }
+    bool a = active;
     if (a) {
         if (arr_box && turn != 17) arrive_close();                /* lo trinh moi */
         wz_on = true;
