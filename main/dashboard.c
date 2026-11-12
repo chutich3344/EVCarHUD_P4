@@ -192,6 +192,9 @@ static bool cam_on;
 static int cam_st;
 static lv_obj_t *t_cam, *t_cam_l;
 static lv_obj_t *snd_row, *snd_sw, *vol_card, *vol_minus, *vol_plus, *lbl_vol, *vol_bar, *vol_fill;
+static lv_obj_t *wk_card, *wk_minus, *wk_plus, *lbl_wk, *wk_bar, *wk_fill;   /* do nhay goi "Mi Mi" 1..5 */
+static int wk_sens = 3;
+static void (*wake_cb)(int);
 static lv_obj_t *src_card[2], *lbl_src_st[2], *lbl_mac, *lbl_ble;
 static lv_obj_t *lbl_sys[4];
 static lv_obj_t *rb_scr, *rb_tile, *lbl_rb_title, *lbl_rb_mac;
@@ -1514,6 +1517,7 @@ static int focus_items(lv_obj_t **out)
     case PG_ALERT:
         out[n++] = snd_row;
         if (snd_on) { out[n++] = vol_minus; out[n++] = vol_plus; }
+        out[n++] = wk_minus; out[n++] = wk_plus;
         break;
     case PG_LINK:
         out[n++] = src_card[0];
@@ -1532,7 +1536,7 @@ static int focus_items(lv_obj_t **out)
 static void focus_render(void)
 {
     lv_obj_t *all[] = {set_tab[0], set_tab[1], set_tab[2], set_tab[3], mode_card[0], mode_card[1], mode_card[2], rot_row, cam_row,
-                       snd_row, vol_minus, vol_plus, src_card[0], src_card[1], upd_row, set_close};
+                       snd_row, vol_minus, vol_plus, wk_minus, wk_plus, src_card[0], src_card[1], upd_row, set_close};
     for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) lv_obj_set_style_outline_width(all[i], 0, 0);
     if (set_focus < 0) return;
     lv_obj_t *it[10];
@@ -1570,6 +1574,9 @@ static void settings_render(void)
     show(vol_card, snd_on);
     lv_label_set_text_fmt(lbl_vol, "%d%%", snd_vol);
     set_bar(vol_bar, vol_fill, snd_vol * 10);
+    static const char *const wk_name[5] = {"Rất khó", "Khó", "Vừa", "Nhạy", "Rất nhạy"};
+    lv_label_set_text_fmt(lbl_wk, "Mức %d · %s", wk_sens, wk_name[wk_sens - 1]);
+    set_bar(wk_bar, wk_fill, wk_sens * 200);
     /* Ket noi */
     for (int i = 0; i < 2; i++) {
         bool on = (i == 1) == (src == UI_SRC_GOFA);
@@ -1660,7 +1667,14 @@ static void on_set_btn(lv_event_t *e)
     if (o == snd_row) snd_on = !snd_on;
     else if (o == vol_minus) snd_vol = snd_vol > 10 ? snd_vol - 10 : 10;
     else if (o == vol_plus) snd_vol = snd_vol < 100 ? snd_vol + 10 : 100;
-    else return;
+    else if (o == wk_minus || o == wk_plus) {
+        int v = wk_sens + (o == wk_plus ? 1 : -1);
+        if (v < 1 || v > 5) return;
+        wk_sens = v;
+        if (wake_cb) wake_cb(wk_sens);
+        settings_render();
+        return;
+    } else return;
     sound_changed();
 }
 
@@ -1681,6 +1695,40 @@ static lv_obj_t *mk_pill(lv_obj_t *p, int x, const char *txt)
     lv_obj_t *l = mk_label(o, &ui_font_sm12, 22, (26 - ui_font_sm12.line_height) / 2, txt);
     lv_obj_set_style_text_color(l, S_GREEN3, 0);
     return o;
+}
+
+/* The tang / giam: [ - ]  ten · gia tri · thanh  [ + ]  (cao 72, vua 2 the duoi hang loa) */
+static lv_obj_t *mk_stepper(lv_obj_t *p, int y, const char *title, lv_obj_t **mi, lv_obj_t **pl, lv_obj_t **val, lv_obj_t **bar, lv_obj_t **fill)
+{
+    int W = UI_W - 24, H = 72, bw = 80, bh = 52, by = (H - 2 - bh) / 2;
+    lv_obj_t *c = mk_card(p, 0, y, W, H, 16);
+    lv_obj_set_style_bg_color(c, S_CARD, 0);
+    lv_obj_set_style_border_color(c, S_BORDER, 0);
+    *mi = mk_card(c, 9, by, bw, bh, 14);
+    *pl = mk_card(c, W - 2 - 9 - bw, by, bw, bh, 14);
+    lv_obj_t *bt[2] = {*mi, *pl};
+    for (int i = 0; i < 2; i++) {
+        lv_obj_set_style_bg_color(bt[i], S_ON_BG, 0);
+        lv_obj_set_style_border_color(bt[i], S_GREEN, 0);
+        lv_obj_t *h = mk_fill(bt[i], (bw - 2 - 28) / 2, (bh - 2 - 6) / 2, 28, 6, 3);
+        lv_obj_set_style_bg_color(h, S_GREEN3, 0);
+        if (i == 1) {
+            lv_obj_t *v = mk_fill(bt[i], (bw - 2 - 6) / 2, (bh - 2 - 28) / 2, 6, 28, 3);
+            lv_obj_set_style_bg_color(v, S_GREEN3, 0);
+        }
+        clickable(bt[i]);
+    }
+    int cx = 9 + bw + 10, cw = W - 2 - 2 * cx;
+    lv_obj_t *t = mk_label_w(c, &ui_font_sm12, cx, 6, cw, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(t, title);
+    lv_obj_set_style_text_color(t, S_MUT, 0);
+    *val = mk_label_w(c, &ui_font_txt20, cx, 22, cw, LV_TEXT_ALIGN_CENTER);
+    lv_obj_set_style_text_color(*val, S_GREEN2, 0);
+    *bar = mk_fill(c, cx + 6, H - 2 - 16, cw - 12, 6, 3);
+    lv_obj_set_style_bg_color(*bar, S_TRACK, 0);
+    *fill = mk_fill(*bar, 0, 0, 0, 6, 3);
+    lv_obj_set_style_bg_color(*fill, S_GREEN, 0);
+    return c;
 }
 
 static void build_settings(void)
@@ -1744,35 +1792,10 @@ static void build_settings(void)
 
     /* Canh bao: loa + am luong */
     p = set_page_obj[PG_ALERT];
-    snd_row = mk_setting_row(p, 0, 62, "Âm thanh cảnh báo", "Tít khi vượt tốc độ, có cảnh báo mới, còn 100 m tới chỗ rẽ", &snd_sw);
+    snd_row = mk_setting_row(p, 0, 54, "Âm thanh cảnh báo", "Tít khi vượt tốc độ, có cảnh báo mới, còn 100 m tới chỗ rẽ", &snd_sw);
     lv_obj_add_event_cb(snd_row, on_set_btn, LV_EVENT_CLICKED, NULL);
-    vol_card = mk_card(p, 0, 74, UI_W - 24, 136, 16);
-    lv_obj_set_style_bg_color(vol_card, S_CARD, 0);
-    lv_obj_set_style_border_color(vol_card, S_BORDER, 0);
-    l = mk_label(vol_card, &ui_font_txt14, 14, 10, "Âm lượng");
-    lv_obj_set_style_text_color(l, S_FG, 0);
-    int bw = 96, bh = 70, by = 36;
-    vol_minus = mk_card(vol_card, 12, by, bw, bh, 16);
-    vol_plus = mk_card(vol_card, UI_W - 24 - 2 - 12 - bw, by, bw, bh, 16);
-    lv_obj_t *bt[2] = {vol_minus, vol_plus};
-    for (int i = 0; i < 2; i++) {
-        lv_obj_set_style_bg_color(bt[i], S_ON_BG, 0);
-        lv_obj_set_style_border_color(bt[i], S_GREEN, 0);
-        lv_obj_t *h = mk_fill(bt[i], (bw - 2 - 34) / 2, (bh - 2 - 6) / 2, 34, 6, 3);
-        lv_obj_set_style_bg_color(h, S_GREEN3, 0);
-        if (i == 1) {
-            lv_obj_t *v = mk_fill(bt[i], (bw - 2 - 6) / 2, (bh - 2 - 34) / 2, 6, 34, 3);
-            lv_obj_set_style_bg_color(v, S_GREEN3, 0);
-        }
-        clickable(bt[i]);
-    }
-    int cx = 12 + bw + 10, cwid = UI_W - 24 - 2 - 2 * cx;
-    lbl_vol = mk_label_w(vol_card, &ui_font_num40, cx, by + 2, cwid, LV_TEXT_ALIGN_CENTER);
-    lv_obj_set_style_text_color(lbl_vol, S_GREEN2, 0);
-    vol_bar = mk_fill(vol_card, cx + 6, by + bh - 14, cwid - 12, 8, 4);
-    lv_obj_set_style_bg_color(vol_bar, S_TRACK, 0);
-    vol_fill = mk_fill(vol_bar, 0, 0, 0, 8, 4);
-    lv_obj_set_style_bg_color(vol_fill, S_GREEN, 0);
+    vol_card = mk_stepper(p, 62, "Âm lượng tiếng tít", &vol_minus, &vol_plus, &lbl_vol, &vol_bar, &vol_fill);
+    wk_card = mk_stepper(p, 62 + 76, "Độ nhạy gọi \"Mi Mi\"", &wk_minus, &wk_plus, &lbl_wk, &wk_bar, &wk_fill);
 
     /* Ket noi: Waze Mod | GOFA */
     p = set_page_obj[PG_LINK];
@@ -1956,6 +1979,8 @@ lv_obj_t *ui_partner_tile(lv_obj_t *parent, int source, int size)
 
 void ui_set_beep_hook(void (*cb)(int)) { beep_cb = cb; }
 void ui_set_sound_hook(void (*cb)(bool, int)) { sound_cb = cb; }
+void ui_set_wake_sens(int level) { wk_sens = level < 1 ? 1 : level > 5 ? 5 : level; }
+void ui_set_wake_sens_hook(void (*cb)(int level)) { wake_cb = cb; }
 
 /* ======================= man cho =======================
  * Theo man mau "Man cho · dong ho · Wi-Fi": thanh tren = thoi tiet (trai), Wi-Fi + Bluetooth + o nguon (phai); dong ho to

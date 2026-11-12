@@ -156,6 +156,8 @@ bool ui_settings_key(int key);                         /* nut BOOT khi cai dat d
 void ui_gofa_debug(const char *state, const char *last);   /* che do GOFA: dai duoi man hinh hien goi Bluetooth vua nhan */
 void ui_set_mac(const char *mac);                      /* MAC Bluetooth "AA:BB:.." hien o trang Ket noi (dang ky GOFA) */
 void ui_test_switch(int source);                       /* chi de chup anh xem truoc: man "Da chon" + MAC */
+void ui_set_wake_sens(int level);                     /* do nhay goi "Mi Mi" da luu 1..5 */
+void ui_set_wake_sens_hook(void (*cb)(int level));    /* nguoi dung doi do nhay: luu NVS + ap nguong moi */
 void ui_set_sound(bool on, int volume);                /* gia tri da luu (NVS), volume 10..100 */
 void ui_set_beep_hook(void (*cb)(int times));          /* giao dien muon phat n tieng tit */
 void ui_set_sound_hook(void (*cb)(bool on, int volume)); /* nguoi dung doi am luong: board dat loa + luu NVS */                       /* thong bao nho 2 giay o giua man hinh */

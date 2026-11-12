@@ -124,6 +124,12 @@ static void on_source(int src)                              /* doi Waze Mod / GO
     ESP_LOGI(TAG, "nguon du lieu lan khoi dong sau: %s", src ? "GOFA" : "Waze Mod");
 }
 
+static void on_wake_sens(int level)                         /* man cai dat do nhay goi Mi Mi: luu NVS + ap nguong */
+{
+    settings_set_wake_sens(level);
+    ai_wake_sens_changed();
+}
+
 static void on_sound(bool on, int vol)                      /* man cai dat am luong: dat loa + luu NVS */
 {
     board_set_volume(on ? vol : 0);
@@ -257,6 +263,8 @@ void app_main(void)
     ui_set_beep_hook(on_beep);
     gofa_set_beep(on_beep);
     ui_set_sound_hook(on_sound);
+    ui_set_wake_sens(settings_get_wake_sens());
+    ui_set_wake_sens_hook(on_wake_sens);
     ui_set_source(settings_get_source());
     ui_set_source_hook(on_source);
     /* MAC Bluetooth (cua chip C6) dien vao trang Ket noi khi Bluetooth san sang (ble_link.c on_sync) */

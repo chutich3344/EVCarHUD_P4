@@ -95,7 +95,11 @@ static char s_ws_url[256], s_ws_tok[256];             /* nho dia chi + token: ph
 #define VAD_FLOOR_FR  5                               /* 300 ms tiep: lay nen on (min) */
 #define VAD_START_FR  3                               /* 180 ms co tieng: bat dau noi */
 #define VAD_END_FR    14                              /* 840 ms im: noi xong */
-#define VAD_NONE_FR   134                             /* ~8 s khong noi gi: dong phien */
+#define VAD_NONE_FR   134                             /* ~8 s khong noi gi sau khi goi Mi Mi: dong phien */
+#define VAD_FOLLOW_FR 334                             /* ~20 s cho hoi tiep sau khi Mi Mi tra loi xong, roi tu tat */
+#define LISTEN_FOLLOW_MS 37000                        /* luoi an toan luot hoi tiep: 20 s cho + 15 s cau dai nhat */
+static volatile bool s_follow;                        /* luot nghe hien tai la hoi tiep (sau cau tra loi) */
+static volatile int s_wake_thr = -1;                  /* nguong tu danh thuc moi (%), luong danh thuc ap dung */
 #define VAD_MAX_FR    250                             /* cau dai nhat 15 s */
 
 /* ---------------- giao dien ---------------- */
@@ -502,6 +506,7 @@ static void session_close(void)
 
 static void go_listen(void)
 {
+    s_follow = false;
     audio_set_volume(settings_get_volume());          /* het noi: tra am luong tieng tit */
     s_drop = false;
     s_tts_stop = false;
@@ -844,6 +849,10 @@ static void ctl_task(void *arg)
                     s_st = ST_THINK;
                     s_since = xTaskGetTickCount();
                     ui_show("MI MI", "Đang nghĩ…", true);
+                } else if (s_st == ST_LISTEN && s_follow) {   /* 20 s khong hoi tiep: lang le tat, cho goi "Mi Mi" lan sau */
+                    ESP_LOGI(TAG, "20 s khong hoi tiep: tat");
+                    session_close();
+                    toast("Mi Mi tạm nghỉ, gọi \"Mi Mi ơi\" khi cần");
                 } else if (s_st == ST_LISTEN) {
                     session_close();
                     static char m[96];                /* so do de chinh nguong: to nhat nghe duoc / nguong can vuot */
@@ -865,7 +874,7 @@ static void ctl_task(void *arg)
                 }
                 break;
             case M_DRAINED:
-                if (m.gen == s_gen && s_st == ST_SPEAK) go_listen();
+                if (m.gen == s_gen && s_st == ST_SPEAK) { go_listen(); s_follow = true; ui_show("ĐANG NGHE", "Anh hỏi tiếp đi…", true); }
                 break;
             case M_WIFI_DOWN:
                 if (s_st != ST_IDLE && s_st != ST_CONN) session_close();
@@ -874,7 +883,7 @@ static void ctl_task(void *arg)
             if (m.json) cJSON_Delete(m.json);
         }
         TickType_t el = xTaskGetTickCount() - s_since;
-        if ((s_st == ST_LISTEN && el > pdMS_TO_TICKS(LISTEN_MAX_MS)) || (s_st == ST_THINK && el > pdMS_TO_TICKS(THINK_MAX_MS))) {
+        if ((s_st == ST_LISTEN && el > pdMS_TO_TICKS(s_follow ? LISTEN_FOLLOW_MS : LISTEN_MAX_MS)) || (s_st == ST_THINK && el > pdMS_TO_TICKS(THINK_MAX_MS))) {
             ESP_LOGI(TAG, "het gio cho (%s)", s_st == ST_LISTEN ? "nghe" : "tra loi");
             send_listen("stop", NULL);
             if (s_st == ST_LISTEN && s_heard) {       /* da noi: van gui cho Mi Mi tra loi */
@@ -916,7 +925,8 @@ static void wake_init(void)
     s_mn = esp_mn_handle_from_name(name);
     s_mnd = s_mn ? s_mn->create(name, 3000) : NULL;
     if (!s_mnd) return;
-    s_mn->set_det_threshold(s_mnd, CONFIG_EVCARHUD_WAKE_THRESHOLD / 100.0f);
+    s_mn->set_det_threshold(s_mnd, settings_wake_threshold() / 100.0f);
+    ESP_LOGI(TAG, "do nhay goi Mi Mi muc %d: nguong %d%%", settings_get_wake_sens(), settings_wake_threshold());
     esp_mn_commands_alloc(s_mn, s_mnd);
     esp_mn_commands_clear();
     esp_mn_commands_add(1, CONFIG_EVCARHUD_WAKE_WORD);
@@ -942,6 +952,11 @@ static void wake_feed(const int16_t *pcm, int n)
         n -= k;
         if (s_wfill < s_wchunk) break;
         s_wfill = 0;
+        if (s_wake_thr >= 0) {                        /* doi do nhay trong Cai dat: ap dung ngay, khong khoi dong lai */
+            s_mn->set_det_threshold(s_mnd, s_wake_thr / 100.0f);
+            ESP_LOGI(TAG, "nguong goi Mi Mi moi %d%%", s_wake_thr);
+            s_wake_thr = -1;
+        }
         esp_mn_state_t st = s_mn->detect(s_mnd, s_wbuf);
         if (st == ESP_MN_STATE_DETECTED) {
             s_mn->clean(s_mnd);
@@ -1191,7 +1206,7 @@ static void mic_task(void *arg)
             if (started && (quiet >= VAD_END_FR || fr >= VAD_MAX_FR)) {
                 sent_end = true;
                 post(M_VAD_END, s_gen, NULL);
-            } else if (!started && fr >= VAD_NONE_FR) {
+            } else if (!started && fr >= (s_follow ? VAD_FOLLOW_FR : VAD_NONE_FR)) {
                 sent_end = true;
                 post(M_VAD_NONE, s_gen, NULL);
             }
@@ -1383,3 +1398,5 @@ void ai_start(void)
     if (xTaskCreate(ctl_entry, "ai_ctl", 8192, NULL, 4, NULL) != pdPASS) ESP_LOGE(TAG, "khong tao duoc luong Mi Mi");
     else ESP_LOGI(TAG, "Mi Mi san sang (cham nut micro)");
 }
+
+void ai_wake_sens_changed(void) { s_wake_thr = settings_wake_threshold(); }

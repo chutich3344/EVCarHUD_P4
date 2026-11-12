@@ -2,6 +2,7 @@
 #include <string.h>
 #include "settings.h"
 #include "nvs.h"
+#include "sdkconfig.h"
 
 #define NS "evcarhud"
 
@@ -41,6 +42,16 @@ void settings_set_volume(int v) { set_u8("vol", v); }
 /* Am luong rieng cua giong Mi Mi (tieng tit canh bao dung settings_get_volume) */
 int settings_get_ai_volume(void) { int v = get_u8("aivol", 100); return v < 30 ? 30 : v > 100 ? 100 : v; }
 void settings_set_ai_volume(int v) { set_u8("aivol", v < 30 ? 30 : v > 100 ? 100 : v); }
+/* Do nhay goi "Mi Mi" 1..5 (mac dinh 3 = nguong Kconfig). Cao hon = nguong thap hon = de goi hon, de nham hon. */
+int settings_get_wake_sens(void) { int v = get_u8("wakesens", 3); return v < 1 ? 1 : v > 5 ? 5 : v; }
+void settings_set_wake_sens(int v) { set_u8("wakesens", v < 1 ? 1 : v > 5 ? 5 : v); }
+int settings_wake_threshold(void)
+{
+    int b = CONFIG_EVCARHUD_WAKE_THRESHOLD, l = settings_get_wake_sens();
+    static const int pct[5] = {170, 135, 100, 70, 45};   /* % so voi nguong goc: muc 1 kho goi nhat, muc 5 nhay nhat */
+    int t = b * pct[l - 1] / 100;
+    return t < 3 ? 3 : t > 95 ? 95 : t;
+}
 
 int settings_get_source(void) { return get_u8("src", 0) == 1 ? 1 : 0; }
 void settings_set_source(int s) { set_u8("src", s == 1 ? 1 : 0); }
