@@ -28,6 +28,14 @@ esp_err_t __wrap_eh_host_transport_tx(uint8_t if_type, uint8_t if_num, const uin
 void __real_eh_host_mcu_hci_rx_deliver(const uint8_t *frame, uint16_t len);
 void __wrap_eh_host_mcu_hci_rx_deliver(const uint8_t *frame, uint16_t len)
 {
+    /* Su kien rieng cua cau HCI tren C6 (c6/main.c): 04 FF 0C E6 'H' ... -> in ra, khong dua cho NimBLE */
+    if (len >= 15 && frame[0] == 0x04 && frame[1] == 0xFF && frame[3] == 0xE6 && frame[4] == 'H') {
+        ESP_LOGW(TAG, "C6 bao: nhan %u, BLE tra %u, loi gui %u, bo dieu khien=%u (2=bat), loai %u dai %u, "
+                      "dang ky=%d, san sang=%u, RAM C6 %u KB, cau v%u",
+                 frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], (int8_t)frame[11], frame[12],
+                 frame[13], frame[14]);
+        return;
+    }
     s_rx++;
     if (s_rx <= 6)
         ESP_LOGW(TAG, "C6->P4 HCI #%d: %u byte [%02x %02x %02x %02x %02x %02x]", s_rx, len, len > 0 ? frame[0] : 0,
