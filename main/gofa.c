@@ -159,8 +159,17 @@ static void on_nav(const pb_t *m, char *sum, size_t sn)
      * hoac khoang cach > 0 cung coi la dang dan duong */
     uint32_t mv = m->has[4] ? m->v[4] : 0;
     int dst = m->has[5] ? (int)m->v[5] : -1;
-    /* HUDNavigationState: 0 chua xac dinh, 1 khong dan duong, 2 dang dan duong, 3 da den noi */
+    /* HUDNavigationState: 0 chua xac dinh, 1 khong dan duong, 2 dang dan duong, 3 da den dich, 4 dang tinh lai tuyen */
     uint32_t st = m->v[1];
+    if (st == 4) {                                                 /* tinh lai tuyen: giu man dan duong, bao dang tim duong */
+        nav_on = true;
+        if (!nav_trn) nav_trn = 1;
+        nav_dst = -1;
+        snprintf(road_next, sizeof road_next, "Đang tìm lại đường…");
+        push_nav();
+        snprintf(sum, sn, "dẫn đường: tính lại tuyến");
+        return;
+    }
     bool arrived = st == 3;
     nav_on = st == 2 || arrived || (st != 1 && (mv > 0 || dst > 0));
     nav_trn = arrived ? 17 : nav_on ? turn_for_maneuver(mv) : 0;     /* 17: co dich (mui ten "da den") */

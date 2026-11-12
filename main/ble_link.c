@@ -383,10 +383,10 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
             s_conn = ev->connect.conn_handle;
             ESP_LOGI(TAG, "dien thoai ket noi Bluetooth: cho dien thoai doc dich vu HLP va bat thong bao RX");
             if (s_gofa) {
-                /* App Gofa bo ban tin dan duong neu vuot gioi han 1 lan ghi (MTU mac dinh 23 -> 20 byte):
-                 * HUD xin MTU lon ngay khi noi. */
-                int mrc = ble_gattc_exchange_mtu(s_conn, NULL, NULL);
-                ESP_LOGI(TAG, "GOFA: xin MTU %d (rc=%d)", CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU, mrc);
+                /* 12/11: HUD tu xin MTU ngay khi noi thi app GOFA chi gui toc do + bien, KHONG BAO GIO gui dan duong
+                 * (0x3038) / gio (0x3039). Nghi app tu xin MTU sau khi kham pha, bi tu choi vi da doi xong -> app tuong
+                 * MTU 23 (20 byte) va bo ban tin dai. Thu: de app tu xin MTU (NimBLE tu tra loi, toi da 247). */
+                ESP_LOGI(TAG, "GOFA: cho app tu xin MTU");
                 s_mtu = 23;
                 wake(EV_GUP);
             }
