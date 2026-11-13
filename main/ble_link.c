@@ -68,6 +68,8 @@ static uint8_t s_addr_type;
 static bool s_linked;                    /* da goi link_up (chi task ble dung) */
 static volatile bool s_synced;           /* ngan xep da noi chuyen duoc voi bo dieu khien Bluetooth */
 static int s_resets;
+static volatile uint32_t s_gofa_ms, s_waze_ms, s_own_ms;   /* lan cuoi app GOFA / Waze Mod gui, luc doi chu */
+static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
 static int gap_event(struct ble_gap_event *ev, void *arg);
 
@@ -196,7 +198,6 @@ static char s_gofa_name[16];
 static volatile bool s_gofa;              /* ket noi hien tai la app GOFA (tu nhan khi app doc/ghi dich vu GOFA) */
 static volatile bool s_waze;              /* ket noi hien tai la Waze Mod (bat thong bao RX cua HLP) */
 static volatile bool s_waze_sub;          /* Waze Mod da bat thong bao RX (ke ca khi GOFA dang giu HUD) */
-static volatile uint32_t s_gofa_ms, s_waze_ms, s_own_ms;   /* lan cuoi app GOFA / Waze Mod gui, luc doi chu */
 static bool s_adv_gofa;                   /* goi quang ba dang phat: true = GOFA (HUD_xxxx), false = Waze Mod (EVHUD-P4) */
 typedef struct { uint16_t chr, len; uint8_t d[512]; } gofa_pkt_t;
 static QueueHandle_t s_gofa_q;
@@ -210,7 +211,6 @@ static QueueHandle_t s_gofa_q;
 static struct { uint16_t chr, len; uint8_t d[HOLD_MAX]; } s_hold[HOLD_N];   /* 0x3030, 0x3031, 0x3038, 0x3039 */
 static volatile bool s_held;
 static portMUX_TYPE s_hold_mux = portMUX_INITIALIZER_UNLOCKED;
-static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 static volatile uint16_t s_mtu = 23;
 static uint16_t s_gofa_cnt[4];            /* so goi da nhan: bien bao, toc do, dan duong, gio */
 static volatile uint16_t s_gofa_rd, s_gofa_snd, s_gofa_ovr, s_gofa_bad;   /* lan doc 0x180A, goi 0x3032, 0x3033, goi hong/qua dai */
