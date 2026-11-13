@@ -98,7 +98,7 @@ static char s_ws_url[256], s_ws_tok[256];             /* nho dia chi + token: ph
 #define VAD_END_FR    14                              /* 840 ms im: noi xong */
 #define VAD_NONE_FR   134                             /* ~8 s khong noi gi sau khi goi Mi Mi: dong phien */
 #define VAD_FOLLOW_FR 334                             /* ~20 s cho hoi tiep sau khi Mi Mi tra loi xong, roi tu tat */
-#define AI_FOLLOW_UP 0                                /* 1 = tra loi xong nghe tiep 20 s khong can goi (13/11: tat theo y nguoi dung) */
+#define AI_FOLLOW_UP 1                                /* 1 = tra loi xong nghe tiep 20 s khong can goi (13/11 nguoi dung: goi 1 lan trong 1 cuoc noi chuyen) */
 #define LISTEN_FOLLOW_MS 37000                        /* luoi an toan luot hoi tiep: 20 s cho + 15 s cau dai nhat */
 static volatile bool s_follow;                        /* luot nghe hien tai la hoi tiep (sau cau tra loi) */
 static int s_keep;                                    /* so lan may chu bao "dang nghi" trong luot nay */
