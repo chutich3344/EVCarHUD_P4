@@ -98,6 +98,7 @@ static char s_ws_url[256], s_ws_tok[256];             /* nho dia chi + token: ph
 #define VAD_END_FR    14                              /* 840 ms im: noi xong */
 #define VAD_NONE_FR   134                             /* ~8 s khong noi gi sau khi goi Mi Mi: dong phien */
 #define VAD_FOLLOW_FR 334                             /* ~20 s cho hoi tiep sau khi Mi Mi tra loi xong, roi tu tat */
+#define AI_FOLLOW_UP 0                                /* 1 = tra loi xong nghe tiep 20 s khong can goi (13/11: tat theo y nguoi dung) */
 #define LISTEN_FOLLOW_MS 37000                        /* luoi an toan luot hoi tiep: 20 s cho + 15 s cau dai nhat */
 static volatile bool s_follow;                        /* luot nghe hien tai la hoi tiep (sau cau tra loi) */
 static int s_keep;                                    /* so lan may chu bao "dang nghi" trong luot nay */
@@ -988,7 +989,17 @@ static void ctl_task(void *arg)
                 }
                 break;
             case M_DRAINED:
-                if (m.gen == s_gen && s_st == ST_SPEAK) { go_listen(); s_follow = true; ui_show("ĐANG NGHE", "Anh hỏi tiếp đi…", true); }
+                if (m.gen == s_gen && s_st == ST_SPEAK) {
+#if AI_FOLLOW_UP
+                    go_listen();
+                    s_follow = true;
+                    ui_show("ĐANG NGHE", "Anh hỏi tiếp đi…", true);
+#else
+                    /* 13/11 nguoi dung: chi hoat dong khi duoc goi -> tra loi xong tat, hoi tiep phai goi "Mi Mi oi" / cham micro */
+                    ESP_LOGI(TAG, "tra loi xong: tat (khong tu nghe hoi tiep)");
+                    session_close();
+#endif
+                }
                 break;
             case M_WIFI_DOWN:
                 if (s_st != ST_IDLE && s_st != ST_CONN) session_close();
