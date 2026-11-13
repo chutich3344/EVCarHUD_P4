@@ -192,6 +192,7 @@ static const ble_uuid16_t G_SIGN = U16(0x3030), G_SPEED = U16(0x3031), G_SOUND =
 static ble_uuid128_t s_gofa_id;           /* Service UUID dinh danh (co MAC) */
 static char s_gofa_name[16];
 static volatile bool s_gofa;              /* ket noi hien tai la app GOFA (tu nhan khi app doc/ghi dich vu GOFA) */
+static volatile bool s_waze;              /* ket noi hien tai la Waze Mod (bat thong bao RX cua HLP) */
 static bool s_adv_gofa;                   /* goi quang ba dang phat: true = GOFA (HUD_xxxx), false = Waze Mod (EVHUD-P4) */
 typedef struct { uint16_t chr, len; uint8_t d[512]; } gofa_pkt_t;
 static QueueHandle_t s_gofa_q;
@@ -203,7 +204,7 @@ static volatile uint16_t s_gofa_rd, s_gofa_snd, s_gofa_ovr, s_gofa_bad;   /* lan
 
 static int gofa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
-    if (!s_gofa) {                                                 /* tu nhan: app dau tien cham dich vu GOFA -> che do GOFA */
+    if (!s_gofa && !s_waze) {                                      /* tu nhan: app dau tien cham dich vu GOFA -> che do GOFA */
         s_gofa = true;
         wake(EV_GUP);
     }
@@ -226,6 +227,7 @@ static int gofa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt
         return os_mbuf_append(ctxt->om, &no_err, 1) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
     }
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    if (s_waze) return 0;                                          /* 2 app chung 1 ket noi: Waze Mod den truoc, bo qua GOFA */
     static gofa_pkt_t pk;                                          /* chi task host NimBLE goi: khong can khoa */
     pk.chr = id;
     pk.len = 0;
@@ -396,7 +398,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
             /* Tu nhan nguon: chua biet app nao; app ghi/doc dich vu GOFA -> GOFA, bat thong bao RX cua HLP -> Waze Mod.
              * 12/11: KHONG tu xin MTU (app GOFA tu xin sau kham pha; HUD xin truoc thi app bo ban tin dan duong). */
             ESP_LOGI(TAG, "dien thoai ket noi Bluetooth (luc dang phat goi %s): cho app tu nhan", s_adv_gofa ? "GOFA" : "Waze Mod");
-            s_gofa = false;
+            s_gofa = s_waze = false;
             s_mtu = 23;
         } else {
             advertise();
@@ -407,7 +409,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_state = 1;
         wake(EV_DOWN | (s_gofa ? EV_GDOWN : 0));
-        s_gofa = false;
+        s_gofa = s_waze = false;
         advertise();
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -417,7 +419,10 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         ESP_LOGI(TAG, "dien thoai %s thong bao handle %u", ev->subscribe.cur_notify || ev->subscribe.cur_indicate ? "bat" : "tat",
                  ev->subscribe.attr_handle);
         if (ev->subscribe.attr_handle == s_rx_handle) {           /* dien thoai bat/tat nhan thong bao tren RX */
-            if (ev->subscribe.cur_notify) {
+            if (ev->subscribe.cur_notify && s_gofa) {
+                ESP_LOGI(TAG, "Waze Mod noi chung ket noi khi GOFA dang dung: bo qua Waze Mod");
+            } else if (ev->subscribe.cur_notify) {
+                s_waze = true;
                 s_state = 2;
                 wake(EV_UP);
             } else {
@@ -617,7 +622,7 @@ static void ble_task(void *arg)
             xStreamBufferReset(s_rx_sb);
             xMessageBufferReset(s_tx_mb);
         }
-        if ((ev & EV_UP) && !s_linked && s_conn != BLE_HS_CONN_HANDLE_NONE) {
+        if ((ev & EV_UP) && !s_linked && s_waze && s_conn != BLE_HS_CONN_HANDLE_NONE) {
             s_linked = true;
             link_up(LINK_BLE, ble_tx);                            /* HUD gui `dev` truoc (qua ble_tx -> hang doi) */
             set_source(UI_SRC_WAZE);                              /* tu nhan: Waze Mod bat thong bao RX */
