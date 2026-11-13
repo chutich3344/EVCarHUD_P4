@@ -1581,7 +1581,7 @@ static void settings_render(void)
     for (int i = 0; i < 2; i++) {
         bool on = (i == 1) == (src == UI_SRC_GOFA);
         style_choice(src_card[i], on);
-        lv_label_set_text(lbl_src_st[i], on ? "Đang dùng" : "Bấm để chọn");
+        lv_label_set_text(lbl_src_st[i], on ? "Đang dùng" : "Tự nhận");
         lv_obj_set_style_text_color(lbl_src_st[i], on ? S_GREEN3 : S_MUT, 0);
     }
     lv_label_set_text_fmt(lbl_mac, "MAC Bluetooth  %s", mac_txt[0] ? mac_txt : "--");
@@ -1660,8 +1660,8 @@ static void on_set_btn(lv_event_t *e)
         return;
     }
     if (o == src_card[0] || o == src_card[1]) {
-        int want = o == src_card[1] ? UI_SRC_GOFA : UI_SRC_WAZE;
-        if (want != src) rb_start(want);
+        /* 13/11: HUD tu nhan app (GOFA / Waze Mod) khi ket noi, khong can chon + RST nua */
+        ui_toast("HUD tự nhận: mở Waze Mod hoặc GOFA là chạy");
         return;
     }
     if (o == snd_row) snd_on = !snd_on;
@@ -1816,7 +1816,7 @@ static void build_settings(void)
     lv_obj_set_style_text_color(lbl_mac, S_MUT, 0);
     lbl_ble = mk_label_w(p, &ui_font_sm12, 0, ch + 30, UI_W - 24, LV_TEXT_ALIGN_CENTER);
     lv_obj_set_style_text_color(lbl_ble, S_MUT, 0);
-    lv_label_set_text(lbl_ble, "Đổi nguồn xong bấm RST để khởi động lại");
+    lv_label_set_text(lbl_ble, "Tự nhận: mở Waze Mod hoặc GOFA, HUD tự chuyển");
 
     /* He thong: thong tin + hang "Cap nhat firmware" (mo man cap nhat OTA) */
     p = set_page_obj[PG_SYSTEM];

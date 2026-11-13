@@ -191,7 +191,8 @@ static const ble_uuid16_t G_SIGN = U16(0x3030), G_SPEED = U16(0x3031), G_SOUND =
                           G_NAV = U16(0x3038), G_TIME = U16(0x3039);
 static ble_uuid128_t s_gofa_id;           /* Service UUID dinh danh (co MAC) */
 static char s_gofa_name[16];
-static volatile bool s_gofa;
+static volatile bool s_gofa;              /* ket noi hien tai la app GOFA (tu nhan khi app doc/ghi dich vu GOFA) */
+static bool s_adv_gofa;                   /* goi quang ba dang phat: true = GOFA (HUD_xxxx), false = Waze Mod (EVHUD-P4) */
 typedef struct { uint16_t chr, len; uint8_t d[512]; } gofa_pkt_t;
 static QueueHandle_t s_gofa_q;
 static volatile uint16_t s_mtu = 23;
@@ -202,6 +203,10 @@ static volatile uint16_t s_gofa_rd, s_gofa_snd, s_gofa_ovr, s_gofa_bad;   /* lan
 
 static int gofa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
+    if (!s_gofa) {                                                 /* tu nhan: app dau tien cham dich vu GOFA -> che do GOFA */
+        s_gofa = true;
+        wake(EV_GUP);
+    }
     (void)conn;
     (void)attr;
     (void)arg;
@@ -332,8 +337,9 @@ static int gofa_adv_data(const char *name)
 
 static void advertise(void)
 {
-    const char *name = ble_svc_gap_device_name();
-    if (s_gofa) {
+    const char *name = s_adv_gofa ? s_gofa_name : CONFIG_EVCARHUD_BLE_NAME;
+    ble_svc_gap_device_name_set(name);
+    if (s_adv_gofa) {
         int grc = gofa_adv_data(name);
         if (grc != 0) {
             ESP_LOGW(TAG, "GOFA: khong dat duoc goi quang ba (rc=%d)", grc);
@@ -387,15 +393,11 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (ev->connect.status == 0) {
             s_conn = ev->connect.conn_handle;
-            ESP_LOGI(TAG, "dien thoai ket noi Bluetooth: cho dien thoai doc dich vu HLP va bat thong bao RX");
-            if (s_gofa) {
-                /* 12/11: HUD tu xin MTU ngay khi noi thi app GOFA chi gui toc do + bien, KHONG BAO GIO gui dan duong
-                 * (0x3038) / gio (0x3039). Nghi app tu xin MTU sau khi kham pha, bi tu choi vi da doi xong -> app tuong
-                 * MTU 23 (20 byte) va bo ban tin dai. Thu: de app tu xin MTU (NimBLE tu tra loi, toi da 247). */
-                ESP_LOGI(TAG, "GOFA: cho app tu xin MTU");
-                s_mtu = 23;
-                wake(EV_GUP);
-            }
+            /* Tu nhan nguon: chua biet app nao; app ghi/doc dich vu GOFA -> GOFA, bat thong bao RX cua HLP -> Waze Mod.
+             * 12/11: KHONG tu xin MTU (app GOFA tu xin sau kham pha; HUD xin truoc thi app bo ban tin dan duong). */
+            ESP_LOGI(TAG, "dien thoai ket noi Bluetooth (luc dang phat goi %s): cho app tu nhan", s_adv_gofa ? "GOFA" : "Waze Mod");
+            s_gofa = false;
+            s_mtu = 23;
         } else {
             advertise();
         }
@@ -405,6 +407,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_state = 1;
         wake(EV_DOWN | (s_gofa ? EV_GDOWN : 0));
+        s_gofa = false;
         advertise();
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -425,7 +428,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "MTU %d", ev->mtu.value);
         s_mtu = ev->mtu.value;
-        if (s_gofa) wake(EV_SNIFF);
+        wake(EV_SNIFF);
         break;
     default:
         break;
@@ -451,10 +454,7 @@ static void on_sync(void)
     printf("EVCARHUD_BT_MAC=%02X:%02X:%02X:%02X:%02X:%02X\n", m[5], m[4], m[3], m[2], m[1], m[0]);
     fflush(stdout);
     uint8_t be[6] = {m[5], m[4], m[3], m[2], m[1], m[0]};
-    if (s_gofa) {                                                  /* ten HUD_xxxx + UUID dinh danh theo MAC that cua C6 */
-        gofa_setup(be);
-        ble_svc_gap_device_name_set(s_gofa_name);
-    }
+    gofa_setup(be);                                                /* ten HUD_xxxx + UUID dinh danh theo MAC that cua C6 */
     char t[20];
     snprintf(t, sizeof t, "%02X:%02X:%02X:%02X:%02X:%02X", be[0], be[1], be[2], be[3], be[4], be[5]);
     board_ui_lock();
@@ -538,14 +538,17 @@ static bool bt_up(void)
     ble_svc_gatt_init();
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc == 0) rc = ble_gatts_add_svcs(s_svcs);
-    s_gofa = settings_get_source() == UI_SRC_GOFA;
-    if (s_gofa) {                                                  /* ten tam; on_sync dat lai theo MAC that */
+    /* 13/11: tu nhan GOFA / Waze Mod. Luon dang ky ca hai bo dich vu; luc chua ket noi phat xen ke 2 goi quang ba
+     * (EVHUD-P4 cho Waze Mod, HUD_xxxx + UUID dinh danh cho GOFA), app nao noi va dung dich vu cua minh thi HUD theo app do. */
+    s_gofa = false;
+    s_adv_gofa = settings_get_source() == UI_SRC_GOFA;              /* phat truoc goi cua nguon dung lan truoc */
+    {
         static const uint8_t z[6] = {0};
-        gofa_setup(z);
+        gofa_setup(z);                                             /* ten tam; on_sync dat lai theo MAC that */
     }
-    if (s_gofa && rc == 0) rc = ble_gatts_count_cfg(s_gofa_svcs);
-    if (s_gofa && rc == 0) rc = ble_gatts_add_svcs(s_gofa_svcs);
-    if (rc == 0) rc = ble_svc_gap_device_name_set(s_gofa ? s_gofa_name : CONFIG_EVCARHUD_BLE_NAME);
+    if (rc == 0) rc = ble_gatts_count_cfg(s_gofa_svcs);
+    if (rc == 0) rc = ble_gatts_add_svcs(s_gofa_svcs);
+    if (rc == 0) rc = ble_svc_gap_device_name_set(s_adv_gofa ? s_gofa_name : CONFIG_EVCARHUD_BLE_NAME);
     if (rc != 0) {
         ESP_LOGW(TAG, "dang ky dich vu GATT that bai (rc=%d)", rc);
         return false;
@@ -564,6 +567,17 @@ static bool bt_up(void)
 }
 
 void bt_diag_log(void);   /* bt_diag.c */
+
+#define ADV_SWAP_MS 1000                  /* chua ket noi: doi goi quang ba GOFA <-> Waze Mod moi 1 s */
+
+static void set_source(int src)           /* task ble: app vua tu nhan -> chip nguon tren man hinh + nho cho lan khoi dong sau */
+{
+    if (settings_get_source() != src) settings_set_source(src);
+    ESP_LOGI(TAG, "tu nhan nguon: %s", src == UI_SRC_GOFA ? "GOFA" : "Waze Mod");
+    board_ui_lock();
+    ui_set_source(src);
+    board_ui_unlock();
+}
 
 static void ble_task(void *arg)
 {
@@ -585,9 +599,18 @@ static void ble_task(void *arg)
         vTaskDelete(NULL);
         return;
     }
+    TickType_t adv_t = xTaskGetTickCount();
     for (;;) {
         uint32_t ev = 0;
-        xTaskNotifyWait(0, UINT32_MAX, &ev, pdMS_TO_TICKS(1000));
+        xTaskNotifyWait(0, UINT32_MAX, &ev, pdMS_TO_TICKS(ADV_SWAP_MS));
+        if (s_conn == BLE_HS_CONN_HANDLE_NONE && xTaskGetTickCount() - adv_t >= pdMS_TO_TICKS(ADV_SWAP_MS)) {
+            adv_t = xTaskGetTickCount();                           /* chua ai noi: doi goi quang ba GOFA <-> Waze Mod */
+            if (ble_gap_adv_active()) {
+                s_adv_gofa = !s_adv_gofa;
+                ble_gap_adv_stop();
+                advertise();
+            }
+        }
         if ((ev & EV_DOWN) && s_linked) {
             s_linked = false;
             link_down(LINK_BLE);
@@ -597,15 +620,17 @@ static void ble_task(void *arg)
         if ((ev & EV_UP) && !s_linked && s_conn != BLE_HS_CONN_HANDLE_NONE) {
             s_linked = true;
             link_up(LINK_BLE, ble_tx);                            /* HUD gui `dev` truoc (qua ble_tx -> hang doi) */
+            set_source(UI_SRC_WAZE);                              /* tu nhan: Waze Mod bat thong bao RX */
         }
-        if (s_gofa && (ev & (EV_GUP | EV_GDOWN))) {
-            bool up = s_conn != BLE_HS_CONN_HANDLE_NONE;
+        if (ev & (EV_GUP | EV_GDOWN)) {
+            bool up = (ev & EV_GUP) && s_gofa && s_conn != BLE_HS_CONN_HANDLE_NONE;
+            if (up) set_source(UI_SRC_GOFA);
             board_ui_lock();
             gofa_connected(up);
             gofa_show("", up ? "Đã kết nối app Gofa" : "Mất kết nối app Gofa");
             board_ui_unlock();
         }
-        if (s_gofa && (ev & EV_SNIFF)) {
+        if (ev & EV_SNIFF) {
             if (s_gofa_q && uxQueueMessagesWaiting(s_gofa_q) == 0) {   /* chi doi MTU: cap nhat dai */
                 board_ui_lock();
                 gofa_show("", "");
