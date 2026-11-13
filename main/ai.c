@@ -884,7 +884,13 @@ static void on_json(cJSON *j)
     } else if (strcmp(type, "mcp") == 0) {
         on_mcp(cJSON_GetObjectItem(j, "payload"));
     } else if (strcmp(type, "alert") == 0 || strcmp(type, "error") == 0) {
-        if (text) toast(text);
+        if (text && strstr(text, "nghe không ra chữ")) {
+            /* 13/11: tieng on / nhac bi nhan nham la "Mi Mi" -> Whisper rong, HUD cu nghe tiep 20 s/luot ~1 phut ("tu noi
+             * chuyen"). Khong ra chu = khong ai hoi: tat ngay, im lang (chi ghi log), goi lai khi can. */
+            ESP_LOGW(TAG, "bao: %s -> tat phien", text);
+            session_close();
+            toast("Mi Mi tạm nghỉ, gọi \"Mi Mi ơi\" khi cần");
+        } else if (text) toast(text);
     }
 }
 
