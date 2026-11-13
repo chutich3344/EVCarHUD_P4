@@ -1228,7 +1228,11 @@ static void render_nav(void)
     show(n_alt_clk, !has_route);
     if (has_route) {
         char v[3][20];
-        snprintf(v[0], sizeof v[0], "%s", eta_txt[0] ? eta_txt : "--:--");
+        if (eta_txt[0]) snprintf(v[0], sizeof v[0], "%s", eta_txt);
+        else if (clk_h >= 0 && eta_rmin > 0) {                    /* GOFA chi gui thoi gian con lai: gio den = gio + phut con lai */
+            int t = (clk_h * 60 + clk_m + eta_rmin) % 1440;
+            snprintf(v[0], sizeof v[0], "%02d:%02d", t / 60, t % 60);
+        } else snprintf(v[0], sizeof v[0], "--:--");
         fmt_dist(v[1], sizeof v[1], eta_rm > 0 ? eta_rm : -1);
         if (!v[1][0]) snprintf(v[1], sizeof v[1], "--");
         if (eta_rmin >= 60) snprintf(v[2], sizeof v[2], "%dg%02d", eta_rmin / 60, eta_rmin % 60);

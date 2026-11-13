@@ -178,7 +178,11 @@ static void on_nav(const pb_t *m, char *sum, size_t sn)
     nav_dst = nav_on && !arrived ? dst : -1;
     if (nav_on && !nav_trn) nav_trn = 1;                           /* chua xac dinh huong: hien di thang */
     push_nav();
-    ui_set_route("", 0, 0);
+    /* De nghi GOFA (13/11): them truong 6 = quang duong con lai (m), 7 = thoi gian con lai (giay) vao NavigationMessage.
+     * App chua gui thi 0 -> HUD hien gio hien tai; co thi HUD tu tinh gio den = gio hien tai + thoi gian con lai. */
+    int rm = nav_on && !arrived && m->has[6] ? (int)m->v[6] : 0;
+    int rs = nav_on && !arrived && m->has[7] ? (int)m->v[7] : 0;
+    ui_set_route("", rm, rs > 0 ? (rs + 59) / 60 : 0);
     snprintf(sum, sn, "dẫn đường: st=%u hướng=%u %dm · %s", (unsigned)m->v[1], (unsigned)m->v[4], nav_dst,
              nav_on ? road_next : road_now);
 }
