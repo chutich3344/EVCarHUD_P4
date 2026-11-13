@@ -102,7 +102,7 @@ int main(int argc, char **argv)
     run(400);
     snprintf(p, sizeof p, "%s/wifi_1_dang_do.bmp", dir); save_bmp(p);
     {
-        ui_wifi_ap_t aps[5] = {{"iPhone của Kevin", -48, true}, {"EVCar-Garage", -60, true},
+        ui_wifi_ap_t aps[5] = {{"iPhone của Kevin", -48, true, true}, {"EVCar-Garage", -60, true, true},
                                {"VNPT_5G_A2F1", -72, true}, {"Highlands Coffee", -84, false}, {"", -50, true}};
         ui_wifi_scan_done(aps, 5);
     }
@@ -234,6 +234,19 @@ int main(int argc, char **argv)
     ui_set_nav(true, 2, 600, 0, "Nguyễn Hữu Thọ", 0);
     run(600);
     snprintf(p, sizeof p, "%s/re_gan.bmp", dir); save_bmp(p);
+    ui_set_nav(true, 0, -1, 0, "Đi đến đường được chỉ dẫn", 0);   /* co lo trinh, dien thoai chua co GPS */
+    ui_set_route("14:39", 8200, 21);
+    run(6000);
+    snprintf(p, sizeof p, "%s/cho_gps.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "", 0);
+    run(4000);
+    ui_set_nav(true, 0, -1, 0, "Đi đến đường được chỉ dẫn", 0);
+    ui_set_route("14:39", 8200, 21);
+    run(600);
+    snprintf(p, sizeof p, "%s/cho_gps_moi.bmp", dir); save_bmp(p);
+    ui_set_nav(true, 2, 2500, 0, "Nguyễn Hữu Thọ", 0);
+    ui_set_route("20:05", 6500, 18);
+    run(600);
     {                                               /* kieu C: co canh bao -> hang day len, dai vao cho day */
         ui_alert_t a[1] = {{2, 300, -1}};
         ui_set_alerts(a, 1);
@@ -328,6 +341,8 @@ int main(int argc, char **argv)
     /* Nut BOOT trong cai dat: 1 lan = muc ke (khung vang), 2 lan = chon */
     /* Gia lap app Gofa: ban tin protobuf giong tai lieu (so truong = thu tu trong bang) */
     ui_set_source(UI_SRC_GOFA);
+    run(300);
+    snprintf(p, sizeof p, "%s/gofa_cho_chua_noi.bmp", dir); save_bmp(p);   /* o GOFA xam: chua noi dien thoai */
     gofa_connected(true);
     run(2600);                                      /* het man "Da ket noi dien thoai" */
     {
@@ -379,5 +394,37 @@ int main(int argc, char **argv)
     ui_test_switch(UI_SRC_GOFA);
     run(200);
     snprintf(p, sizeof p, "%s/cai_dat_doi_nguon.bmp", dir); save_bmp(p);
+    /* cap nhat firmware (OTA): trang He thong co ban moi + cac trang thai man cap nhat */
+    ui_set_version("1.0.0");
+    ui_ota_badge("1.1.0");
+    ui_open_settings_page(3);
+    run(200);
+    snprintf(p, sizeof p, "%s/ota_he_thong.bmp", dir); save_bmp(p);
+    ui_open_ota();
+    static const ui_ota_view_t vs[] = {
+        {.tone = UI_OTA_INFO, .title = "Phiên bản đang chạy 1.0.0", .pct = -1,
+         .detail = "Kiểm tra bản mới trên máy chủ EVCarHUD qua Wi-Fi.\nHoặc tải file .bin lên từ trình duyệt trên điện thoại / máy tính cùng mạng Wi-Fi.",
+         .btn_a = "Kiểm tra bản mới", .act_a = UI_OTA_ACT_CHECK, .btn_b = "Tải lên từ trình duyệt", .act_b = UI_OTA_ACT_WEB},
+        {.tone = UI_OTA_NEW, .title = "Có bản mới 1.1.0", .pct = -1,
+         .detail = "Đang chạy 1.0.0 · nhanh chậm tùy mạng Wi-Fi của HUD.\nCảnh báo vật cản cao tốc, sửa lỗi GOFA\nNên cập nhật khi xe đứng yên, không tắt nguồn HUD.",
+         .btn_a = "Cập nhật ngay", .act_a = UI_OTA_ACT_INSTALL, .btn_b = "Để sau", .act_b = UI_OTA_ACT_CLOSE},
+        {.tone = UI_OTA_BUSY, .title = "Đang tải và ghi bản mới…", .pct = 45, .lock = true,
+         .detail = "2118 / 4706 KB · không tắt nguồn HUD"},
+        {.tone = UI_OTA_INFO, .title = "Mở trình duyệt, vào địa chỉ:", .big = "http://192.168.43.27", .pct = -1,
+         .detail = "Mã xác nhận  4821\nĐiện thoại / máy tính phải cùng mạng Wi-Fi với HUD. Chọn file .bin (file gộp hoặc app-0x10000 đều được). Tự tắt sau 10 phút.",
+         .btn_b = "Dừng", .act_b = UI_OTA_ACT_WEB_STOP},
+        {.tone = UI_OTA_OK, .title = "Đã cài bản 1.1.0", .pct = 100, .lock = true,
+         .detail = "Khởi động lại sau 3 giây…\nBản mới lỗi thì HUD tự quay về bản cũ."},
+        {.tone = UI_OTA_FAIL, .title = "Không cập nhật được", .pct = -1,
+         .detail = "HUD chưa đăng ký: nạp lần đầu qua evcarhud.com/account\nHUD vẫn chạy bản 1.0.0.",
+         .btn_a = "Thử lại", .act_a = UI_OTA_ACT_CHECK, .btn_b = "Tải lên từ trình duyệt", .act_b = UI_OTA_ACT_WEB},
+        {.tone = UI_OTA_INFO, .title = "Đang kiểm tra bản mới…", .pct = -1, .spin = true, .detail = "Phiên bản đang chạy 1.0.0"},
+    };
+    static const char *const names[] = {"mo", "co_ban_moi", "dang_tai", "trinh_duyet", "xong", "loi", "dang_kiem_tra"};
+    for (int i = 0; i < 7; i++) {
+        ui_ota_view(&vs[i]);
+        run(300);
+        snprintf(p, sizeof p, "%s/ota_%s.bmp", dir, names[i]); save_bmp(p);
+    }
     return 0;
 }

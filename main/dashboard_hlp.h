@@ -30,6 +30,7 @@ bool hlp_dash_now(int64_t *unix_s, int *tz_min);          /* false: chua co gio 
 /* Nguon ngoai khong phai HLP (app GOFA, gofa.c): bat = da noi dien thoai + co tin hieu, khong het han sau 3 s */
 void hlp_dash_external(bool on);
 void hlp_dash_external_touch(void);
+const char *hlp_dev_line(void);                    /* dong `dev` xin du truong (gui cho Waze Mod) */
 void hlp_dash_set_local_time(int hour, int minute, int second);   /* gio dia phuong, giu ngay dang co */
 
 #ifdef __cplusplus

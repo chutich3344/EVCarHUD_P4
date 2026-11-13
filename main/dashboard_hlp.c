@@ -2,6 +2,14 @@
 #include "hlp.h"
 #include <stdio.h>
 #include <string.h>
+#ifdef ESP_PLATFORM
+#include "esp_log.h"
+#define DLOG(...) ESP_LOGI("hlp", __VA_ARGS__)
+#else
+#define DLOG(...) ((void)0)
+#endif
+/* chan doan (log len may chu): dem dong nhan theo loai, in vai dong dau / dong hong */
+static unsigned d_cnt[8], d_bad;
 
 #define STALE_MS 3000                 /* theo spec: 3s khong co tin -> mat tin hieu */
 #define WEAK_MS  1500                 /* khong co tin `s` qua 1,5 s (binh thuong 4 tin/giay) -> chu GPS vang */
@@ -136,7 +144,7 @@ static void apply_state(const hlp_state_t *s)
     /* ten duong: dang re -> duong SAU khi re (st2); khong thi duong hien tai (st) */
     char tmp[HLP_STR_MAX], street[HLP_STR_MAX];
     const char *st2 = held_st2(s);
-    const char *src = (s->nav && s->trn != 0 && st2[0]) ? st2 : s->st;
+    const char *src = (s->nav && st2[0] && (s->trn != 0 || !s->st[0])) ? st2 : s->st;   /* chua co GPS: st rong, st2 la goi y */
     strncpy(tmp, src, sizeof tmp - 1);
     tmp[sizeof tmp - 1] = 0;
     strip_paren(tmp);                                /* bo "(Lan hon hop)" */
@@ -170,7 +178,14 @@ static void on_line(const char *line, size_t len, void *user)
 {
     (void)len; (void)user;
     hlp_msg_t m;
-    if (!hlp_parse_line(line, &m)) return;           /* hong / v khac 1: bo qua */
+    if (!hlp_parse_line(line, &m)) {                 /* hong / v khac 1: bo qua */
+        if (++d_bad <= 5) DLOG("dong hong #%u (%u byte): %.160s", d_bad, (unsigned)len, line);
+        return;
+    }
+    unsigned ty = (unsigned)m.type < 8 ? (unsigned)m.type : 7;
+    if (++d_cnt[ty] <= 3 && m.type != HLP_MSG_PING) DLOG("nhan loai %u #%u (%u byte): %.160s", ty, d_cnt[ty], (unsigned)len, line);
+    if ((d_cnt[ty] % 600) == 0) DLOG("da nhan: hi %u, ping %u, state %u, khac %u, hong %u, qua dai %u", d_cnt[HLP_MSG_HI],
+                                    d_cnt[HLP_MSG_PING], d_cnt[HLP_MSG_STATE], d_cnt[0], d_bad, (unsigned)rx.oversized);
 
     switch (m.type) {
     case HLP_MSG_HI:
@@ -187,6 +202,30 @@ static void on_line(const char *line, size_t len, void *user)
         if (have_ts && m.s.ts < last_ts) return;     /* tin cu hon: bo (cung sess) */
         have_ts = true;
         last_ts = m.s.ts;
+        {
+            static int d_nav = -2, d_spd_seen;
+            static char d_st[48];
+            if (m.s.nav != d_nav || (m.s.spd > 0 && !d_spd_seen)) {   /* chi khi bat / tat dan duong (truoc: moi lan doi ten duong) */
+                DLOG("Waze: nav=%d spd=%d lim=%d trn=%d dst=%d st=\"%.60s\" eta=%s", m.s.nav, m.s.spd, m.s.lim, m.s.trn,
+                     m.s.dst, m.s.st, m.s.eta);
+                d_nav = m.s.nav;
+                { size_t k = strlen(m.s.st); if (k > sizeof d_st - 1) k = sizeof d_st - 1; memcpy(d_st, m.s.st, k); d_st[k] = 0; }
+                if (m.s.spd > 0) d_spd_seen = 1;
+            }
+        }
+        {
+            /* Hai app Waze cung noi (vd Waze beta + Waze Mod tren cung dien thoai): mot app dang dan (nav=1), app kia
+             * khong (nav=0), xen ke ~2 lan/giay -> man hinh nhay. Vua co tin dang dan trong 3 s thi bo tin nav=0. */
+            static uint32_t nav_tick;
+            static unsigned d_skip;
+            if (m.s.nav) nav_tick = lv_tick_get() | 1;
+            else if (nav_tick && lv_tick_elaps(nav_tick) < 3000) {
+                if (d_skip++ % 60 == 0) DLOG("bo tin nav=0 xen giua luc dang dan (%u lan) - co 2 app Waze cung gui?", d_skip);
+                last_rx_tick = lv_tick_get();
+                set_signal(true);
+                return;
+            }
+        }
         apply_state(&m.s);
         have_state = true;
         last_state_tick = lv_tick_get();
@@ -284,6 +323,15 @@ void hlp_dash_init(hlp_tx_cb_t tx, void *user)
     if (!watch_tmr) watch_tmr = lv_timer_create(watch_cb, 500, NULL);
 }
 
+#define DEV_LINE "{\"v\":1,\"t\":\"dev\",\"name\":\"EVCarHUD\",\"fw\":\"0.1.0\",\"proto\":[1],"\
+              "\"disp\":{\"w\":320,\"h\":240,\"color\":1},"\
+              "\"can\":[\"speed\",\"limit\",\"turn\",\"street\",\"eta\",\"avgzone\",\"alerts\"],"\
+              "\"want\":{\"rate\":4,\"fields\":[\"nav\",\"spd\",\"lim\",\"over\",\"trn\",\"trn2\",\"dst\","\
+              "\"exit\",\"st\",\"st2\",\"eta\",\"rmin\",\"rm\",\"rkm\",\"avg\",\"avgL\",\"avgR\",\"avgP\","\
+              "\"alr\",\"alrD\",\"alrV\",\"alrS\",\"alrM\",\"alrs\"]}}"
+
+const char *hlp_dev_line(void) { return DEV_LINE; }
+
 void hlp_dash_on_connect(void)
 {
     hold_st2[0] = 0;
@@ -293,12 +341,7 @@ void hlp_dash_on_connect(void)
     have_ts = false;
     have_state = false;                              /* ket noi moi: GPS vang cho den khi co tin `s` dau tien */
     /* Xin day du truong, ke ca `alrs` (opt-in). Ket thuc bang LF do transport them. */
-    send_line("{\"v\":1,\"t\":\"dev\",\"name\":\"EVCarHUD\",\"fw\":\"0.1.0\",\"proto\":[1],"
-              "\"disp\":{\"w\":320,\"h\":240,\"color\":1},"
-              "\"can\":[\"speed\",\"limit\",\"turn\",\"street\",\"eta\",\"avgzone\",\"alerts\"],"
-              "\"want\":{\"rate\":4,\"fields\":[\"nav\",\"spd\",\"lim\",\"over\",\"trn\",\"trn2\",\"dst\","
-              "\"exit\",\"st\",\"st2\",\"eta\",\"rmin\",\"rm\",\"rkm\",\"avg\",\"avgL\",\"avgR\",\"avgP\","
-              "\"alr\",\"alrD\",\"alrV\",\"alrS\",\"alrM\",\"alrs\"]}}");
+    send_line(DEV_LINE);
 }
 
 void hlp_dash_on_disconnect(void)
@@ -309,7 +352,9 @@ void hlp_dash_on_disconnect(void)
 
 void hlp_dash_feed(const uint8_t *data, size_t len)
 {
+    uint32_t ov = rx.oversized;
     hlp_rx_feed(&rx, data, len);
+    if (rx.oversized != ov && rx.oversized <= 5) DLOG("bo dong qua dai #%u (> %d byte)", (unsigned)rx.oversized, HLP_MAX_FRAME);
 }
 
 void hlp_dash_external(bool on)

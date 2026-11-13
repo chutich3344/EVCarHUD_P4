@@ -491,6 +491,7 @@ void usb_cam_start(void)
         ESP_LOGE(TAG, "khong cai duoc driver UVC");
         return;
     }
+    /* Phai o RAM trong chip: lan dau nhan dien doc mo hinh tu flash (ngan xep PSRAM + doc flash = tu khoi dong lai) */
     xTaskCreatePinnedToCore(cam_task, "usb_cam", 16384, NULL, 5, NULL, 0);   /* stack lon: ESP-DL chay trong task nay */
     ESP_LOGI(TAG, "cho camera USB o cong OTG...");
 }

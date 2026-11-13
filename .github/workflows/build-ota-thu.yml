@@ -1,0 +1,59 @@
+# Build thu cap nhat OTA (nhanh thu nghiem, KHONG dung ban phat hanh "ban-moi-nhat"):
+# ra file gop .bin (nap 0x0 lan dau, co bang phan vung OTA moi) + file app (tai len trang admin / trang tai len tren HUD)
+# trong ban phat hanh rieng "ota-thu".
+name: Build thu OTA
+
+on:
+  push:
+    branches: [claude/project-thread-jdaxsn]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build bang ESP-IDF 5.5
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: release-v5.5
+          target: esp32p4
+          command: git config --global --add safe.directory /app/${{ github.repository }} && idf.py build && idf.py merge-bin -o evcarhud-full.bin
+      - name: Dat ten file
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          VER=$(cat version.txt)
+          cp build/evcarhud-full.bin "p4-ota-$VER-$SHORT.bin"
+          cp build/evcarhud_p4.bin "p4-ota-$VER-$SHORT-app-0x10000.bin"
+          ls -la build/evcarhud_p4.bin build/evcarhud-full.bin
+          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+      - name: Ghep anh chip C6 (ban phat hanh c6-fw) vao khe ota_1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # File p4-c6-*-app-0x10000.bin: app P4 dem 0xFF toi 6 MB (het khe ota_0) + anh C6 -> nap USB o 0x10000,
+          # anh C6 nam dau khe ota_1 (0x610000); P4 khoi dong thay anh do thi nang C6 qua SDIO roi xoa.
+          if gh release download c6-fw -R "$GITHUB_REPOSITORY" -p c6-hosted-3.1.0.bin; then
+            VER=$(cat version.txt)
+            python3 -c "import sys; a=open('build/evcarhud_p4.bin','rb').read(); c=open('c6-hosted-3.1.0.bin','rb').read(); assert len(a)<=0x600000; open(sys.argv[1],'wb').write(a+b'\xff'*(0x600000-len(a))+c)" "p4-c6-$VER-$SHORT-app-0x10000.bin"
+            ls -la p4-c6-*.bin c6-hosted-3.1.0.bin
+          else
+            echo "chua co ban phat hanh c6-fw: bo qua"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p4-ota-${{ env.SHORT }}
+          path: p4-*.bin
+      - name: Cap nhat ban phat hanh "ota-thu"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ota-thu --yes --cleanup-tag || true
+          gh release create ota-thu p4-*.bin --target "$GITHUB_SHA" \
+            --title "Thử cập nhật OTA (${{ env.SHORT }})" \
+            --notes "Bản thử OTA. Lần đầu nạp file gộp ở 0x0 bằng USB (bảng phân vùng mới). Sau đó cập nhật qua Cài đặt > Hệ thống > Cập nhật firmware." --prerelease

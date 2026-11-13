@@ -98,7 +98,9 @@ static int alert_for_sign(uint32_t id)                             /* ID bien GO
 
 static int turn_for_maneuver(uint32_t mv)                          /* NavigationManeuver -> ma re HLP `trn` */
 {
-    static const int trn[] = {0, 1, 8, 2, 3, 4, 5, 6, 7, 10};
+    /* theo app GOFA 4.2.2: 0 chua ro, 1 thang, 2 quay dau, 3 trai, 4 phai, 5 cheo trai, 6 cheo phai, 7 gat trai, 8 gat phai,
+     * 9 vong xuyen cung chieu kim dong ho, 10 vong xuyen nguoc chieu (VN di ben phai: hay gap 10) */
+    static const int trn[] = {0, 1, 8, 2, 3, 4, 5, 6, 7, 10, 10};
     return mv < sizeof trn / sizeof trn[0] ? trn[mv] : 0;
 }
 
@@ -159,12 +161,28 @@ static void on_nav(const pb_t *m, char *sum, size_t sn)
      * hoac khoang cach > 0 cung coi la dang dan duong */
     uint32_t mv = m->has[4] ? m->v[4] : 0;
     int dst = m->has[5] ? (int)m->v[5] : -1;
-    nav_on = m->v[1] == 2 || mv > 0 || dst > 0;
-    nav_trn = nav_on ? turn_for_maneuver(mv) : 0;
-    nav_dst = nav_on ? dst : -1;
+    /* HUDNavigationState: 0 chua xac dinh, 1 khong dan duong, 2 dang dan duong, 3 da den dich, 4 dang tinh lai tuyen */
+    uint32_t st = m->v[1];
+    if (st == 4) {                                                 /* tinh lai tuyen: giu man dan duong, bao dang tim duong */
+        nav_on = true;
+        if (!nav_trn) nav_trn = 1;
+        nav_dst = -1;
+        snprintf(road_next, sizeof road_next, "Đang tìm lại đường…");
+        push_nav();
+        snprintf(sum, sn, "dẫn đường: tính lại tuyến");
+        return;
+    }
+    bool arrived = st == 3;
+    nav_on = st == 2 || arrived || (st != 1 && (mv > 0 || dst > 0));
+    nav_trn = arrived ? 17 : nav_on ? turn_for_maneuver(mv) : 0;     /* 17: co dich (mui ten "da den") */
+    nav_dst = nav_on && !arrived ? dst : -1;
     if (nav_on && !nav_trn) nav_trn = 1;                           /* chua xac dinh huong: hien di thang */
     push_nav();
-    ui_set_route("", 0, 0);
+    /* De nghi GOFA (13/11): them truong 6 = quang duong con lai (m), 7 = thoi gian con lai (giay) vao NavigationMessage.
+     * App chua gui thi 0 -> HUD hien gio hien tai; co thi HUD tu tinh gio den = gio hien tai + thoi gian con lai. */
+    int rm = nav_on && !arrived && m->has[6] ? (int)m->v[6] : 0;
+    int rs = nav_on && !arrived && m->has[7] ? (int)m->v[7] : 0;
+    ui_set_route("", rm, rs > 0 ? (rs + 59) / 60 : 0);
     snprintf(sum, sn, "dẫn đường: st=%u hướng=%u %dm · %s", (unsigned)m->v[1], (unsigned)m->v[4], nav_dst,
              nav_on ? road_next : road_now);
 }

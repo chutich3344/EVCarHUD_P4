@@ -1,0 +1,68 @@
+# Firmware cho chip Wi-Fi/Bluetooth ESP32-C6 tren board (esp_hosted 3.1.0, cung doi voi phan P4).
+# C6 xuat xuong chay esp_hosted 0.0.x: lech the he voi P4 nen Wi-Fi chap chon (do song rong, TCP het gio).
+# Ra file app C6 de P4 nap cho C6 qua SDIO (esp_hosted_slave_ota_*), dat trong ban phat hanh "c6-fw".
+name: Build firmware C6
+
+on:
+  push:
+    branches: [claude/project-thread-jdaxsn]
+    paths: [.github/workflows/build-c6.yml, c6/**]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lay esp-hosted-mcu v3.1.0
+        run: |
+          git clone --depth 1 --branch v3.1.0 https://github.com/espressif/esp-hosted-mcu eh
+          # du an mau tro toi ma nguon qua override_path (ten thanh phan sai khi clone rieng): lay esp_hosted 3.1.0 tu kho thanh phan
+          printf 'dependencies:\n  espressif/esp_hosted: "==3.1.0"\n  idf:\n    version: ">=5.5"\n' \
+            > eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/main/idf_component.yml
+          cat eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/main/idf_component.yml
+          # 2026-11-12: tu khi len 3.1.0 Bluetooth khong tra loi lenh HCI (Waze Mod/nRF khong thay HUD) du RPC bat BT bao OK.
+          # Nghi bo dieu khien BLE cua C6 ngu (BT_LE_SLEEP_ENABLE, board khong co thach anh 32 kHz) -> tat ngu BT,
+          # ghi ro HCI qua VHCI + tu khoi tao BT luc khoi dong.
+          printf '\nCONFIG_BT_LE_SLEEP_ENABLE=n\nCONFIG_ESP_HOSTED_CP_FEAT_BT=y\nCONFIG_ESP_HOSTED_CP_BT_ENABLED=y\nCONFIG_ESP_HOSTED_CP_FEAT_BT_HCI_VHCI=y\nCONFIG_BT_LE_HCI_INTERFACE_USE_RAM=y\nCONFIG_ESP_HOSTED_CP_AUTO_FEAT_INIT=y\nCONFIG_ESP_HOSTED_CP_FEAT_BT_AUTO_INIT=y\n' \
+            >> eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/sdkconfig.defaults.esp32c6
+      - uses: actions/checkout@v4
+        with:
+          path: src
+      - name: Thay main bang cau HCI rieng (c6/main.c)
+        run: |
+          M=eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/main
+          cp src/c6/main.c $M/main.c
+          printf 'idf_component_register(\n    SRCS "main.c"\n    INCLUDE_DIRS "."\n    REQUIRES nvs_flash bt esp_hosted\n)\n' > $M/CMakeLists.txt
+          cat $M/CMakeLists.txt
+      - name: Build C6 (Wi-Fi + BLE HCI qua SDIO)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: release-v5.5
+          target: esp32c6
+          path: eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp
+          command: idf.py build
+      - name: Dat ten file
+        run: |
+          D=eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/build
+          ls -la $D/*.bin
+          # In cau hinh BT/hosted that su dung de doi chieu
+          grep -E '^(# )?CONFIG_(BT_LE_|BT_CTRL|BT_ENABLED|BT_CONTROLLER|ESP_HOSTED_CP_(FEAT_BT|BT|AUTO))' eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/sdkconfig | grep -v '^# CONFIG_BT_LE_DFT' || true
+          grep -E '^CONFIG_ESP_HOSTED_CP_' eh/examples/bluetooth/esp_hosted_nimble/bleprph_wifi_coex/cp/sdkconfig || true
+          APP=$(ls $D/*.bin | grep -v -e bootloader -e partition -e ota_data | head -1)
+          cp "$APP" c6-hosted-3.1.0.bin
+          cp $D/partition_table/partition-table.bin c6-partition-table.bin
+          ls -la c6-*.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c6-hosted-3.1.0
+          path: c6-*.bin
+      - name: Cap nhat ban phat hanh "c6-fw"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete c6-fw -R "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create c6-fw c6-*.bin -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Firmware chip C6 (esp_hosted 3.1.0)" --notes "P4 nap cho C6 qua SDIO." --prerelease

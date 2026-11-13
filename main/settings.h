@@ -19,11 +19,20 @@ bool settings_get_sound(void);        /* loa bat (mac dinh: co) */
 void settings_set_sound(bool on);
 int settings_get_volume(void);        /* am luong 10..100 (mac dinh 70) */
 void settings_set_volume(int v);
+int settings_get_ai_volume(void);     /* am luong giong Mi Mi 30..100 (mac dinh 100), rieng voi tieng tit */
+void settings_set_ai_volume(int v);
+int settings_get_wake_sens(void);    /* do nhay goi "Mi Mi" 1..5 (mac dinh 3) */
+void settings_set_wake_sens(int v);
+int settings_wake_threshold(void);   /* nguong MultiNet (%) theo do nhay */
 int settings_get_source(void);        /* nguon du lieu: 0 Waze Mod (mac dinh), 1 GOFA */
 void settings_set_source(int s);
 int settings_get_tz(void);            /* mui gio (phut), mac dinh +7 (Viet Nam) */
 void settings_set_tz(int tz_min);
 bool settings_get_wifi_on(void);      /* cong tac Wi-Fi (mac dinh: bat) */
 void settings_set_wifi_on(bool on);
-bool settings_get_wifi(char ssid[33], char pass[65]);   /* mang Wi-Fi da luu (false: chua co) */
-void settings_set_wifi(const char *ssid, const char *pass);
+#define WIFI_SAVED_MAX 6
+bool settings_get_wifi(char ssid[33], char pass[65]);   /* mang Wi-Fi luu gan nhat (false: chua co) */
+void settings_set_wifi(const char *ssid, const char *pass);   /* luu / cap nhat mang, dua len dau */
+int settings_wifi_list(char ssid[][33], char pass[][65]);    /* moi mang da luu (mang WIFI_SAVED_MAX), tra so mang */
+bool settings_wifi_find(const char *ssid, char pass[65]);     /* mang nay da luu chua (lay mat khau) */
+void settings_wifi_forget(const char *ssid);

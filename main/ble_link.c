@@ -26,9 +26,11 @@
 
 #include "link.h"
 #include "board.h"
+#include "ai.h"
 #include "dashboard.h"
 #include "settings.h"
 #include "gofa.h"
+#include "dashboard_hlp.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
 #include "freertos/queue.h"
@@ -46,6 +48,7 @@ static const ble_uuid128_t UUID_RX = HLP_UUID(0x03);
 static const ble_uuid128_t UUID_CAPS = HLP_UUID(0x04);
 static const char CAPS[] = "{\"v\":1,\"caps\":{\"transport\":\"ble\",\"maxFrame\":512}}";
 
+#define BT_TRIES 6                       /* so lan bat Bluetooth (C6) truoc khi bo cuoc */
 #define START_DELAY_MS 2000              /* de man hinh len truoc va cau noi SDIO toi chip C6 san sang */
 #define BLE_LINE_MAX 640                     /* 1 dong HLP toi da 512 byte */
 #define EV_RX   (1u << 0)
@@ -65,6 +68,8 @@ static uint8_t s_addr_type;
 static bool s_linked;                    /* da goi link_up (chi task ble dung) */
 static volatile bool s_synced;           /* ngan xep da noi chuyen duoc voi bo dieu khien Bluetooth */
 static int s_resets;
+static volatile uint32_t s_gofa_ms, s_waze_ms, s_own_ms;   /* lan cuoi app GOFA / Waze Mod gui, luc doi chu */
+static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
 static int gap_event(struct ble_gap_event *ev, void *arg);
 
@@ -84,6 +89,7 @@ static int chr_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
         uint16_t n = 0;
         if (OS_MBUF_PKTLEN(ctxt->om) > sizeof buf) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
         if (ble_hs_mbuf_to_flat(ctxt->om, buf, sizeof buf, &n) != 0) return BLE_ATT_ERR_UNLIKELY;
+        s_waze_ms = now_ms();
         if (n && xStreamBufferSend(s_rx_sb, buf, n, 0) != n) ESP_LOGW(TAG, "bo dem nhan day, mat %u byte", (unsigned)n);
         wake(EV_RX);
         return 0;
@@ -114,6 +120,7 @@ static int ts_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *
     b[n] = 0;
     ESP_LOGI(TAG, "tram sac: %s", b);
     if (strncmp(b, "T1|", 3) != 0) return 0;                      /* phien ban khac: bo qua */
+    ai_station_cancel();                                           /* app Charge chon tram: thay tram Mi Mi dua len */
     char *f[9] = {0};                                              /* ten, met, phia, goc, kW, cong, so tram, che do */
     int k = 0;
     for (char *p = b + 3; k < 8; ) {
@@ -188,24 +195,48 @@ static const ble_uuid16_t G_SIGN = U16(0x3030), G_SPEED = U16(0x3031), G_SOUND =
                           G_NAV = U16(0x3038), G_TIME = U16(0x3039);
 static ble_uuid128_t s_gofa_id;           /* Service UUID dinh danh (co MAC) */
 static char s_gofa_name[16];
-static volatile bool s_gofa;
+static volatile bool s_gofa;              /* ket noi hien tai la app GOFA (tu nhan khi app doc/ghi dich vu GOFA) */
+static volatile bool s_waze;              /* ket noi hien tai la Waze Mod (bat thong bao RX cua HLP) */
+static volatile bool s_waze_sub;          /* Waze Mod da bat thong bao RX (ke ca khi GOFA dang giu HUD) */
+static bool s_adv_gofa;                   /* goi quang ba dang phat: true = GOFA (HUD_xxxx), false = Waze Mod (EVHUD-P4) */
 typedef struct { uint16_t chr, len; uint8_t d[512]; } gofa_pkt_t;
 static QueueHandle_t s_gofa_q;
+/* 13/11: 2 app tren 1 dien thoai dung chung 1 ket noi (tat 1 app thi ket noi van con). App dang giu HUD im lang thi chuyen
+ * sang app kia: Waze Mod im > WAZE_IDLE_MS (Waze gui 4 lan/s) / GOFA im > GOFA_IDLE_MS (GOFA chi gui khi doi) ma Waze dang gui.
+ * Luc Waze giu HUD, goi GOFA moi nhat cua tung loai duoc giu lai de phat lai khi chuyen sang GOFA. */
+#define WAZE_IDLE_MS 4000
+#define GOFA_IDLE_MS 8000
+#define HOLD_N 4
+#define HOLD_MAX 160
+static struct { uint16_t chr, len; uint8_t d[HOLD_MAX]; } s_hold[HOLD_N];   /* 0x3030, 0x3031, 0x3038, 0x3039 */
+static volatile bool s_held;
+static portMUX_TYPE s_hold_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile uint16_t s_mtu = 23;
 static uint16_t s_gofa_cnt[4];            /* so goi da nhan: bien bao, toc do, dan duong, gio */
 static volatile uint16_t s_gofa_rd, s_gofa_snd, s_gofa_ovr, s_gofa_bad;   /* lan doc 0x180A, goi 0x3032, 0x3033, goi hong/qua dai */
 #define EV_GUP   (1u << 5)
 #define EV_GDOWN (1u << 6)
+#define EV_PROBE (1u << 7)                /* gui `dev` cho Waze Mod (khong doi man hinh) de Waze bat dau gui */
 
 static int gofa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
+    s_gofa_ms = now_ms();
+    if (!s_gofa && !s_waze) {                                      /* tu nhan: app dau tien cham dich vu GOFA -> che do GOFA */
+        s_gofa = true;
+        s_own_ms = s_gofa_ms;
+        wake(EV_GUP);
+    }
     (void)conn;
     (void)attr;
     (void)arg;
     uint16_t id = ble_uuid_u16(ctxt->chr->uuid);
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
         const esp_app_desc_t *ad = esp_app_get_description();
-        const char *v = id == 0x2A26 ? (ad ? ad->version : "1.0") : id == 0x2A27 ? "ESP32-P4-WIFI6-LCD-3.5" : id == 0x2A24 ? "EVCarHUD 3.5" : NULL;
+        /* dinh dang theo vi du tai lieu GOFA: firmware "G1.1.2", hardware "EX-REV1", model "EX1" (12/11: app khong gui
+         * dan duong / gio, nghi app doc phien ban theo mau "G<so>.<so>.<so>") */
+        static char fw[40];
+        snprintf(fw, sizeof fw, "G%s", ad ? ad->version : "1.0.0");
+        const char *v = id == 0x2A26 ? fw : id == 0x2A27 ? "P4-REV1" : id == 0x2A24 ? "EVH1" : NULL;
         ESP_LOGI(TAG, "GOFA doc 0x%04X", id);
         s_gofa_rd++;
         wake(EV_SNIFF);
@@ -221,6 +252,18 @@ static int gofa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt
         s_gofa_bad++;
         wake(EV_SNIFF);
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    if (s_waze) {                                                  /* Waze Mod dang giu HUD: chi giu goi moi nhat de phat lai */
+        int hi = id == 0x3030 ? 0 : id == 0x3031 ? 1 : id == 0x3038 ? 2 : id == 0x3039 ? 3 : -1;
+        if (hi >= 0 && pk.len <= HOLD_MAX) {
+            taskENTER_CRITICAL(&s_hold_mux);
+            s_hold[hi].chr = id;
+            s_hold[hi].len = pk.len;
+            memcpy(s_hold[hi].d, pk.d, pk.len);
+            s_held = true;
+            taskEXIT_CRITICAL(&s_hold_mux);
+        }
+        return 0;
     }
     if (id == 0x3032) s_gofa_snd++;
     if (id == 0x3033) s_gofa_ovr++;
@@ -272,7 +315,8 @@ static void gofa_show(const char *state, const char *last)       /* task ble: da
     char head[128];
     snprintf(head, sizeof head, "MTU%u đọc%u biển%u tốc%u âm%u quá%u dẫn%u giờ%u%s", s_mtu, s_gofa_rd,
              s_gofa_cnt[0], s_gofa_cnt[1], s_gofa_snd, s_gofa_ovr, s_gofa_cnt[2], s_gofa_cnt[3], s_gofa_bad ? " · LỖI" : "");
-    ui_gofa_debug(head, last);
+    /* da chay that voi app GOFA (12/11): khong che dai cham doan len man dan duong nua, chi ghi log (doc tu xa) */
+    ESP_LOGI(TAG, "GOFA %s | %s", head, last ? last : "");
 }
 
 static void gofa_drain(void)
@@ -291,13 +335,53 @@ static void gofa_drain(void)
     }
 }
 
+/* GOFA (dev GOFA xac nhan 12/11/2026): Service UUID dinh danh phai la chuoi DAU TIEN trong goi quang ba, 10 byte dau
+ * tuy y (app khong doc), app lay MAC o 6 byte cuoi. ble_gap_adv_set_fields luon dat Flags truoc nen tu xep goi tho:
+ * [UUID 128 bit][ten][Flags] = 18 + (2 + ten) + 3 <= 31 byte; ten dai thi chuyen sang goi tra loi quet. */
+static int gofa_adv_data(const char *name)
+{
+    uint8_t d[31], r[31];
+    int n = 0, rn = 0, nl = (int)strlen(name);
+    d[n++] = 17;
+    d[n++] = BLE_HS_ADV_TYPE_COMP_UUIDS128;
+    memcpy(d + n, s_gofa_id.value, 16);                            /* thu tu byte nhu chuan BLE (little endian) */
+    n += 16;
+    if (n + 2 + nl + 3 <= (int)sizeof d) {
+        d[n++] = (uint8_t)(nl + 1);
+        d[n++] = BLE_HS_ADV_TYPE_COMP_NAME;
+        memcpy(d + n, name, nl);
+        n += nl;
+    } else if (nl + 2 <= (int)sizeof r) {
+        r[rn++] = (uint8_t)(nl + 1);
+        r[rn++] = BLE_HS_ADV_TYPE_COMP_NAME;
+        memcpy(r + rn, name, nl);
+        rn += nl;
+    }
+    d[n++] = 2;
+    d[n++] = BLE_HS_ADV_TYPE_FLAGS;
+    d[n++] = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    int rc = ble_gap_adv_set_data(d, n);
+    if (rc == 0 && rn) rc = ble_gap_adv_rsp_set_data(r, rn);
+    ESP_LOG_BUFFER_HEX_LEVEL(TAG, d, n, ESP_LOG_INFO);
+    return rc;
+}
+
 static void advertise(void)
 {
-    const char *name = ble_svc_gap_device_name();
+    const char *name = s_adv_gofa ? s_gofa_name : CONFIG_EVCARHUD_BLE_NAME;
+    ble_svc_gap_device_name_set(name);
+    if (s_adv_gofa) {
+        int grc = gofa_adv_data(name);
+        if (grc != 0) {
+            ESP_LOGW(TAG, "GOFA: khong dat duoc goi quang ba (rc=%d)", grc);
+            return;
+        }
+        goto start;
+    }
     struct ble_hs_adv_fields f;
     memset(&f, 0, sizeof f);
     f.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    f.uuids128 = (ble_uuid128_t *)(s_gofa ? &s_gofa_id : &UUID_SVC);   /* GOFA: UUID dinh danh dat dau tien */
+    f.uuids128 = (ble_uuid128_t *)&UUID_SVC;
     f.num_uuids128 = 1;
     f.uuids128_is_complete = 1;
     f.name = (const uint8_t *)name;
@@ -320,6 +404,7 @@ static void advertise(void)
         ESP_LOGW(TAG, "khong dat duoc du lieu quang ba (rc=%d)", rc);
         return;
     }
+start:;
     struct ble_gap_adv_params p;
     memset(&p, 0, sizeof p);
     p.conn_mode = BLE_GAP_CONN_MODE_UND;
@@ -339,15 +424,12 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (ev->connect.status == 0) {
             s_conn = ev->connect.conn_handle;
-            ESP_LOGI(TAG, "dien thoai ket noi Bluetooth: cho dien thoai doc dich vu HLP va bat thong bao RX");
-            if (s_gofa) {
-                /* App Gofa bo ban tin dan duong neu vuot gioi han 1 lan ghi (MTU mac dinh 23 -> 20 byte):
-                 * HUD xin MTU lon ngay khi noi. */
-                int mrc = ble_gattc_exchange_mtu(s_conn, NULL, NULL);
-                ESP_LOGI(TAG, "GOFA: xin MTU %d (rc=%d)", CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU, mrc);
-                s_mtu = 23;
-                wake(EV_GUP);
-            }
+            /* Tu nhan nguon: chua biet app nao; app ghi/doc dich vu GOFA -> GOFA, bat thong bao RX cua HLP -> Waze Mod.
+             * 12/11: KHONG tu xin MTU (app GOFA tu xin sau kham pha; HUD xin truoc thi app bo ban tin dan duong). */
+            ESP_LOGI(TAG, "dien thoai ket noi Bluetooth (luc dang phat goi %s): cho app tu nhan", s_adv_gofa ? "GOFA" : "Waze Mod");
+            s_gofa = s_waze = s_waze_sub = s_held = false;
+            memset(s_hold, 0, sizeof s_hold);
+            s_mtu = 23;
         } else {
             advertise();
         }
@@ -357,6 +439,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_state = 1;
         wake(EV_DOWN | (s_gofa ? EV_GDOWN : 0));
+        s_gofa = s_waze = s_waze_sub = s_held = false;
         advertise();
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -366,7 +449,13 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         ESP_LOGI(TAG, "dien thoai %s thong bao handle %u", ev->subscribe.cur_notify || ev->subscribe.cur_indicate ? "bat" : "tat",
                  ev->subscribe.attr_handle);
         if (ev->subscribe.attr_handle == s_rx_handle) {           /* dien thoai bat/tat nhan thong bao tren RX */
-            if (ev->subscribe.cur_notify) {
+            s_waze_sub = ev->subscribe.cur_notify;
+            if (ev->subscribe.cur_notify && s_gofa) {
+                ESP_LOGI(TAG, "Waze Mod noi chung ket noi khi GOFA dang giu HUD: cho GOFA im moi chuyen");
+                wake(EV_PROBE);
+            } else if (ev->subscribe.cur_notify) {
+                s_waze = true;
+                s_own_ms = now_ms();
                 s_state = 2;
                 wake(EV_UP);
             } else {
@@ -377,7 +466,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "MTU %d", ev->mtu.value);
         s_mtu = ev->mtu.value;
-        if (s_gofa) wake(EV_SNIFF);
+        wake(EV_SNIFF);
         break;
     default:
         break;
@@ -403,10 +492,7 @@ static void on_sync(void)
     printf("EVCARHUD_BT_MAC=%02X:%02X:%02X:%02X:%02X:%02X\n", m[5], m[4], m[3], m[2], m[1], m[0]);
     fflush(stdout);
     uint8_t be[6] = {m[5], m[4], m[3], m[2], m[1], m[0]};
-    if (s_gofa) {                                                  /* ten HUD_xxxx + UUID dinh danh theo MAC that cua C6 */
-        gofa_setup(be);
-        ble_svc_gap_device_name_set(s_gofa_name);
-    }
+    gofa_setup(be);                                                /* ten HUD_xxxx + UUID dinh danh theo MAC that cua C6 */
     char t[20];
     snprintf(t, sizeof t, "%02X:%02X:%02X:%02X:%02X:%02X", be[0], be[1], be[2], be[3], be[4], be[5]);
     board_ui_lock();
@@ -464,7 +550,7 @@ static bool bt_up(void)
     esp_err_t e = ESP_FAIL;
 #if !CONFIG_EVCARHUD_BLE_DIRECT_HCI
     esp_hosted_bt_host_stack_cfg_t cfg = ESP_HOSTED_BT_HOST_STACK_CONFIG_DEFAULT();
-    cfg.controller_ready_timeout_ms = 100;
+    cfg.controller_ready_timeout_ms = 3000;                       /* sau khi tat han de thu lai, C6 can vai giay */
     e = esp_hosted_bt_host_stack_setup(&cfg);
     if (e != ESP_OK) ESP_LOGW(TAG, "C6 khong tra loi lenh bat Bluetooth (%s): thu dung thang kenh HCI", esp_err_to_name(e));
 #endif
@@ -490,26 +576,104 @@ static bool bt_up(void)
     ble_svc_gatt_init();
     int rc = ble_gatts_count_cfg(s_svcs);
     if (rc == 0) rc = ble_gatts_add_svcs(s_svcs);
-    s_gofa = settings_get_source() == UI_SRC_GOFA;
-    if (s_gofa) {                                                  /* ten tam; on_sync dat lai theo MAC that */
+    /* 13/11: tu nhan GOFA / Waze Mod. Luon dang ky ca hai bo dich vu; luc chua ket noi phat xen ke 2 goi quang ba
+     * (EVHUD-P4 cho Waze Mod, HUD_xxxx + UUID dinh danh cho GOFA), app nao noi va dung dich vu cua minh thi HUD theo app do. */
+    s_gofa = false;
+    s_adv_gofa = settings_get_source() == UI_SRC_GOFA;              /* phat truoc goi cua nguon dung lan truoc */
+    {
         static const uint8_t z[6] = {0};
-        gofa_setup(z);
+        gofa_setup(z);                                             /* ten tam; on_sync dat lai theo MAC that */
     }
-    if (s_gofa && rc == 0) rc = ble_gatts_count_cfg(s_gofa_svcs);
-    if (s_gofa && rc == 0) rc = ble_gatts_add_svcs(s_gofa_svcs);
-    if (rc == 0) rc = ble_svc_gap_device_name_set(s_gofa ? s_gofa_name : CONFIG_EVCARHUD_BLE_NAME);
+    if (rc == 0) rc = ble_gatts_count_cfg(s_gofa_svcs);
+    if (rc == 0) rc = ble_gatts_add_svcs(s_gofa_svcs);
+    if (rc == 0) rc = ble_svc_gap_device_name_set(s_adv_gofa ? s_gofa_name : CONFIG_EVCARHUD_BLE_NAME);
     if (rc != 0) {
         ESP_LOGW(TAG, "dang ky dich vu GATT that bai (rc=%d)", rc);
         return false;
     }
     nimble_port_freertos_init(host_task);
-    for (int i = 0; i < 50 && !s_synced; i++) vTaskDelay(pdMS_TO_TICKS(100));
+    /* NimBLE tu gui lai lenh HCI Reset moi ~2 s. Luc khoi dong C6 con ban do song / vao Wi-Fi nen bo dieu khien BT co the
+     * khong tra loi vai giay dau (log: "HCI wait for ack returned 19") -> cho 20 s thay vi 5 s. */
+    for (int i = 0; i < 200 && !s_synced; i++) vTaskDelay(pdMS_TO_TICKS(100));
     if (!s_synced) {
-        ESP_LOGW(TAG, "bo dieu khien Bluetooth khong tra loi: bo qua Bluetooth");
+        ESP_LOGW(TAG, "bo dieu khien Bluetooth khong tra loi 20 s: tat han roi thu lai");
         if (nimble_port_stop() == 0) nimble_port_deinit();
+        esp_hosted_bt_host_stack_teardown();                  /* tat + deinit bo dieu khien tren C6 de lan sau bat lai tu dau */
         return false;
     }
     return true;
+}
+
+void bt_diag_log(void);   /* bt_diag.c */
+
+#define ADV_SWAP_MS 1000
+static void set_source(int src);
+static void send_line(char *line, size_t n);
+
+/* task ble: 2 app chung 1 ket noi -> app dang giu HUD im lang thi chuyen sang app kia (xem WAZE_IDLE_MS / GOFA_IDLE_MS) */
+static void owner_check(uint32_t ev)
+{
+    static uint32_t probe_ms;
+    static char dev[BLE_LINE_MAX + 2];
+    uint32_t t = now_ms();
+    if (s_gofa && s_waze_sub && ((ev & EV_PROBE) || t - probe_ms > 5000) && t - s_waze_ms > 2000) {
+        probe_ms = t;                                             /* Waze Mod chua gui: xin `dev` (Waze chi gui sau khi nhan) */
+        size_t n = strlen(hlp_dev_line());
+        memcpy(dev, hlp_dev_line(), n);
+        send_line(dev, n);
+    }
+    if (s_gofa && s_waze_sub && t - s_waze_ms < 2000 && t - s_gofa_ms > GOFA_IDLE_MS && t - s_own_ms > GOFA_IDLE_MS) {
+        ESP_LOGI(TAG, "GOFA im %u ms, Waze Mod dang gui: chuyen sang Waze Mod", (unsigned)(t - s_gofa_ms));
+        s_gofa = false;
+        s_waze = true;
+        s_own_ms = t;
+        board_ui_lock();
+        gofa_connected(false);
+        board_ui_unlock();
+        xStreamBufferReset(s_rx_sb);
+        s_linked = true;
+        link_up(LINK_BLE, ble_tx);
+        set_source(UI_SRC_WAZE);
+        return;
+    }
+    uint32_t wl = s_waze_ms > s_own_ms ? s_waze_ms : s_own_ms;
+    if (s_waze && s_held && t - wl > WAZE_IDLE_MS) {
+        ESP_LOGI(TAG, "Waze Mod im %u ms, GOFA co du lieu: chuyen sang GOFA", (unsigned)(t - wl));
+        if (s_linked) {
+            s_linked = false;
+            link_down(LINK_BLE);
+            xMessageBufferReset(s_tx_mb);
+        }
+        s_waze = false;
+        s_gofa = true;
+        s_own_ms = s_gofa_ms = t;
+        set_source(UI_SRC_GOFA);
+        board_ui_lock();
+        gofa_connected(true);
+        board_ui_unlock();
+        static gofa_pkt_t pk;                                     /* phat lai goi GOFA moi nhat da giu */
+        for (int i = 0; i < HOLD_N; i++) {
+            taskENTER_CRITICAL(&s_hold_mux);
+            pk.chr = s_hold[i].chr;
+            pk.len = s_hold[i].len;
+            memcpy(pk.d, s_hold[i].d, pk.len);
+            s_hold[i].len = 0;
+            s_hold[i].chr = 0;
+            taskEXIT_CRITICAL(&s_hold_mux);
+            if (pk.chr && s_gofa_q) xQueueSend(s_gofa_q, &pk, 0);
+        }
+        s_held = false;
+        wake(EV_SNIFF);
+    }
+}                  /* chua ket noi: doi goi quang ba GOFA <-> Waze Mod moi 1 s */
+
+static void set_source(int src)           /* task ble: app vua tu nhan -> chip nguon tren man hinh + nho cho lan khoi dong sau */
+{
+    if (settings_get_source() != src) settings_set_source(src);
+    ESP_LOGI(TAG, "tu nhan nguon: %s", src == UI_SRC_GOFA ? "GOFA" : "Waze Mod");
+    board_ui_lock();
+    ui_set_source(src);
+    board_ui_unlock();
 }
 
 static void ble_task(void *arg)
@@ -518,33 +682,53 @@ static void ble_task(void *arg)
     static char line[BLE_LINE_MAX + 2];
     static uint8_t rx[256];
     vTaskDelay(pdMS_TO_TICKS(START_DELAY_MS));
-    if (!bt_up()) {
+    bool up = false;
+    s_resets = 0;
+    for (int k = 0; k < BT_TRIES && !(up = bt_up()); k++) {
+        bt_diag_log();
+        ESP_LOGW(TAG, "Bluetooth chua len (lan %d/%d): thu lai sau 10 s", k + 1, BT_TRIES);
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+    if (!up) {
+        ESP_LOGE(TAG, "Bluetooth khong len sau %d lan: bo qua (rut dien HUD de C6 khoi dong lai)", BT_TRIES);
         s_state = -1;
         s_task = NULL;
         vTaskDelete(NULL);
         return;
     }
+    TickType_t adv_t = xTaskGetTickCount();
     for (;;) {
         uint32_t ev = 0;
-        xTaskNotifyWait(0, UINT32_MAX, &ev, pdMS_TO_TICKS(1000));
+        xTaskNotifyWait(0, UINT32_MAX, &ev, pdMS_TO_TICKS(ADV_SWAP_MS));
+        if (s_conn == BLE_HS_CONN_HANDLE_NONE && xTaskGetTickCount() - adv_t >= pdMS_TO_TICKS(ADV_SWAP_MS)) {
+            adv_t = xTaskGetTickCount();                           /* chua ai noi: doi goi quang ba GOFA <-> Waze Mod */
+            if (ble_gap_adv_active()) {
+                s_adv_gofa = !s_adv_gofa;
+                ble_gap_adv_stop();
+                advertise();
+            }
+        }
         if ((ev & EV_DOWN) && s_linked) {
             s_linked = false;
             link_down(LINK_BLE);
             xStreamBufferReset(s_rx_sb);
             xMessageBufferReset(s_tx_mb);
         }
-        if ((ev & EV_UP) && !s_linked && s_conn != BLE_HS_CONN_HANDLE_NONE) {
+        if (s_conn != BLE_HS_CONN_HANDLE_NONE) owner_check(ev);
+        if ((ev & EV_UP) && !s_linked && s_waze && s_conn != BLE_HS_CONN_HANDLE_NONE) {
             s_linked = true;
             link_up(LINK_BLE, ble_tx);                            /* HUD gui `dev` truoc (qua ble_tx -> hang doi) */
+            set_source(UI_SRC_WAZE);                              /* tu nhan: Waze Mod bat thong bao RX */
         }
-        if (s_gofa && (ev & (EV_GUP | EV_GDOWN))) {
-            bool up = s_conn != BLE_HS_CONN_HANDLE_NONE;
+        if (ev & (EV_GUP | EV_GDOWN)) {
+            bool up = (ev & EV_GUP) && s_gofa && s_conn != BLE_HS_CONN_HANDLE_NONE;
+            if (up) set_source(UI_SRC_GOFA);
             board_ui_lock();
             gofa_connected(up);
             gofa_show("", up ? "Đã kết nối app Gofa" : "Mất kết nối app Gofa");
             board_ui_unlock();
         }
-        if (s_gofa && (ev & EV_SNIFF)) {
+        if (ev & EV_SNIFF) {
             if (s_gofa_q && uxQueueMessagesWaiting(s_gofa_q) == 0) {   /* chi doi MTU: cap nhat dai */
                 board_ui_lock();
                 gofa_show("", "");

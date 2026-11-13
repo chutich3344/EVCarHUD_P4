@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 /* Chan I2S va chan bat loa: lay tu BSP chinh hang cua Waveshare cho ESP32-P4-WIFI6-Touch-LCD-3.5
@@ -22,6 +23,7 @@
 #define PIN_I2S_SCLK 12
 #define PIN_I2S_LRCK 10
 #define PIN_I2S_DOUT 9
+#define PIN_I2S_DIN  11                  /* micro: ADC cua ES8311 (cung bo Waveshare, theo Xiaozhi) */
 #define PIN_PA_EN    53
 
 #define RATE     16000                   /* mau/giay, 16 bit, 1 kenh */
@@ -31,8 +33,10 @@
 static const char *TAG = "audio";
 static QueueHandle_t s_q;
 static esp_codec_dev_handle_t s_dev;
+static SemaphoreHandle_t s_lock;                                  /* tieng tit va giong tro ly AI dung chung loa */
 static int16_t s_buf[TONE_MAX];
 static volatile int s_vol = 70;                                   /* 0..100; 0 = tat tieng */
+static volatile bool s_ready;                                     /* codec da mo (loa + micro) */
 
 static void tone(int hz, int ms)                                  /* phat mot tieng (chan cho den khi day xong xuong I2S) */
 {
@@ -44,7 +48,9 @@ static void tone(int hz, int ms)                                  /* phat mot ti
         float env = i < fade ? (float)i / (float)fade : i > n - fade ? (float)(n - i) / (float)fade : 1.0f;
         s_buf[i] = (int16_t)((float)AMP * env * sinf(w * (float)i));
     }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     esp_codec_dev_write(s_dev, s_buf, n * (int)sizeof(int16_t));
+    xSemaphoreGive(s_lock);
 }
 
 static void silence(int ms)
@@ -52,7 +58,9 @@ static void silence(int ms)
     int n = RATE * ms / 1000;
     if (n > TONE_MAX) n = TONE_MAX;
     memset(s_buf, 0, (size_t)n * sizeof(int16_t));
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     esp_codec_dev_write(s_dev, s_buf, n * (int)sizeof(int16_t));
+    xSemaphoreGive(s_lock);
 }
 
 static bool audio_init(void)
@@ -62,10 +70,12 @@ static bool audio_init(void)
         ESP_LOGW(TAG, "khong co bus I2C (cam ung khoi tao hong?): bo qua am thanh");
         return false;
     }
-    i2s_chan_handle_t tx = NULL;
+    i2s_chan_handle_t tx = NULL, rx = NULL;
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true;                                   /* het du lieu thi phat im lang, khong lap lai tieng cu */
-    esp_err_t e = i2s_new_channel(&chan_cfg, &tx, NULL);
+    chan_cfg.dma_desc_num = 6;
+    chan_cfg.dma_frame_num = 240;
+    esp_err_t e = i2s_new_channel(&chan_cfg, &tx, &rx);           /* song cong: loa + micro chung dong ho I2S */
     if (e != ESP_OK) {
         ESP_LOGW(TAG, "i2s_new_channel: %s", esp_err_to_name(e));
         return false;
@@ -78,17 +88,19 @@ static bool audio_init(void)
             .bclk = PIN_I2S_SCLK,
             .ws = PIN_I2S_LRCK,
             .dout = PIN_I2S_DOUT,
-            .din = I2S_GPIO_UNUSED,
+            .din = PIN_I2S_DIN,
         },
     };
     e = i2s_channel_init_std_mode(tx, &std_cfg);
+    if (e == ESP_OK) e = i2s_channel_init_std_mode(rx, &std_cfg);
     if (e == ESP_OK) e = i2s_channel_enable(tx);
+    if (e == ESP_OK) e = i2s_channel_enable(rx);
     if (e != ESP_OK) {
         ESP_LOGW(TAG, "khoi tao I2S: %s", esp_err_to_name(e));
         return false;
     }
 
-    audio_codec_i2s_cfg_t i2s_cfg = {.port = I2S_NUM_0, .tx_handle = tx, .rx_handle = NULL};
+    audio_codec_i2s_cfg_t i2s_cfg = {.port = I2S_NUM_0, .tx_handle = tx, .rx_handle = rx};
     const audio_codec_data_if_t *data_if = audio_codec_new_i2s_data(&i2s_cfg);
     audio_codec_i2c_cfg_t i2c_cfg = {.port = 0, .addr = ES8311_CODEC_DEFAULT_ADDR, .bus_handle = bus};
     const audio_codec_ctrl_if_t *ctrl_if = audio_codec_new_i2c_ctrl(&i2c_cfg);
@@ -100,7 +112,7 @@ static bool audio_init(void)
     es8311_codec_cfg_t es_cfg = {
         .ctrl_if = ctrl_if,
         .gpio_if = gpio_if,
-        .codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC,
+        .codec_mode = ESP_CODEC_DEV_WORK_MODE_BOTH,               /* loa + micro (tro ly AI) */
         .pa_pin = PIN_PA_EN,
         .pa_reverted = false,
         .master_mode = false,
@@ -115,7 +127,7 @@ static bool audio_init(void)
         ESP_LOGW(TAG, "khong thay codec ES8311 tren bus I2C");
         return false;
     }
-    esp_codec_dev_cfg_t dev_cfg = {.dev_type = ESP_CODEC_DEV_TYPE_OUT, .codec_if = codec_if, .data_if = data_if};
+    esp_codec_dev_cfg_t dev_cfg = {.dev_type = ESP_CODEC_DEV_TYPE_IN_OUT, .codec_if = codec_if, .data_if = data_if};
     s_dev = esp_codec_dev_new(&dev_cfg);
     if (!s_dev) {
         ESP_LOGW(TAG, "esp_codec_dev_new that bai");
@@ -128,6 +140,8 @@ static bool audio_init(void)
         return false;
     }
     esp_codec_dev_set_out_vol(s_dev, s_vol);
+    esp_codec_dev_set_in_gain(s_dev, 36.0f);                      /* micro: 30 dB (Xiaozhi) do giong noi chi ~800/32767, nang +6 dB */
+    s_ready = true;
     ESP_LOGI(TAG, "loa san sang (am luong %d%%)", s_vol);
     return true;
 }
@@ -165,9 +179,26 @@ void audio_set_volume(int percent)
     if (s_dev) esp_codec_dev_set_out_vol(s_dev, s_vol);
 }
 
+bool audio_ready(void) { return s_ready; }
+
+int audio_mic_read(int16_t *buf, int n)
+{
+    if (!s_ready) return -1;
+    return esp_codec_dev_read(s_dev, buf, n * (int)sizeof(int16_t)) == ESP_CODEC_DEV_OK ? n : -1;
+}
+
+void audio_play(const int16_t *pcm, int n)
+{
+    if (!s_ready || n <= 0) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    esp_codec_dev_write(s_dev, (void *)pcm, n * (int)sizeof(int16_t));
+    xSemaphoreGive(s_lock);
+}
+
 void audio_start(void)
 {
     if (s_q) return;
+    if (!s_lock) s_lock = xSemaphoreCreateMutex();
     s_q = xQueueCreate(4, sizeof(int));
     if (!s_q) return;
     if (xTaskCreate(audio_task, "audio", 4096, NULL, 4, NULL) != pdPASS) {

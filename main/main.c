@@ -1,6 +1,7 @@
 /* EVCarHUD cho board Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5 (man 3.5" ngang 480x320), cung chuc nang voi ban S3 (2.8"):
  * dien thoai chay Waze Mod (HLP/1) hoac app GOFA gui du lieu dan duong qua Bluetooth LE -> giai ma -> giao dien 480x320.
  * Giu BOOT 5 giay: bat/tat che do trinh dien (du lieu gia, khong can dien thoai). */
+#include "driver/gpio.h"
 #include <stdio.h>
 #include <string.h>
 #include "sdkconfig.h"
@@ -24,7 +25,10 @@
 #include "gofa.h"
 #include "rtc_ds3231.h"
 #include "wifi_link.h"
+#include "ota.h"
+#include "ai.h"
 #include "usb_cam.h"
+#include "cloud_log.h"
 #include <sys/time.h>
 #include <time.h>
 #include "ui_fonts.h"
@@ -120,6 +124,12 @@ static void on_source(int src)                              /* doi Waze Mod / GO
     ESP_LOGI(TAG, "nguon du lieu lan khoi dong sau: %s", src ? "GOFA" : "Waze Mod");
 }
 
+static void on_wake_sens(int level)                         /* man cai dat do nhay goi Mi Mi: luu NVS + ap nguong */
+{
+    settings_set_wake_sens(level);
+    ai_wake_sens_changed();
+}
+
 static void on_sound(bool on, int vol)                      /* man cai dat am luong: dat loa + luu NVS */
 {
     board_set_volume(on ? vol : 0);
@@ -205,8 +215,26 @@ static void light_task(void *arg)                            /* quang tro: Tu do
 }
 #endif
 
+/* Chip Wi-Fi C6 khong bi reset khi P4 khoi dong lai (OTA, nut RST, loi): esp_hosted 3.x noi lai voi C6 dang o trang thai cu
+ * -> Wi-Fi nghen (khong thoi tiet, khong toi may chu) cho den khi rut nguon. Moi lan bat may: keo EN C6 xuong de no khoi
+ * dong sach cung P4. Lam truoc moi thu dung esp_hosted (BLE, Wi-Fi), con ket noi C6 chi bat dau khi goi Wi-Fi/BLE lan dau. */
+#ifndef CONFIG_ESP_HOSTED_HOST_RESET_GPIO
+#define CONFIG_ESP_HOSTED_HOST_RESET_GPIO 54
+#endif
+static void c6_reset_on_boot(void)
+{
+    const gpio_num_t pin = (gpio_num_t)CONFIG_ESP_HOSTED_HOST_RESET_GPIO;
+    gpio_config_t io = {.pin_bit_mask = 1ULL << pin, .mode = GPIO_MODE_OUTPUT};
+    gpio_config(&io);
+    gpio_set_level(pin, 0);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    gpio_set_level(pin, 1);                               /* C6 khoi dong (~0,5 s) trong luc P4 dung man hinh */
+}
+
 void app_main(void)
 {
+    cloud_log_init();                                        /* gom log gui len evcarhud.com/api/log */
+    c6_reset_on_boot();
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -235,6 +263,8 @@ void app_main(void)
     ui_set_beep_hook(on_beep);
     gofa_set_beep(on_beep);
     ui_set_sound_hook(on_sound);
+    ui_set_wake_sens(settings_get_wake_sens());
+    ui_set_wake_sens_hook(on_wake_sens);
     ui_set_source(settings_get_source());
     ui_set_source_hook(on_source);
     /* MAC Bluetooth (cua chip C6) dien vao trang Ket noi khi Bluetooth san sang (ble_link.c on_sync) */
@@ -259,7 +289,9 @@ void app_main(void)
 
     buttons_start();
     if (!demo) ble_link_start();                             /* cho Waze Mod ket noi qua Bluetooth LE */
+    ota_start();                                             /* cap nhat OTA: xac nhan ban moi, man Cap nhat firmware */
     wifi_link_start();                                       /* Wi-Fi da luu: gio NTP + thoi tiet */
+    ai_start();                                              /* tro ly Mi Mi: nut micro (can Wi-Fi + loa) */
     usb_cam_start();                                         /* camera USB (thu nghiem): xem truoc + FPS */
 #if CONFIG_EVCARHUD_LDR
     xTaskCreate(light_task, "anh_sang", 2560, NULL, 2, NULL);
