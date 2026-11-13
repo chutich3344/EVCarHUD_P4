@@ -98,7 +98,9 @@ static int alert_for_sign(uint32_t id)                             /* ID bien GO
 
 static int turn_for_maneuver(uint32_t mv)                          /* NavigationManeuver -> ma re HLP `trn` */
 {
-    static const int trn[] = {0, 1, 8, 2, 3, 4, 5, 6, 7, 10};
+    /* theo app GOFA 4.2.2: 0 chua ro, 1 thang, 2 quay dau, 3 trai, 4 phai, 5 cheo trai, 6 cheo phai, 7 gat trai, 8 gat phai,
+     * 9 vong xuyen cung chieu kim dong ho, 10 vong xuyen nguoc chieu (VN di ben phai: hay gap 10) */
+    static const int trn[] = {0, 1, 8, 2, 3, 4, 5, 6, 7, 10, 10};
     return mv < sizeof trn / sizeof trn[0] ? trn[mv] : 0;
 }
 
