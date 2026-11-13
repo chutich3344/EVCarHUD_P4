@@ -323,6 +323,15 @@ void hlp_dash_init(hlp_tx_cb_t tx, void *user)
     if (!watch_tmr) watch_tmr = lv_timer_create(watch_cb, 500, NULL);
 }
 
+#define DEV_LINE "{\"v\":1,\"t\":\"dev\",\"name\":\"EVCarHUD\",\"fw\":\"0.1.0\",\"proto\":[1],"\
+              "\"disp\":{\"w\":320,\"h\":240,\"color\":1},"\
+              "\"can\":[\"speed\",\"limit\",\"turn\",\"street\",\"eta\",\"avgzone\",\"alerts\"],"\
+              "\"want\":{\"rate\":4,\"fields\":[\"nav\",\"spd\",\"lim\",\"over\",\"trn\",\"trn2\",\"dst\","\
+              "\"exit\",\"st\",\"st2\",\"eta\",\"rmin\",\"rm\",\"rkm\",\"avg\",\"avgL\",\"avgR\",\"avgP\","\
+              "\"alr\",\"alrD\",\"alrV\",\"alrS\",\"alrM\",\"alrs\"]}}"
+
+const char *hlp_dev_line(void) { return DEV_LINE; }
+
 void hlp_dash_on_connect(void)
 {
     hold_st2[0] = 0;
@@ -332,12 +341,7 @@ void hlp_dash_on_connect(void)
     have_ts = false;
     have_state = false;                              /* ket noi moi: GPS vang cho den khi co tin `s` dau tien */
     /* Xin day du truong, ke ca `alrs` (opt-in). Ket thuc bang LF do transport them. */
-    send_line("{\"v\":1,\"t\":\"dev\",\"name\":\"EVCarHUD\",\"fw\":\"0.1.0\",\"proto\":[1],"
-              "\"disp\":{\"w\":320,\"h\":240,\"color\":1},"
-              "\"can\":[\"speed\",\"limit\",\"turn\",\"street\",\"eta\",\"avgzone\",\"alerts\"],"
-              "\"want\":{\"rate\":4,\"fields\":[\"nav\",\"spd\",\"lim\",\"over\",\"trn\",\"trn2\",\"dst\","
-              "\"exit\",\"st\",\"st2\",\"eta\",\"rmin\",\"rm\",\"rkm\",\"avg\",\"avgL\",\"avgR\",\"avgP\","
-              "\"alr\",\"alrD\",\"alrV\",\"alrS\",\"alrM\",\"alrs\"]}}");
+    send_line(DEV_LINE);
 }
 
 void hlp_dash_on_disconnect(void)
