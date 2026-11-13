@@ -119,6 +119,10 @@ void ui_cam_state(bool connected);
 /* chip "CAM" tren thanh tren (canh gio): an = chua cam camera; vang = dang tu chinh chan troi; xanh = san sang; do = loi */
 enum { UI_CAM_OFF = 0, UI_CAM_CALIB, UI_CAM_OK, UI_CAM_ERR };
 void ui_cam_status(int st);
+/* chip xADAS tren thanh tren, canh chip CAM (khoang cach xe truoc tu app xADAS qua BLE, xadas.c): text NULL/"" = an.
+ * mau: UI_XA_* (xanh la an toan, vang gan, do qua gan, xanh duong chua phan duoc, xam cho/khong co so) */
+enum { UI_XA_GREY = 0, UI_XA_GREEN, UI_XA_AMBER, UI_XA_RED, UI_XA_CYAN, UI_XA_WARN };
+void ui_xadas_chip(const char *text, int color);
 /* --- loa ---
  * Tieng tit theo trang thai: 1 tieng khi co canh bao moi (camera, canh sat...) va khi con 100 m toi cho re;
  * 2 tieng khi vuot toc do (nhac lai moi 8 giay neu van vuot). Giu tay 5 giay tren man hinh: man cai dat am luong. */

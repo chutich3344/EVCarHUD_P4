@@ -31,6 +31,7 @@
 #include "settings.h"
 #include "gofa.h"
 #include "dashboard_hlp.h"
+#include "xadas.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
 #include "freertos/queue.h"
@@ -159,7 +160,37 @@ static int pos_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
     return 0;
 }
 
+/* ===== xADAS HUD Link v1 (xadas.h): app xADAS ghi khung 10 byte khoang cach xe truoc. Dang ky o ca hai che do, UUID dich
+ * vu nam trong goi tra loi quet (goi quang ba da du cho UUID GOFA / HLP). Khong doi chu HUD (GOFA / Waze Mod van tu nhan). */
+static const ble_uuid128_t UUID_XA_SVC = BLE_UUID128_INIT(0xfe, 0x7c, 0x06, 0x0f, 0xff, 0xc2, 0xfd, 0xa6, 0x1f, 0x46, 0xbb, 0x52,
+                                                          0x01, 0x00, 0xb3, 0x39);
+static const ble_uuid128_t UUID_XA_FRAME = BLE_UUID128_INIT(0xfe, 0x7c, 0x06, 0x0f, 0xff, 0xc2, 0xfd, 0xa6, 0x1f, 0x46, 0xbb, 0x52,
+                                                            0x02, 0x00, 0xb3, 0x39);
+static volatile bool s_xa_seen;           /* ket noi hien tai co xADAS ghi */
+
+static int xa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn; (void)attr; (void)arg;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    uint8_t b[32];
+    uint16_t n = 0;
+    if (OS_MBUF_PKTLEN(ctxt->om) > sizeof b) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    if (ble_hs_mbuf_to_flat(ctxt->om, b, sizeof b, &n) != 0) return BLE_ATT_ERR_UNLIKELY;
+    if (!s_xa_seen) ESP_LOGI(TAG, "xADAS bat dau gui khoang cach xe truoc");
+    s_xa_seen = true;
+    xadas_on_write(b, n);
+    return 0;
+}
+
 static const struct ble_gatt_svc_def s_svcs[] = {
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &UUID_XA_SVC.u,
+        .characteristics = (struct ble_gatt_chr_def[]) {
+            {.uuid = &UUID_XA_FRAME.u, .access_cb = xa_access, .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
+            {0},
+        },
+    },
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
         .uuid = &UUID_SVC.u,
@@ -360,6 +391,12 @@ static int gofa_adv_data(const char *name)
     d[n++] = 2;
     d[n++] = BLE_HS_ADV_TYPE_FLAGS;
     d[n++] = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    if (rn + 18 <= (int)sizeof r) {                                /* xADAS HUD Link: UUID dich vu o goi tra loi quet */
+        r[rn++] = 17;
+        r[rn++] = BLE_HS_ADV_TYPE_COMP_UUIDS128;
+        memcpy(r + rn, UUID_XA_SVC.value, 16);
+        rn += 16;
+    }
     int rc = ble_gap_adv_set_data(d, n);
     if (rc == 0 && rn) rc = ble_gap_adv_rsp_set_data(r, rn);
     ESP_LOG_BUFFER_HEX_LEVEL(TAG, d, n, ESP_LOG_INFO);
@@ -387,10 +424,14 @@ static void advertise(void)
     f.name = (const uint8_t *)name;
     f.name_len = (uint8_t)strlen(name);
     f.name_is_complete = 1;
+    struct ble_hs_adv_fields r;                                   /* goi tra loi quet: UUID xADAS HUD Link (+ ten neu dai) */
+    memset(&r, 0, sizeof r);
+    r.uuids128 = (ble_uuid128_t *)&UUID_XA_SVC;
+    r.num_uuids128 = 1;
+    r.uuids128_is_complete = 1;
     int rc = ble_gap_adv_set_fields(&f);                          /* co + ten + UUID dich vu: vua 31 byte khi ten <= 8 ky tu */
+    if (rc == 0) rc = ble_gap_adv_rsp_set_fields(&r);
     if (rc != 0) {                                                /* ten dai: UUID o goi quang ba, ten sang goi tra loi quet */
-        struct ble_hs_adv_fields r;
-        memset(&r, 0, sizeof r);
         r.name = f.name;
         r.name_len = f.name_len;
         r.name_is_complete = 1;
@@ -436,6 +477,8 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         break;
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "dien thoai ngat Bluetooth (ly do %d)", ev->disconnect.reason);
+        if (s_xa_seen) xadas_link_down();
+        s_xa_seen = false;
         s_conn = BLE_HS_CONN_HANDLE_NONE;
         s_state = 1;
         wake(EV_DOWN | (s_gofa ? EV_GDOWN : 0));

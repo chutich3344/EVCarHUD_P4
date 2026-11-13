@@ -28,6 +28,7 @@
 #include "ota.h"
 #include "ai.h"
 #include "usb_cam.h"
+#include "obstacle_ui.h"
 #include "cloud_log.h"
 #include <sys/time.h>
 #include <time.h>
@@ -274,6 +275,7 @@ void app_main(void)
         const esp_app_desc_t *ad = esp_app_get_description();
         ui_set_version(ad ? ad->version : "");
     }
+    obstacle_ui_init();                                      /* o canh bao xe truoc: camera USB + xADAS (BLE) */
     link_init();                                             /* bo giai ma HLP + chon duong truyen */
     hlp_dash_set_clock_hook(on_clock);
     clock_boot();

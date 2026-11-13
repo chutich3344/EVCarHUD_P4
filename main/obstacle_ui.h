@@ -17,3 +17,9 @@ void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city);
 void obstacle_ui_touch(void);                      /* van nhan dien binh thuong (muc khong doi): khong tu tat */
 void obstacle_ui_clear(void);                      /* tat ngay (camera rut ra), khong giu them */
 int obstacle_ui_level(void);                        /* muc dang hien (OBS_*) */
+
+/* xADAS (app Android do khoang cach xe truoc, xadas.h): f = khung moi, NULL = mat ket noi BLE.
+ * Chip so met tren thanh tren luon hien khi dang dung xADAS; level 2 (gan) -> o vang Chu y (im lang),
+ * level 3 (qua gan) -> o do Nguy hiem + tit. Ghep voi camera USB: lay muc cao hon. Khong co Khan cap (xADAS khong co TTC). */
+#include "xadas.h"
+void obstacle_ui_xadas(const xadas_frame_t *f);

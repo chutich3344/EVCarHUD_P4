@@ -191,6 +191,9 @@ static void (*cam_cb)(void);
 static bool cam_on;
 static int cam_st;
 static lv_obj_t *t_cam, *t_cam_l;
+static lv_obj_t *t_xa, *t_xa_l;                 /* chip xADAS: khoang cach xe truoc */
+static char xa_txt[24];
+static int xa_col;
 static lv_obj_t *snd_row, *snd_sw, *vol_card, *vol_minus, *vol_plus, *lbl_vol, *vol_bar, *vol_fill;
 static lv_obj_t *wk_card, *wk_minus, *wk_plus, *lbl_wk, *wk_bar, *wk_fill;   /* do nhay goi "Mi Mi" 1..5 */
 static int wk_sens = 3;
@@ -844,6 +847,11 @@ static void build_top(void)
     t_cam_l = mk_label(t_cam, &ui_font_cap12, 0, 0, "CAM");
     lv_obj_center(t_cam_l);
     lv_obj_set_width(t_cam, text_w("CAM", &ui_font_cap12) + 12);
+    t_xa = mk_fill(top, 0, (TOP_H - 22) / 2, 40, 22, 6);
+    lv_obj_set_style_border_width(t_xa, 1, 0);
+    t_xa_l = mk_label(t_xa, &ui_font_txt16, 0, 0, "");
+    lv_obj_center(t_xa_l);
+    lv_obj_add_flag(t_xa, LV_OBJ_FLAG_HIDDEN);
     top_line = mk_fill(scr, 0, TOP_H - 1, UI_W, 1, 0);
 }
 
@@ -878,6 +886,23 @@ static void render_top(void)
         lv_obj_set_style_text_color(t_cam_l, lv_color_hex(c), 0);
         lv_obj_set_x(t_cam, PAD + text_w(b, &ui_font_clk18) + 8);
     }
+    int left_end = PAD + text_w(b, &ui_font_clk18) + (cam_st != UI_CAM_OFF ? 8 + lv_obj_get_width(t_cam) : 0);
+    show(t_xa, xa_txt[0] != 0);
+    if (xa_txt[0]) {                                              /* chip xADAS: so met to mau theo muc cua xADAS */
+        static const uint32_t cd[] = {0x8C96A0, 0x34D399, 0xFFD400, 0xFF4D4F, 0x35D6EF, 0xFFD400};
+        static const uint32_t cl[] = {0x6B7280, 0x047857, 0xB45309, 0xBE123C, 0x0E7490, 0xB45309};
+        uint32_t c = (night ? cd : cl)[xa_col >= 0 && xa_col <= UI_XA_WARN ? xa_col : 0];
+        if (strcmp(lv_label_get_text(t_xa_l), xa_txt)) lv_label_set_text(t_xa_l, xa_txt);
+        lv_obj_set_style_bg_color(t_xa, lv_color_hex(c), 0);
+        lv_obj_set_style_bg_opa(t_xa, xa_col == UI_XA_RED ? 90 : 38, 0);
+        lv_obj_set_style_border_color(t_xa, lv_color_hex(c), 0);
+        lv_obj_set_style_text_color(t_xa_l, lv_color_hex(c), 0);
+        int xw = text_w(xa_txt, &ui_font_txt16) + 14;              /* tinh tay: get_width chua cap nhat truoc layout */
+        lv_obj_set_width(t_xa, xw);
+        lv_obj_center(t_xa_l);
+        lv_obj_set_x(t_xa, left_end + 6);
+        left_end += 6 + xw;
+    }
 
     bool tsd = screen == SCR_NAV && nav_on && nav_is_ts;              /* dan toi tram sac: luon hien ten tram */
     const char *st = tsd ? street_nav : !waze ? "Chỉ có GPS" : screen == SCR_NAV && street_nav[0] ? street_nav : street_now;
@@ -891,6 +916,7 @@ static void render_top(void)
     int pre = hw ? lv_obj_get_width(t_badge) + 6 : tsd ? text_w(LV_SYMBOL_CHARGE, &lv_font_montserrat_14) + 6 : 0;
     int sw = text_w(st, &ui_font_txt14);
     int maxw = 300 - pre;
+    if (maxw > UI_W - 2 * (left_end + 10) - pre) maxw = UI_W - 2 * (left_end + 10) - pre;   /* khong de len chip ben trai */
     if (sw > maxw) sw = maxw;
     int total = sw + pre, x0 = (UI_W - total) / 2;
     if (hw) lv_obj_set_x(t_badge, x0);
@@ -2809,6 +2835,15 @@ void ui_cam_status(int st)
 {
     if (st == cam_st) return;
     cam_st = st;
+    if (top) render_top();
+}
+
+void ui_xadas_chip(const char *text, int color)
+{
+    if (!text) text = "";
+    if (color == xa_col && !strcmp(text, xa_txt)) return;
+    snprintf(xa_txt, sizeof xa_txt, "%s", text);
+    xa_col = color;
     if (top) render_top();
 }
 

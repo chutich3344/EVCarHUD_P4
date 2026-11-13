@@ -30,6 +30,13 @@ static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
     lv_display_flush_ready(d);
 }
 
+static void xa(uint8_t st, uint8_t lv, uint8_t fl, uint8_t sp, uint16_t d, uint16_t mn)   /* 1 khung xADAS HUD Link */
+{
+    uint8_t b[10] = {1, 0, st, lv, fl, sp, (uint8_t)d, (uint8_t)(d >> 8), (uint8_t)mn, (uint8_t)(mn >> 8)};
+    xadas_frame_t f;
+    if (xadas_parse(b, sizeof b, &f)) obstacle_ui_xadas(&f);
+}
+
 static void run(int ms)
 {
     for (int t = 0; t < ms; t += 10) {
@@ -301,6 +308,48 @@ int main(int argc, char **argv)
     run(300);
     run(2000);
     printf("sau 2 s khong cap nhat: muc %d (0 = da tat)\n", obstacle_ui_level());
+    /* xADAS HUD Link: chip so met tren thanh tren; gan -> o vang, qua gan -> o do (de len cho bien) */
+    ui_set_speed(72);
+    ui_set_speed_limit(80);
+    ui_set_nav(true, 2, 850, 0, "Nguyễn Văn Linh", 0);
+    xa(1, 1, 0, 72, 68, 55);
+    run(400);
+    snprintf(p, sizeof p, "%s/xa_1_an_toan.bmp", dir); save_bmp(p);
+    xa(1, 2, 0, 72, 57, 55);
+    run(400);
+    snprintf(p, sizeof p, "%s/xa_2_gan.bmp", dir); save_bmp(p);
+    xa(1, 3, 0, 72, 42, 55);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_3_qua_gan.bmp", dir); save_bmp(p);
+    xa(1, 4, 0, 255, 30, 0xFFFF);
+    run(800);
+    snprintf(p, sizeof p, "%s/xa_4_mat_gps.bmp", dir); save_bmp(p);
+    xa(3, 0, 0, 72, 0xFFFF, 0xFFFF);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_5_may_nong.bmp", dir); save_bmp(p);
+    run(3200);
+    snprintf(p, sizeof p, "%s/xa_6_mat_tin_hieu.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
+    ui_set_speed(96);
+    ui_set_speed_limit(120);
+    xa(1, 1, 0, 96, 92, 70);
+    run(1200);
+    snprintf(p, sizeof p, "%s/xa_7_cao_toc_an_toan.bmp", dir); save_bmp(p);
+    xa(1, 3, 0, 96, 48, 70);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_8_cao_toc_qua_gan.bmp", dir); save_bmp(p);
+    ui_cam_state(true);
+    ui_cam_status(UI_CAM_OK);
+    xa(1, 1, 2, 96, 25, 70);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_9_cam_va_xadas_thu.bmp", dir); save_bmp(p);
+    xa(0, 0, 0, 96, 0xFFFF, 0xFFFF);
+    obstacle_ui_xadas(NULL);
+    ui_cam_state(false);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_speed(58);
+    ui_set_speed_limit(60);
+    run(3600);
     ui_cam_state(true);
     ui_cam_status(UI_CAM_CALIB);
     ui_toast("Đã nhận camera · xem ảnh: Cài đặt › Hiển thị");

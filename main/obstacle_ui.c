@@ -35,6 +35,13 @@ static int s_last_lim;
 static uint32_t s_beep_tick, s_off_tick, s_end_tick, s_set_tick;
 #define STALE_MS 1500                      /* khong con ai cap nhat (camera rut / dung): tu tat canh bao */
 static bool s_city;
+static bool s_xa_box;                        /* o canh bao dang ve theo xADAS */
+/* xADAS: khung moi nhat + luc nhan; muc canh bao rieng, ghep voi camera trong paint() (lay muc cao hon) */
+static xadas_frame_t s_xf;
+static bool s_xa_on, s_xa_live, s_xa_city;   /* da tung nhan khung; con khung trong 3 s; xe < 25 km/h */
+static int s_xa_level;
+static uint32_t s_xa_tick, s_xa_lost_tick;
+#define XA_LOST_HIDE_MS 60000                /* mat tin hieu qua 1 phut: an chip (nguoi dung da tat xADAS) */
 
 static void vis(lv_obj_t *o, bool on)
 {
@@ -148,7 +155,11 @@ static bool paint_box(bool show, bool danger, bool night, const char *d, const c
     set_txt(s_bdist, d);
     lv_obj_set_style_text_color(s_bdist, fg, 0);
     char sub[40];
-    if (bw < 170) snprintf(sub, sizeof sub, "%s", t[0] ? t : short_for(s_cls));
+    unsigned xmin = s_xf.min;
+    if (s_xa_box && xmin != XA_NONE16)                       /* xADAS: muc toi thieu dung so tren app */
+        snprintf(sub, sizeof sub, "Tối thiểu %u %s", xmin, s_xf.imperial ? "ft" : "m");
+    else if (s_xa_box) snprintf(sub, sizeof sub, "%s", s_xf.level == XA_LV_CLOSE ? "Quá gần" : "Gần");
+    else if (bw < 170) snprintf(sub, sizeof sub, "%s", t[0] ? t : short_for(s_cls));
     else if (t[0]) snprintf(sub, sizeof sub, "Va chạm sau %s", t);
     else if (adas_feed_legal_m(ui_get_speed()) > 0 && s_cls != DET_CLS_PERSON)   /* cao toc: nhac khoang cach theo luat */
         snprintf(sub, sizeof sub, "Luật: tối thiểu %d m", adas_feed_legal_m(ui_get_speed()));
@@ -172,27 +183,39 @@ static bool paint_box(bool show, bool danger, bool night, const char *d, const c
     return true;
 }
 
+static int eff_level(void) { return s_xa_level > s_level ? s_xa_level : s_level; }
+
 static void paint(void)
 {
     bool night = ui_is_night();
-    bool mid = s_level >= OBS_CAUTION && s_level < OBS_CRITICAL;
-    bool danger = s_level == OBS_DANGER;
+    int lvl = eff_level();
+    bool xa = s_xa_level > s_level;                          /* o canh bao dang theo xADAS (muc cao hon camera) */
+    bool mid = lvl >= OBS_CAUTION && lvl < OBS_CRITICAL;
+    bool danger = lvl == OBS_DANGER;
 
     char d[16], t[16], sub[40];
-    snprintf(d, sizeof d, "%d m", s_dist);
-    if (s_ttc > 0.0f) {
-        fmt_ttc(t, sizeof t, s_ttc);
+    float ttc = xa ? 0.0f : s_ttc;
+    if (xa) {
+        s_cls = s_level == OBS_NONE ? DET_CLS_CAR : s_cls;
+        snprintf(d, sizeof d, "%u %s", (unsigned)s_xf.dist, s_xf.imperial ? "ft" : "m");
+    } else {
+        snprintf(d, sizeof d, "%d m", s_dist);
+    }
+    s_xa_box = xa;
+    if (ttc > 0.0f) {
+        fmt_ttc(t, sizeof t, ttc);
         snprintf(sub, sizeof sub, "Va chạm sau %s", t);
     } else {
         snprintf(sub, sizeof sub, "Giữ khoảng cách");
         t[0] = 0;
     }
+    if (xa && s_xf.min != XA_NONE16) snprintf(sub, sizeof sub, "Tối thiểu %u %s", (unsigned)s_xf.min, s_xf.imperial ? "ft" : "m");
 
     bool in_box = paint_box(mid, danger, night, d, t);
     bool show_strip = mid && !in_box;
     vis(s_strip, show_strip);
     vis(s_frame, danger);
-    vis(s_crit, s_level == OBS_CRITICAL);
+    vis(s_crit, lvl == OBS_CRITICAL);
 
     if (show_strip) {
         lv_color_t bg, bd, fg, txt;
@@ -226,7 +249,7 @@ static void paint(void)
         lv_obj_set_style_border_opa(s_frame, s_dim ? 64 : LV_OPA_COVER, 0);
         lv_obj_move_foreground(s_frame);
     }
-    if (s_level == OBS_CRITICAL) {
+    if (lvl == OBS_CRITICAL) {
         lv_obj_set_style_bg_color(s_crit, lv_color_hex(s_dim ? 0x7A0A12 : 0xE11D2A), 0);
         lv_image_set_src(s_cicon, icon_for(s_cls, true));
         char cd[40];
@@ -237,27 +260,54 @@ static void paint(void)
     }
 }
 
+static void xa_chip(void)
+{
+    char b[24];
+    int c = 0;
+    if (!s_xa_on) b[0] = 0;
+    else xadas_chip_text(&s_xf, s_xa_live, b, sizeof b, &c);
+    ui_xadas_chip(b, c);
+}
+
+static void xa_tick(void)
+{
+    if (!s_xa_on) return;
+    if (s_xa_live && lv_tick_elaps(s_xa_tick) >= XA_STALE_MS) {   /* 3 s khong co khung: bo so cu, bao mat tin hieu */
+        s_xa_live = false;
+        s_xa_lost_tick = lv_tick_get();
+        if (s_xa_level != OBS_NONE) { s_xa_level = OBS_NONE; paint(); }
+        xa_chip();
+    } else if (!s_xa_live && lv_tick_elaps(s_xa_lost_tick) >= XA_LOST_HIDE_MS) {
+        s_xa_on = false;                                     /* tat xADAS lau roi: an chip */
+        xa_chip();
+    }
+}
+
 static void tick_cb(lv_timer_t *tm)
 {
     (void)tm;
-    if (s_level == OBS_NONE) return;
-    if ((s_off_tick && lv_tick_elaps(s_off_tick) >= HOLD_MS) || lv_tick_elaps(s_set_tick) >= STALE_MS) {
-        s_set_tick = lv_tick_get();                          /* het thoi gian giu / mat nguon cap nhat: tat han */
+    xa_tick();
+    if (eff_level() == OBS_NONE) return;
+    if (s_level != OBS_NONE &&
+        ((s_off_tick && lv_tick_elaps(s_off_tick) >= HOLD_MS) || lv_tick_elaps(s_set_tick) >= STALE_MS)) {
+        s_set_tick = lv_tick_get();                          /* camera: het thoi gian giu / mat nguon cap nhat: tat han */
         obstacle_ui_clear();
         return;
     }
     if (++s_tick >= 250 / TICK_MS) {                         /* chop 2 Hz + nhac tieng */
         s_tick = 0;
         s_dim = !s_dim;
-        uint32_t every = s_level == OBS_CRITICAL ? 1000 : (s_level == OBS_DANGER && !s_city) ? 4000 : 0;
+        int lvl = eff_level();
+        bool city = s_xa_level > s_level ? s_xa_city : s_city;
+        uint32_t every = lvl == OBS_CRITICAL ? 1000 : (lvl == OBS_DANGER && !city) ? 4000 : 0;
         if (every && lv_tick_elaps(s_beep_tick) >= every) {
             s_beep_tick = lv_tick_get();
-            board_beep(s_level == OBS_CRITICAL ? 3 : 2);
+            board_beep(lvl == OBS_CRITICAL ? 3 : 2);
         }
         paint();
         return;
     }
-    if (s_level == OBS_CRITICAL || lv_obj_has_flag(s_box, LV_OBJ_FLAG_HIDDEN)) return;
+    if (eff_level() == OBS_CRITICAL || lv_obj_has_flag(s_box, LV_OBJ_FLAG_HIDDEN)) return;
     lv_area_t a;                                             /* giua 2 lan chop: chi ve lai khi bien doi cho / doi man */
     int lim = 0;
     if (!ui_sign_slot(&a, &lim, true) || lim != s_last_lim || a.x1 != s_last_a.x1 || a.y1 != s_last_a.y1 || a.x2 != s_last_a.x2 ||
@@ -267,6 +317,7 @@ static void tick_cb(lv_timer_t *tm)
 
 void obstacle_ui_init(void)
 {
+    if (s_strip) return;                                     /* main.c va usb_cam.c deu goi */
     lv_obj_t *top = lv_layer_top();
 
     s_frame = box(top);
@@ -395,5 +446,40 @@ void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city)
         s_dist = dist_m;
         s_ttc = ttc_s;
     }
+    paint();
+}
+
+void obstacle_ui_xadas(const xadas_frame_t *f)
+{
+    if (!s_strip) return;
+    int old = s_xa_level;
+    if (!f) {                                                /* mat BLE: bao mat tin hieu ngay, khong giu so cu */
+        if (s_xa_on && s_xa_live && s_xf.state != XA_ST_WAIT) {
+            s_xa_live = false;
+            s_xa_lost_tick = lv_tick_get();
+        } else {
+            s_xa_on = s_xa_live = false;                     /* xADAS da bao dung do (state 0) roi moi ngat: an chip */
+        }
+        s_xa_level = OBS_NONE;
+    } else {
+        s_xf = *f;
+        s_xa_on = s_xa_live = true;
+        s_xa_tick = lv_tick_get();
+        int sp = f->speed != XA_NONE8 ? f->speed : ui_get_speed();
+        if (f->imperial && f->speed != XA_NONE8) sp = sp * 16 / 10;
+        s_xa_city = sp < 25;
+        int lv = xadas_obs_level(f);
+        s_xa_level = lv == 2 ? OBS_DANGER : lv == 1 ? OBS_CAUTION : OBS_NONE;
+        if (ui_settings_shown()) s_xa_level = OBS_NONE;       /* dang mo cai dat: khong de len */
+    }
+    if (s_xa_level > old && s_xa_level > s_level && s_xa_level == OBS_DANGER && !s_xa_city) {
+        bool again = s_end_tick && lv_tick_elaps(s_end_tick) < 5000;   /* vua het canh bao < 5 s: khong tit lai */
+        if (!again) {
+            s_beep_tick = lv_tick_get();
+            board_beep(2);
+        }
+    }
+    if (old != OBS_NONE && s_xa_level == OBS_NONE && s_level == OBS_NONE) s_end_tick = lv_tick_get();
+    xa_chip();
     paint();
 }
