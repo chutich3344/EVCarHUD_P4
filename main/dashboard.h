@@ -51,6 +51,7 @@ int ui_get_speed(void);
 bool ui_is_night(void);                          /* giao dien dang Dem (canh bao vat can lay mau theo) */
 /* Canh bao vat can phuong an E: vi tri bien gioi han dang hien (toa do man hinh) + gia tri bien.
  * hide = true: an bien (o vat can de len cho do), false: hien lai. Tra ve false neu man hien tai khong co bien (man cho). */
+int ui_speed_right(void);                              /* mep phai so toc do (o canh bao khong de len so) */
 bool ui_sign_slot(lv_area_t *a, int *lim, bool hide);
 void ui_set_date(int day, int month);
 bool ui_get_clock(int *h, int *m);                /* false: chua co gio */

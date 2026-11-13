@@ -109,6 +109,7 @@ typedef struct {
     int ay[HLV], ah[HLV];
     lv_obj_t *unit, *ring, *rlbl;
     gtext_t gt;
+    int nr;                                   /* mep phai so toc do dang ve (diem anh man hinh) */
 } head_t;
 /* Dai thong bao: bieu tuong + chu + khoang cach + loa, chop 1 Hz khi nguy hiem / camera / CSGT / vuot toc do */
 typedef struct {
@@ -629,6 +630,7 @@ static void render_head(head_t *h, const int *w)
     lv_image_set_pivot(n, px, py);
     lv_image_set_scale(n, (uint32_t)(g.cap * 256 / NCAP));
     lv_obj_set_pos(n, g.ncx - px, g.ncy - py);
+    h->nr = g.ncx + tw * g.cap / NCAP / 2;
     lv_obj_t *u = h->unit;      /* km/h: goc trai, ngay duoi vach thanh tren, doi xung voi dong ho "07:16" qua vach */
     lv_obj_set_style_text_color(u, th->fg, 0);
     lv_obj_set_pos(u, PAD, (TOP_H - (int)ui_font_txt16.line_height) / 2);
@@ -2474,6 +2476,12 @@ void ui_set_speed(int kmh)
 
 int ui_get_speed(void) { return speed; }
 bool ui_is_night(void) { return night; }
+
+int ui_speed_right(void)
+{
+    head_t *h = screen == SCR_HIGHWAY ? &h_hd : screen == SCR_NAV ? &n_hd : &d_hd;
+    return h->nr;
+}
 
 bool ui_sign_slot(lv_area_t *a, int *lim, bool hide)
 {

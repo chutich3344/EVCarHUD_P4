@@ -140,6 +140,11 @@ static bool paint_box(bool show, bool danger, bool night, const char *d, const c
     int x = cx - bw / 2;
     if (x + bw > UI_W - 14) x = UI_W - 14 - bw;
     if (x < UI_W / 2) x = UI_W / 2;
+    int nx = ui_speed_right() + 2;                           /* khong de len so toc do: co o lai cho vua khoang trong */
+    if (nx > x) {
+        x = nx;
+        if (x + bw > UI_W - 14) bw = UI_W - 14 - x;
+    }
     int y = (a.y1 + a.y2) / 2 - bh / 2;
     if (y < 36) y = 36;
     lv_obj_set_pos(s_box, x, y);
