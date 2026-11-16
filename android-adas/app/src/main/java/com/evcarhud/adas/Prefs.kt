@@ -33,6 +33,9 @@ class Prefs(ctx: Context) {
     var hudMac: String
         get() = p.getString("mac", "") ?: ""
         set(v) = p.edit().putString("mac", v).apply()
+    var mapSrc: String
+        get() = p.getString("msrc", "carto") ?: "carto"
+        set(v) = p.edit().putString("msrc", v).apply()
     var showMap: Boolean
         get() = p.getBoolean("map", true)
         set(v) = p.edit().putBoolean("map", v).apply()

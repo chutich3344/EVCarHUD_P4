@@ -70,6 +70,10 @@ class TempPip(ctx: Context) : View(ctx) {
  * Huong Bac len tren, mui ten = huong xe chay. Cap nhat theo GPS (1 lan/giay).
  */
 class TileMap(ctx: Context) : View(ctx) {
+    /** Nguon nen: carto (mac dinh, nen toi), google (thu nghiem), osm. */
+    var source = "carto"
+        set(v) { if (field != v) { field = v; mem.evictAll(); loading.clear(); err = ""; invalidate() } }
+    private var err = ""
     private val zoom = 16
     private var lat = 0.0
     private var lon = 0.0
@@ -128,35 +132,48 @@ class TileMap(ctx: Context) : View(ctx) {
         p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14)
         cv.drawRect(0f, 0f, w, h * 0.15f, p)
         p.color = Color.WHITE; p.textSize = h * 0.075f; p.textAlign = Paint.Align.LEFT
-        cv.drawText("GPS điện thoại · © OpenStreetMap", h * 0.05f, h * 0.1f, p)
+        val credit = when (source) { "google" -> "Google (thử)"; "osm" -> "© OpenStreetMap"; else -> "© OpenStreetMap © CARTO" }
+        cv.drawText(if (err.isNotEmpty()) "Lỗi tải bản đồ: $err" else "GPS điện thoại · $credit", h * 0.05f, h * 0.1f, p)
         cv.restore()
         p.style = Paint.Style.STROKE; p.strokeWidth = 4f; p.color = Color.argb(230, 255, 255, 255)
         cv.drawRoundRect(RectF(2f, 2f, w - 2, h - 2), rad, rad, p)
     }
 
     private fun tile(x: Int, y: Int): Bitmap? {
+        val src = source
         val k = "$zoom/$x/$y"
         mem.get(k)?.let { return it }
         if (loading.add(k)) io.execute {
-            val f = File(dir, "${zoom}_${x}_$y.png")
+            val f = File(dir, "${src}_${zoom}_${x}_$y.png")
+            val url = when (src) {
+                "google" -> "https://mt1.google.com/vt/lyrs=m&x=$x&y=$y&z=$zoom"
+                "osm" -> "https://tile.openstreetmap.org/$k.png"
+                else -> "https://basemaps.cartocdn.com/dark_all/$k.png"
+            }
+            var e = ""
             var bm: Bitmap? = null
             try {
                 if (f.exists()) bm = BitmapFactory.decodeFile(f.absolutePath)
                 if (bm == null) {
-                    val c = URL("https://tile.openstreetmap.org/$k.png").openConnection() as HttpURLConnection
+                    val c = URL(url).openConnection() as HttpURLConnection
                     c.setRequestProperty("User-Agent", "EVCarHUD-Lan/0.1 (Android)")
                     c.connectTimeout = 8000; c.readTimeout = 8000
-                    if (c.responseCode == 200) {
+                    val code = c.responseCode
+                    if (code != 200) e = "mã $code"
+                    if (code == 200) {
                         val bytes = c.inputStream.use { it.readBytes() }
                         f.writeBytes(bytes)
                         bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     }
                     c.disconnect()
                 }
-            } catch (_: Exception) {}
+            } catch (ex: Exception) { e = ex.javaClass.simpleName }
             main.post {
                 loading.remove(k)
-                if (bm != null) { mem.put(k, bm); invalidate() }
+                if (src != source) return@post
+                err = if (bm != null) "" else e
+                if (bm != null) mem.put(k, bm)
+                invalidate()
             }
         }
         return null

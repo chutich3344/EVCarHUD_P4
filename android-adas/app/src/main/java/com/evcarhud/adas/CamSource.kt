@@ -35,6 +35,8 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
     val size: Size
     /** Tieu cu (px) o kich thuoc anh YUV. */
     val focalPx: Double
+    /** Nguon tieu cu (de hien trong Cai dat). */
+    val focalSrc: String
     /** Anh tho tu cam bien bi nguoc 180 do so voi man hinh ngang (cam bien xoay 270). */
     val flip: Boolean
     private val fpsRanges: Array<Range<Int>>
@@ -57,20 +59,32 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
         size = sizes.firstOrNull { it.width == 1280 && it.height == 720 }
             ?: sizes.filter { abs(it.width * 9 - it.height * 16) < 32 && it.width <= 1920 }.minByOrNull { abs(it.width - 1280) }
             ?: sizes.minByOrNull { abs(it.width - 1280) + abs(it.height - 720) }!!
-        val fl = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: 4.0f
         val phys = ch.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
         val arr = ch.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
         val act = ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-        // Khung 16:9 cat tu vung cam bien: neu cam bien 4:3 thi giu nguyen chieu ngang
-        focalPx = if (phys != null && arr != null && act != null) {
+        // Khung 16:9 cat tu vung cam bien: cam bien 4:3 thi giu nguyen chieu ngang
+        val cropW = act?.let { if (it.width() * 9 >= it.height() * 16) it.height() * 16.0 / 9 else it.width().toDouble() }
+        fun hfov(f: Double) = Math.toDegrees(2 * atan(size.width / 2 / f))
+        // 1) thong so noi tai cua hang (chinh xac nhat, theo diem anh vung cam bien)
+        val intr = ch.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION)
+        val fIntr = if (intr != null && intr[0] > 1f && cropW != null) intr[0] * size.width / cropW else 0.0
+        // 2) tieu cu mm: may nhieu camera gop (logical) liet ke nhieu tieu cu -> chon cai cho goc ngang gan 75 do nhat
+        val fls = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS) ?: floatArrayOf()
+        val fMm = if (phys != null && arr != null && cropW != null && fls.isNotEmpty()) {
             val pxPerMm = arr.width / phys.width
-            val fAct = fl * pxPerMm        // px theo vung cam bien
-            val cropW = if (act.width() * 9 >= act.height() * 16) act.height() * 16.0 / 9 else act.width().toDouble()
-            fAct * size.width / cropW
-        } else size.width / 2.0 / Math.tan(Math.toRadians(36.0))
+            fls.map { it * pxPerMm * size.width / cropW }.minByOrNull { abs(hfov(it) - 75) } ?: 0.0
+        } else 0.0
+        val fDef = size.width / 2.0 / Math.tan(Math.toRadians(37.5))
+        val pick = when {
+            fIntr > 0 && hfov(fIntr) in 45.0..110.0 -> fIntr
+            fMm > 0 && hfov(fMm) in 45.0..110.0 -> fMm
+            else -> fDef
+        }
+        focalPx = pick
+        focalSrc = when (pick) { fIntr -> "nội tại"; fMm -> "tiêu cự ${fls.joinToString("/") { "%.1f".format(it) }} mm"; else -> "mặc định" }
         flip = (ch.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90) == 270
         fpsRanges = ch.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES) ?: arrayOf(Range(15, 30))
-        Log.i(TAG, "cam $id ${size} f=${"%.0f".format(focalPx)} px (goc ngang ${"%.0f".format(Math.toDegrees(2 * atan(size.width / 2 / focalPx)))} do) flip=$flip")
+        Log.i(TAG, "cam $id ${size} ($focalSrc) f=${"%.0f".format(focalPx)} px (goc ngang ${"%.0f".format(Math.toDegrees(2 * atan(size.width / 2 / focalPx)))} do) flip=$flip")
     }
 
     fun open() {

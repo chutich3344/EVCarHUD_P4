@@ -247,7 +247,16 @@ class AdasService : Service() {
         val c = cam ?: return
         val g = Op.Cam(c.size.width, c.size.height, c.focalPx, calPitch, calYaw, calRoll)
         geomAt = SystemClock.elapsedRealtime()
-        ai.post { geom = g; warpKey = ""; ringCount = 0; hidCount = 0 }
+        ai.post { geom = g; warpKey = ""; ringCount = 0 }
+    }
+
+    /** Thong tin hieu chinh cho Cai dat (do). */
+    fun calibInfo(): String {
+        val c = cam ?: return "Chưa có camera"
+        val hf = Math.toDegrees(2 * atan(c.size.width / 2 / c.focalPx))
+        fun d(r: Double) = "%.1f°".format(Math.toDegrees(r))
+        return "Camera ${c.size.width}x${c.size.height}, góc ngang ${"%.0f".format(hf)}° (${c.focalSrc})\nCúi ${d(calPitch)} · lệch ${d(calYaw)} · nghiêng ${d(calRoll)}" +
+            (if (prefs.autoCalib) (if (prefs.calibrated) " · tự hiệu chỉnh xong" else " · đang tự hiệu chỉnh") else " · chỉnh tay")
     }
 
     // trong luc -> goc cui / nghieng cua camera. Man hinh ngang (dinh may ben trai), camera sau:
@@ -262,7 +271,7 @@ class AdasService : Service() {
             val r = Math.asin((-ay / n).coerceIn(-1.0, 1.0))
             if (gP.isNaN()) { gP = p; gR = r } else { gP += 0.02 * (p - gP); gR += 0.02 * (r - gR) }
             val now = SystemClock.elapsedRealtime()
-            if ((abs(gP - calPitch) > 0.004 || abs(gR - calRoll) > 0.004) && now - geomAt > 2000) {
+            if ((abs(gP - calPitch) > 0.01 || abs(gR - calRoll) > 0.01) && now - geomAt > 5000) {
                 calPitch = gP; calRoll = gR; saveCalib(); rebuildGeom()
             }
         }

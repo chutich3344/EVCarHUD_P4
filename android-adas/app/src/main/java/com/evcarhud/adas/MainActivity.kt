@@ -50,7 +50,7 @@ class MainActivity : Activity() {
         root = FrameLayout(this).apply { setBackgroundColor(0xff0b0e13.toInt()) }
         overlay = Overlay(this)
         temp = TempPip(this)
-        map = TileMap(this)
+        map = TileMap(this).apply { source = prefs.mapSrc }
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         root.addView(temp, FrameLayout.LayoutParams(1, 1))
         root.addView(map, FrameLayout.LayoutParams(1, 1))
@@ -142,12 +142,13 @@ class MainActivity : Activity() {
             "Chiều cao camera: ${"%.1f".format(prefs.camH)} m",
             "Bộ xử lý AI: " + (if (prefs.accel == "npu") "NPU (mát hơn)" else "CPU"),
             (if (prefs.showMap) "Ẩn" else "Hiện") + " bản đồ góc",
+            "Nguồn bản đồ: " + mapName(prefs.mapSrc),
             (if (prefs.showTemp) "Ẩn" else "Hiện") + " ô nhiệt độ",
             "Tìm lại HUD",
             "Giới thiệu & giấy phép",
             "Thoát hẳn (tắt chạy nền)",
         )
-        AlertDialog.Builder(this).setTitle("Cài đặt").setItems(items) { _, i ->
+        AlertDialog.Builder(this).setTitle("Cài đặt\n" + (svc?.calibInfo() ?: "")).setItems(items) { _, i ->
             when (i) {
                 0 -> svc?.setAuto(!prefs.autoCalib)
                 1 -> startCalib()
@@ -158,16 +159,24 @@ class MainActivity : Activity() {
                 }
                 3 -> { prefs.accel = if (prefs.accel == "npu") "cpu" else "npu"; svc?.reloadSettings(true) }
                 4 -> { prefs.showMap = !prefs.showMap; showPips() }
-                5 -> { prefs.showTemp = !prefs.showTemp; showPips() }
-                6 -> svc?.findHudAgain()
-                7 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
-                8 -> {
+                5 -> {
+                    val ks = arrayOf("carto", "google", "osm")
+                    AlertDialog.Builder(this).setTitle("Nguồn bản đồ").setItems(ks.map { mapName(it) }.toTypedArray()) { _, k ->
+                        prefs.mapSrc = ks[k]; map.source = ks[k]
+                    }.show()
+                }
+                6 -> { prefs.showTemp = !prefs.showTemp; showPips() }
+                7 -> svc?.findHudAgain()
+                8 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
+                9 -> {
                     startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
                     finish()
                 }
             }
         }.show()
     }
+
+    private fun mapName(k: String) = when (k) { "google" -> "Google (thử nghiệm)"; "osm" -> "OpenStreetMap"; else -> "CARTO nền tối (OSM)" }
 
     companion object {
         private const val ABOUT = "Nhận diện làn đường, mép đường, xe phía trước và đường đi dùng mô hình openpilot " +

@@ -18,10 +18,20 @@ android {
         ndk { abiFilters += listOf("arm64-v8a") }
     }
 
+    // Khoa ky co dinh cho ban thu (de trong repo): moi ban build moi cai DE len ban cu duoc.
+    // Khong dung cho ban phat hanh Google Play.
+    signingConfigs {
+        create("lan") {
+            storeFile = file("lan-test.jks")
+            storePassword = "evcarhudlan"
+            keyAlias = "lan"
+            keyPassword = "evcarhudlan"
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("lan")
         }
     }
     // Mo hinh .onnx de nguyen (khong nen) de chep ra nhanh
