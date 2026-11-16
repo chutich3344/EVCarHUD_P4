@@ -343,6 +343,24 @@ int main(int argc, char **argv)
     xa(1, 1, 0, 72, 68, 55);
     run(900);
     snprintf(p, sizeof p, "%s/xn_5_khong_canh_bao.bmp", dir); save_bmp(p);
+    ui_set_mode(UI_MODE_DAY);                       /* ban ngay */
+    run(900);
+    snprintf(p, sizeof p, "%s/xn_6_ngay_khong_canh_bao.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{3, 1500, -1}};
+        ui_set_alerts(a, 1);
+    }
+    run(900);
+    snprintf(p, sizeof p, "%s/xn_7_ngay_canh_bao.bmp", dir); save_bmp(p);
+    xa(1, 2, 0, 72, 57, 55);
+    run(300);
+    snprintf(p, sizeof p, "%s/xn_8_ngay_gan_canh_bao.bmp", dir); save_bmp(p);
+    xa(0, 0, 0, 0, 0xFFFF, 0xFFFF);
+    run(300);
+    snprintf(p, sizeof p, "%s/xn_9_ngay_cho_do.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    ui_set_mode(UI_MODE_AUTO);
+    run(900);
     xa(1, 4, 0, 255, 30, 0xFFFF);
     run(800);
     snprintf(p, sizeof p, "%s/xa_4_mat_gps.bmp", dir); save_bmp(p);
