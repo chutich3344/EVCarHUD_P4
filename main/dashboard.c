@@ -207,7 +207,8 @@ static lv_obj_t *t_cam, *t_cam_l;
 static lv_obj_t *t_xa, *t_xa_l;                 /* chip xADAS: khoang cach xe truoc */
 static char xa_txt[24];
 static int xa_col;
-static bool xa2;                                /* dang dung xADAS (chip hien): bo cuc 2 cot, o xADAS duoi bien */
+static void upd_two(void);
+static bool xa2;                                /* dang dung xADAS (chip hien) hoac camera USB: bo cuc 2 cot, o khoang cach duoi bien */
 static lv_obj_t *t_ct, *t_ct_l, *t_ex_img, *t_ex_l, *t_rs_img, *t_rs_l;   /* cao toc: bien CT + ten, loi ra, tram dung */
 static lv_obj_t *snd_row, *snd_sw, *vol_card, *vol_minus, *vol_plus, *lbl_vol, *vol_bar, *vol_fill;
 static lv_obj_t *wk_card, *wk_minus, *wk_plus, *lbl_wk, *wk_bar, *wk_fill;   /* do nhay goi "Mi Mi" 1..5 */
@@ -3063,6 +3064,7 @@ void ui_cam_state(bool connected)
     cam_on = connected;
     if (!connected) ui_cam_status(UI_CAM_OFF);
     if (set_scr) settings_render();
+    upd_two();
 }
 void ui_cam_note(const char *txt)
 {
@@ -3082,8 +3084,14 @@ void ui_xadas_chip(const char *text, int color)
     if (color == xa_col && !strcmp(text, xa_txt)) return;
     snprintf(xa_txt, sizeof xa_txt, "%s", text);
     xa_col = color;
-    bool two = text[0] != 0;
-    if (two != xa2) {                                             /* bat / tat xADAS: doi bo cuc 2 cot */
+    upd_two();
+}
+
+/* bo cuc 2 cot (o khoang cach xe truoc duoi bien) khi dung xADAS HOAC dang cam camera USB (camera thay xADAS) */
+static void upd_two(void)
+{
+    bool two = xa_txt[0] != 0 || cam_on;
+    if (two != xa2) {
         xa2 = two;
         render_all();
     } else if (top) render_top();

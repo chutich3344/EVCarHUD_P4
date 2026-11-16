@@ -392,9 +392,20 @@ int main(int argc, char **argv)
     ui_cam_state(true);                             /* 16/11: cam camera USB -> camera uu tien, bo xADAS */
     obstacle_ui_cam(true);
     ui_cam_status(UI_CAM_OK);
-    xa(1, 1, 2, 96, 25, 70);
+    xa(1, 1, 2, 96, 25, 70);                        /* khung xADAS bi bo qua */
+    obstacle_ui_set(OBS_NONE, DET_CLS_CAR, 0, 0, false);
     run(300);
-    snprintf(p, sizeof p, "%s/xa_9_cam_uu_tien.bmp", dir); save_bmp(p);
+    snprintf(p, sizeof p, "%s/xa_9a_cam_chua_thay_xe.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_NONE, DET_CLS_CAR, 92, 0, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_9b_cam_an_toan.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_CAUTION, DET_CLS_CAR, 58, 0, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_9c_cam_gan.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_DANGER, DET_CLS_CAR, 31, 0, false);
+    run(150);
+    snprintf(p, sizeof p, "%s/xa_9d_cam_qua_gan.bmp", dir); save_bmp(p);
+    obstacle_ui_clear();
     ui_cam_state(false);
     obstacle_ui_cam(false);
     run(3600);                                      /* het giu dan duong: man Cao toc that */
@@ -415,6 +426,7 @@ int main(int argc, char **argv)
     ui_set_speed_limit(60);
     run(3600);
     ui_cam_state(true);
+    obstacle_ui_cam(true);
     ui_cam_status(UI_CAM_CALIB);
     ui_toast("Đã nhận camera · xem ảnh: Cài đặt › Hiển thị");
     run(300);

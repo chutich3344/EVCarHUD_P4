@@ -41,6 +41,7 @@ static xadas_frame_t s_xf;
 static bool s_xa_on, s_xa_live, s_xa_city;   /* da tung nhan khung; con khung trong 3 s; xe < 25 km/h */
 static int s_xa_level;
 static bool s_cam;                          /* dang cam camera USB: camera uu tien, bo xADAS (chip CAM thay chip xADAS) */
+static int s_cam_m, s_cam_cls;              /* xe truoc camera dang theo (m, 0 = chua thay) - hien o o khoang cach ca khi an toan */
 static uint32_t s_xa_tick, s_xa_lost_tick;
 #define XA_LOST_HIDE_MS 60000                /* mat tin hieu qua 1 phut: an chip (nguoi dung da tat xADAS) */
 /* O xADAS bo cuc 2 cot (chot 16/11): nam duoi the bien, chi so met to (chip tren cung da doi mau nen bo chu "xADAS");
@@ -199,7 +200,7 @@ static int eff_level(void) { return s_xa_level > s_level ? s_xa_level : s_level;
 static bool xa_card_paint(void)
 {
     lv_area_t a;
-    if (!s_xa_on || !ui_xa_slot(&a)) {
+    if (!(s_xa_on || s_cam) || !ui_xa_slot(&a)) {
         if (s_xc_on) { vis(s_xc, false); s_xc_on = false; s_xc_sig[0] = 0; }
         return false;
     }
@@ -209,7 +210,21 @@ static bool xa_card_paint(void)
     char num[12], lab[40];
     const char *unit = "m";
     lab[0] = 0;
-    if (cam) {
+    if (s_cam) {                                                 /* 16/11: camera USB thay xADAS, cung khung */
+        int lg = adas_feed_legal_m(ui_get_speed());
+        if (!s_cam_m) {
+            kind = 3;
+            snprintf(num, sizeof num, "--");
+            unit = "";
+            snprintf(lab, sizeof lab, "CHƯA THẤY XE");
+        } else {
+            kind = s_level >= OBS_DANGER ? 2 : s_level == OBS_CAUTION ? 1 : 0;
+            snprintf(num, sizeof num, "%d", s_cam_m % 1000);
+            if (kind && lg > 0 && s_cam_cls != DET_CLS_PERSON) snprintf(lab, sizeof lab, "TỐI THIỂU %d m", lg);
+            else if (kind) snprintf(lab, sizeof lab, "%s", s_cam_cls == DET_CLS_PERSON ? "NGƯỜI ĐI BỘ"
+                                    : s_cam_cls == DET_CLS_TWO ? "XE 2 BÁNH" : s_cam_cls == DET_CLS_BIG ? "XE LỚN" : "XE PHÍA TRƯỚC");
+        }
+    } else if (cam) {
         kind = s_level >= OBS_DANGER ? 2 : 1;
         snprintf(num, sizeof num, "%d", s_dist);
         snprintf(lab, sizeof lab, "%s", short_for(s_cls));
@@ -397,6 +412,7 @@ static void tick_cb(lv_timer_t *tm)
 {
     (void)tm;
     xa_tick();
+    if (s_cam_m && lv_tick_elaps(s_set_tick) >= STALE_MS) s_cam_m = 0;   /* camera ngung nhan dien: bo so cu */
     xa_card_paint();                                         /* bam theo the bien khi doi man / doi co (chi ve lai khi doi) */
     if (eff_level() == OBS_NONE) return;
     if (s_level != OBS_NONE &&
@@ -539,6 +555,7 @@ void obstacle_ui_clear(void)
     if (s_level != OBS_NONE) s_end_tick = lv_tick_get();
     s_level = OBS_NONE;
     s_off_tick = 0;
+    s_cam_m = 0;
     paint();
 }
 
@@ -547,6 +564,8 @@ void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city)
     s_city = city;
     if (!s_strip) return;
     s_set_tick = lv_tick_get();
+    s_cam_m = dist_m > 0 ? dist_m : 0;                       /* o khoang cach: xe truoc ca khi chua canh bao */
+    s_cam_cls = cls;
     if (ui_settings_shown()) level = OBS_NONE;               /* dang mo cai dat: khong de len */
     if (level == OBS_NONE && s_level != OBS_NONE) {          /* het vat can: giu them HOLD_MS */
         if (!s_off_tick) s_off_tick = lv_tick_get();
@@ -577,7 +596,9 @@ void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city)
 void obstacle_ui_cam(bool on)
 {
     s_cam = on;
-    if (!s_strip || !on) return;                             /* rut camera: khung xADAS ke tiep tu hien lai */
+    s_cam_m = 0;
+    if (!s_strip) return;
+    if (!on) { xa_card_paint(); return; }                    /* rut camera: khung xADAS ke tiep tu hien lai */                             /* rut camera: khung xADAS ke tiep tu hien lai */
     if (s_xa_on || s_xa_level != OBS_NONE) {
         s_xa_on = s_xa_live = false;
         s_xa_level = OBS_NONE;
