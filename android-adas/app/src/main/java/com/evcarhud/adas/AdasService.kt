@@ -12,6 +12,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -129,6 +133,21 @@ class AdasService : Service() {
     private var ldwSide = '-'
     @Volatile private var lastMs = 0
 
+    // ---- tu hieu chinh ----
+    // goc cui (pitch) + nghieng (roll): cam bien trong luc, loc cham ~10 s (bo qua luc tang/giam toc manh)
+    // goc lech trai/phai (yaw): huong chuyen dong mo hinh thay (pose) khi chay thang > 30 km/h, giong calibrationd openpilot
+    private var calPitch = 0.0
+    private var calYaw = 0.0
+    private var calRoll = 0.0
+    private var gP = Double.NaN
+    private var gR = 0.0
+    private var geomAt = 0L
+    private val yawObs = FloatArray(50)
+    private var yawN = 0
+    private var yawGood = 0
+    @Volatile private var lastFrameAt = 0L
+    private var camOpenAt = 0L
+
     override fun onBind(i: Intent?): IBinder = LocalBinder()
 
     override fun onCreate() {
@@ -138,6 +157,8 @@ class AdasService : Service() {
         try {
             cam = CamSource(this, ::onFrame) { e -> main.post { loadMsg = e; publishIdle() } }
         } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
+        calPitch = prefs.pitch.toDouble(); calYaw = prefs.yaw.toDouble(); calRoll = prefs.roll.toDouble()
+        startGravity()
         rebuildGeom()
         ai.post {
             try {
@@ -165,6 +186,7 @@ class AdasService : Service() {
         main.removeCallbacksAndMessages(null)
         hud?.stop()
         cam?.release()
+        try { (getSystemService(SENSOR_SERVICE) as SensorManager).unregisterListener(gravL) } catch (_: Exception) {}
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
         super.onDestroy()
@@ -189,21 +211,81 @@ class AdasService : Service() {
         if (hasPerm(Manifest.permission.BLUETOOTH_CONNECT)) hud?.start("")
     }
 
+    /** Hieu chinh tay (keo diem tu): tat tu hieu chinh. */
+    fun setManualVp(vpX: Float, vpY: Float) {
+        val c = cam ?: return
+        val w = c.size.width; val h = c.size.height; val f = c.focalPx
+        val vx = vpX * w - w / 2.0
+        val vy = vpY * h - h / 2.0
+        calYaw = atan(vx / f)
+        calPitch = -atan2(vy, sqrt(f * f + vx * vx))
+        calRoll = 0.0
+        prefs.autoCalib = false
+        saveCalib(); rebuildGeom()
+    }
+
+    fun setAuto(on: Boolean) {
+        prefs.autoCalib = on
+        if (on) { yawGood = 0; prefs.calibrated = false; gP = Double.NaN }
+    }
+
+    private fun saveCalib() { prefs.pitch = calPitch.toFloat(); prefs.yaw = calYaw.toFloat(); prefs.roll = calRoll.toFloat() }
+
     private fun rebuildGeom() {
         val c = cam ?: return
-        val w = c.size.width; val h = c.size.height
-        val f = c.focalPx
-        val vx = prefs.vpX * w - w / 2.0
-        val vy = prefs.vpY * h - h / 2.0
-        val yaw = atan(vx / f)
-        val pitch = -atan2(vy, sqrt(f * f + vx * vx))
-        val g = Op.Cam(w, h, f, pitch, yaw)
+        val g = Op.Cam(c.size.width, c.size.height, c.focalPx, calPitch, calYaw, calRoll)
+        geomAt = SystemClock.elapsedRealtime()
         ai.post { geom = g; warpKey = ""; ringCount = 0; hidCount = 0 }
+    }
+
+    // trong luc -> goc cui / nghieng cua camera. Man hinh ngang (dinh may ben trai), camera sau:
+    // truoc = -z may, phai = -y may, xuong = -x may. Gia toc ke do huong "len" (a).
+    private val gravL = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent) {
+            if (!prefs.autoCalib) return
+            val ax = e.values[0].toDouble(); val ay = e.values[1].toDouble(); val az = e.values[2].toDouble()
+            val n = sqrt(ax * ax + ay * ay + az * az)
+            if (n < 8.8 || n > 10.8) return                      // dang tang/giam toc, o ga: bo
+            val p = atan2(az, ax)                                 // duong = camera cui xuong
+            val r = Math.asin((-ay / n).coerceIn(-1.0, 1.0))
+            if (gP.isNaN()) { gP = p; gR = r } else { gP += 0.02 * (p - gP); gR += 0.02 * (r - gR) }
+            val now = SystemClock.elapsedRealtime()
+            if ((abs(gP - calPitch) > 0.004 || abs(gR - calRoll) > 0.004) && now - geomAt > 2000) {
+                calPitch = gP; calRoll = gR; saveCalib(); rebuildGeom()
+            }
+        }
+        override fun onAccuracyChanged(s: Sensor?, a: Int) {}
+    }
+
+    private fun startGravity() {
+        val sm = getSystemService(SENSOR_SERVICE) as SensorManager
+        val s = sm.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
+        sm.registerListener(gravL, s, 200_000)
+    }
+
+    /** Luong AI: huong chuyen dong lech -> cong don, 50 mau (~5 s) thi sua yaw theo trung vi. */
+    private fun calibYaw(o: Op.Out, v: Float) {
+        if (!prefs.autoCalib || v < 30 || o.poseVx < 6f || abs(o.poseRz) > 0.035f) return
+        yawObs[yawN++] = kotlin.math.atan2(o.poseVy, o.poseVx)
+        if (yawN < yawObs.size) return
+        yawN = 0
+        val med = yawObs.sortedArray()[yawObs.size / 2].toDouble()
+        main.post {
+            // ghep nhu calibrationd: R(moi) = R(dang dung) * R(quan sat), chi lay phan yaw
+            val r = Op.mul(Op.rotFromEuler(calRoll, calPitch, calYaw), Op.rotFromEuler(0.0, 0.0, 0.7 * med))
+            val e = Op.eulerFromRot(r)
+            calYaw = e[2].coerceIn(-0.35, 0.35)
+            yawGood = if (abs(med) < 0.01) yawGood + 1 else 0
+            if (yawGood >= 2 && !prefs.calibrated) prefs.calibrated = true
+            saveCalib()
+            if (abs(med) > 0.002) rebuildGeom()
+        }
     }
 
     // ---------------- camera -> AI ----------------
     private fun onFrame(im: Image) {
         val now = SystemClock.elapsedRealtime()
+        lastFrameAt = now
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
         lastAccept = now
@@ -307,6 +389,7 @@ class AdasService : Service() {
             if (v > 10 && ttc != null && ttc < 1.5f) level = 3
         }
         val near = leadM != null && (level > 0 || (ttc != null && ttc < 4f))
+        calibYaw(o, v)
         main.post { onResult(o, g, v, ldw, off, leadM, ttc, level, near) }
     }
 
@@ -340,10 +423,18 @@ class AdasService : Service() {
 
     private fun stateMsg() = when {
         loadMsg.isNotEmpty() -> loadMsg
+        camNoImage() -> "Camera chưa lên hình (app khác đang dùng camera?)"
         hot >= 3 -> "Máy nóng: đã dừng AI, chạy lại khi mát"
         parked -> "Xe đỗ: tạm dừng AI cho mát máy"
         hot == 2 -> "Máy nóng: giảm còn 5 lần/giây"
+        prefs.autoCalib && !prefs.calibrated && targetHz > 0 -> "Đang tự hiệu chỉnh camera (chạy thẳng trên 30 km/h)…"
         else -> ""
+    }
+
+    private fun camNoImage(): Boolean {
+        val c = cam ?: return false
+        val now = SystemClock.elapsedRealtime()
+        return c.isOpen && now - camOpenAt > 4000 && now - lastFrameAt > 3000
     }
 
     /** Khong co ket qua AI (dung/nong/dang nap): van cap nhat giao dien + giu HUD biet trang thai. */
@@ -366,7 +457,7 @@ class AdasService : Service() {
         val c = cam ?: return
         // Khong can camera: AI dung va khong ai xem man hinh -> tat han camera
         if (hz == 0 && !uiVisible) { if (c.isOpen) c.close() }
-        else { if (!c.isOpen) c.open(); c.setRate(if (hz == 0) 15 else hz) }
+        else { if (!c.isOpen) { c.open(); camOpenAt = SystemClock.elapsedRealtime() }; c.setRate(if (hz == 0) 15 else hz) }
     }
 
     private val tick = object : Runnable {

@@ -44,7 +44,6 @@ class MainActivity : Activity() {
             s.onSnap = { sn -> overlay.snap = sn; temp.snap = sn; if (map.visibility == View.VISIBLE) map.update(sn) }
             s.uiVisible = started
             attachPreview()
-            if (!prefs.calibrated) startCalib()
         }
         override fun onServiceDisconnected(n: ComponentName?) { svc = null }
     }
@@ -71,10 +70,7 @@ class MainActivity : Activity() {
         }
         overlay.onGear = { settings() }
         overlay.onCalibDone = { ok ->
-            if (ok) {
-                prefs.vpX = overlay.vpX; prefs.vpY = overlay.vpY; prefs.calibrated = true
-                svc?.reloadSettings(false)
-            }
+            if (ok) svc?.setManualVp(overlay.vpX, overlay.vpY)
             showPips()
         }
         tex.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
@@ -181,14 +177,19 @@ class MainActivity : Activity() {
 
     // ---------------- cai dat ----------------
     private fun startCalib() {
-        overlay.vpX = prefs.vpX; overlay.vpY = prefs.vpY
+        // dau + bat dau o diem tu dang dung
+        val g = svc?.currentGeom()
+        val p = FloatArray(2)
+        if (g != null && g.project(1000f, 0f, 0f, p, 0)) { overlay.vpX = p[0] / g.w; overlay.vpY = p[1] / g.h }
+        else { overlay.vpX = 0.5f; overlay.vpY = 0.5f }
         overlay.calib = true
         showPips()
     }
 
     private fun settings() {
         val items = arrayOf(
-            "Hiệu chỉnh camera (điểm tụ)",
+            "Tự hiệu chỉnh camera: " + (if (prefs.autoCalib) "BẬT" else "TẮT"),
+            "Hiệu chỉnh tay (kéo điểm tụ)",
             "Chiều cao camera: ${"%.1f".format(prefs.camH)} m",
             "Bộ xử lý AI: " + (if (prefs.accel == "npu") "NPU (mát hơn)" else "CPU"),
             (if (prefs.showMap) "Ẩn" else "Hiện") + " bản đồ góc",
@@ -199,18 +200,19 @@ class MainActivity : Activity() {
         )
         AlertDialog.Builder(this).setTitle("Cài đặt").setItems(items) { _, i ->
             when (i) {
-                0 -> startCalib()
-                1 -> {
+                0 -> svc?.setAuto(!prefs.autoCalib)
+                1 -> startCalib()
+                2 -> {
                     val hs = arrayOf(0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.7f, 1.9f)
                     AlertDialog.Builder(this).setTitle("Camera cách mặt đường")
                         .setItems(hs.map { "%.1f m".format(it) }.toTypedArray()) { _, k -> prefs.camH = hs[k]; svc?.reloadSettings(false) }.show()
                 }
-                2 -> { prefs.accel = if (prefs.accel == "npu") "cpu" else "npu"; svc?.reloadSettings(true) }
-                3 -> { prefs.showMap = !prefs.showMap; showPips() }
-                4 -> { prefs.showTemp = !prefs.showTemp; showPips() }
-                5 -> svc?.findHudAgain()
-                6 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
-                7 -> {
+                3 -> { prefs.accel = if (prefs.accel == "npu") "cpu" else "npu"; svc?.reloadSettings(true) }
+                4 -> { prefs.showMap = !prefs.showMap; showPips() }
+                5 -> { prefs.showTemp = !prefs.showTemp; showPips() }
+                6 -> svc?.findHudAgain()
+                7 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
+                8 -> {
                     startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
                     finish()
                 }

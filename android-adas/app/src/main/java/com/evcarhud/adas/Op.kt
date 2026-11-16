@@ -63,6 +63,10 @@ object Op {
         return mul(mul(rz, ry), rx)
     }
 
+    /** Nguoc cua rotFromEuler: (roll, pitch, yaw). */
+    fun eulerFromRot(m: DoubleArray) = doubleArrayOf(
+        kotlin.math.atan2(m[7], m[8]), -kotlin.math.asin(m[6].coerceIn(-1.0, 1.0)), kotlin.math.atan2(m[3], m[0]))
+
     /** device (x truoc, y phai, z xuong) -> view (x phai, y xuong, z truoc). */
     val VFD = doubleArrayOf(0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0)
 
@@ -73,11 +77,11 @@ object Op {
      * Camera dien thoai (pinhole) da xoay dung chieu, kich thuoc w x h, tieu cu f px.
      * Hieu chinh: pitch/yaw cua huong "truoc mat xe" so voi camera.
      */
-    class Cam(val w: Int, val h: Int, val f: Double, pitch: Double, yaw: Double) {
+    class Cam(val w: Int, val h: Int, val f: Double, pitch: Double, yaw: Double, roll: Double = 0.0) {
         val cx = w / 2.0
         val cy = h / 2.0
         /** view-cua-camera <- calib (device) : dung de chieu diem 3D len anh. */
-        val viewFromCalib: DoubleArray = mul(VFD, rotFromEuler(0.0, pitch, yaw))
+        val viewFromCalib: DoubleArray = mul(VFD, rotFromEuler(roll, pitch, yaw))
 
         /** Chieu diem (x truoc, y phai, z xuong, goc camera) -> pixel anh. false neu sau camera. */
         fun project(x: Float, y: Float, z: Float, out: FloatArray, o: Int): Boolean {
@@ -162,6 +166,9 @@ object Op {
         var leadY = 0f
         var leadV = 0f
         var poseVx = 0f
+        var poseVy = 0f
+        var poseVz = 0f
+        var poseRz = 0f
         var desireL = 0f
         var desireR = 0f
         val hidden = FloatArray(HID_N)
@@ -185,7 +192,7 @@ object Op {
         }
         r.leadProb = sigmoid(o[LEAD_PROB])
         r.leadX = o[LEAD]; r.leadY = o[LEAD + 1]; r.leadV = o[LEAD + 2]
-        r.poseVx = o[POSE]
+        r.poseVx = o[POSE]; r.poseVy = o[POSE + 1]; r.poseVz = o[POSE + 2]; r.poseRz = o[POSE + 5]
         // desire_pred: 4 moc x 8 desire, softmax moc dau
         var mx = -1e9f
         for (j in 0..7) mx = max(mx, o[DESIRE + j])

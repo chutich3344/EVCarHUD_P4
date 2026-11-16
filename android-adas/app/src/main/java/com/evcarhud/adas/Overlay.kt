@@ -78,7 +78,7 @@ class Overlay(ctx: Context) : View(ctx) {
         }
         drawTop(cv, sn, u)
         if (sn != null && !calib) drawWarn(cv, sn, u)
-        if (calib) drawCalib(cv, u)
+        if (calib) { drawCalib(cv, u); if (sn != null && sn.msg.isNotEmpty()) pill(cv, sn.msg, width / 2f, 17.5f * u, u) }
     }
 
     private fun levelColor(l: Int, a: Int = 255) = when {

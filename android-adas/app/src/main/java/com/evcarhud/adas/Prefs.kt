@@ -9,13 +9,20 @@ class Prefs(ctx: Context) {
     var calibrated: Boolean
         get() = p.getBoolean("calib", false)
         set(v) = p.edit().putBoolean("calib", v).apply()
-    /** Diem tu (chỗ 2 vach lan gap nhau) theo ti le anh 0..1. */
-    var vpX: Float
-        get() = p.getFloat("vpx", 0.5f)
-        set(v) = p.edit().putFloat("vpx", v).apply()
-    var vpY: Float
-        get() = p.getFloat("vpy", 0.5f)
-        set(v) = p.edit().putFloat("vpy", v).apply()
+    /** Tu hieu chinh (mac dinh): goc cui/nghieng tu cam bien trong luc, goc lech trai/phai tu chuyen dong (mo hinh). */
+    var autoCalib: Boolean
+        get() = p.getBoolean("auto", true)
+        set(v) = p.edit().putBoolean("auto", v).apply()
+    /** Hieu chinh dang dung (rad). */
+    var pitch: Float
+        get() = p.getFloat("pitch", 0f)
+        set(v) = p.edit().putFloat("pitch", v).apply()
+    var yaw: Float
+        get() = p.getFloat("yaw", 0f)
+        set(v) = p.edit().putFloat("yaw", v).apply()
+    var roll: Float
+        get() = p.getFloat("roll", 0f)
+        set(v) = p.edit().putFloat("roll", v).apply()
     /** Chieu cao camera so voi mat duong (m). */
     var camH: Float
         get() = p.getFloat("camh", 1.2f)
