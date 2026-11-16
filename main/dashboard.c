@@ -91,6 +91,8 @@ static lv_obj_t *scr, *page[SCR_N];
 /* thanh tren (dung chung cac man dang chay) */
 static lv_obj_t *t_bolt;
 static lv_obj_t *mic_btn;                         /* nut micro Mi Mi (ai.c dang ky) */
+static int mic_x_top = -1, mic_x_sb = -1;         /* cho nut tren thanh tren man chay / man cho */
+static void place_mic(void);
 static lv_obj_t *top, *top_line, *t_clock, *t_street, *t_badge, *t_gps_dot, *t_src, *t_src_l;
 /* Phan tren cac man chay: toc do (so to, khung rong co dinh can phai) + "km/h" | bien gioi han, chia doi man hinh */
 typedef struct {
@@ -1043,7 +1045,8 @@ static void render_top(void)
     int right_x = UI_W - PAD - gw - 6 - 8;                        /* mep trai cham GPS */
     if (mic_btn) {                                                /* 16/11: nut micro Mi Mi nam tren thanh tren, khong de len the bien */
         right_x -= 8 + 24;
-        lv_obj_set_pos(mic_btn, right_x, (TOP_H - 24) / 2);
+        mic_x_top = right_x;
+        place_mic();
     }
     const ui_alert_t *ex = NULL, *rs = NULL;
     if (hw)
@@ -1526,6 +1529,7 @@ static void set_screen(int s)
     render_all();
     scr_fresh = false;
     if (s == SCR_STANDBY) render_standby();
+    place_mic();
 }
 
 /* Chua co du lieu -> man cho; dang dan duong -> chi dan; canh bao gan -> canh bao; cao toc; chay thuong. */
@@ -2388,7 +2392,13 @@ static void render_standby(void)
     lv_obj_set_x(sb_wifi_hit, btx - 8 - 29);
     bool wok = wifi_st == UI_WIFI_CONNECTED, wcon = wifi_st == UI_WIFI_CONNECTING;
     wifi_icon_color(sb_wifi, wok ? lv_color_hex(0x22C55E) : wcon ? lv_color_hex(C_YEL) : th->fg, !wok && !wcon);
-    lv_obj_set_width(sb_wx, btx - 8 - 29 - 8 - lv_obj_get_x(sb_wx));
+    int wl = btx - 8 - 29 + 11;                                   /* mep trai bieu tuong Wi-Fi */
+    if (mic_btn) {                                                /* man cho: nut micro ben trai Wi-Fi, khong de len Wi-Fi / Bluetooth */
+        mic_x_sb = wl - 12 - 24;
+        place_mic();
+        wl = mic_x_sb;
+    }
+    lv_obj_set_width(sb_wx, wl - 8 - 8 - lv_obj_get_x(sb_wx));
 
     /* dai duoi */
     int bw = lv_obj_get_width(sb_bar) - 2;
@@ -3114,4 +3124,11 @@ void ui_set_mic_btn(lv_obj_t *o)
 {
     mic_btn = o;
     render_all();
+}
+
+static void place_mic(void)
+{
+    if (!mic_btn) return;
+    int x = screen == SCR_STANDBY ? mic_x_sb : mic_x_top;
+    if (x >= 0) lv_obj_set_pos(mic_btn, x, (TOP_H - 24) / 2);
 }
