@@ -147,7 +147,7 @@ class AdasService : Service() {
 
     // ---- tu hieu chinh ----
     // goc cui (pitch) + nghieng (roll): cam bien trong luc, loc cham ~10 s (bo qua luc tang/giam toc manh)
-    // goc lech trai/phai (yaw): huong chuyen dong mo hinh thay (pose) khi chay thang > 30 km/h, giong calibrationd openpilot
+    // goc lech trai/phai (yaw): huong chuyen dong mo hinh thay (pose) khi chay thang > 20 km/h, giong calibrationd openpilot
     private var calPitch = 0.0
     private var calYaw = 0.0
     private var calRoll = 0.0
@@ -286,17 +286,19 @@ class AdasService : Service() {
 
     /** Luong AI: huong chuyen dong lech -> cong don, 50 mau (~5 s) thi sua yaw theo trung vi. */
     private fun calibYaw(o: Op.Out, v: Float) {
-        if (!prefs.autoCalib || v < 30 || o.poseVx < 6f || abs(o.poseRz) > 0.035f) return
+        if (!prefs.autoCalib || v < 20 || o.poseVx < 5f || abs(o.poseRz) > 0.05f) return
         yawObs[yawN++] = kotlin.math.atan2(o.poseVy, o.poseVx)
-        if (yawN < yawObs.size) return
+        // chua hieu chinh xong: 20 mau (~3 s o 7 lan/giay) la sua; xong roi thi 50 mau cho on dinh
+        val need = if (prefs.calibrated) yawObs.size else 20
+        if (yawN < need) return
+        val med = yawObs.copyOf(yawN).sortedArray()[yawN / 2].toDouble()
         yawN = 0
-        val med = yawObs.sortedArray()[yawObs.size / 2].toDouble()
         main.post {
             // ghep nhu calibrationd: R(moi) = R(dang dung) * R(quan sat), chi lay phan yaw
-            val r = Op.mul(Op.rotFromEuler(calRoll, calPitch, calYaw), Op.rotFromEuler(0.0, 0.0, 0.7 * med))
+            val r = Op.mul(Op.rotFromEuler(calRoll, calPitch, calYaw), Op.rotFromEuler(0.0, 0.0, (if (prefs.calibrated) 0.7 else 0.85) * med))
             val e = Op.eulerFromRot(r)
             calYaw = e[2].coerceIn(-0.35, 0.35)
-            yawGood = if (abs(med) < 0.01) yawGood + 1 else 0
+            yawGood = if (abs(med) < 0.012) yawGood + 1 else 0
             if (yawGood >= 2 && !prefs.calibrated) prefs.calibrated = true
             saveCalib()
             if (abs(med) > 0.002) rebuildGeom()
@@ -500,7 +502,7 @@ class AdasService : Service() {
         hot >= 3 -> "Máy nóng: đã dừng AI, chạy lại khi mát"
         parked -> "Xe đỗ: tạm dừng AI cho mát máy"
         hot == 2 -> "Máy nóng: giảm còn 5 lần/giây"
-        prefs.autoCalib && !prefs.calibrated && targetHz > 0 -> "Đang tự hiệu chỉnh camera (chạy thẳng trên 30 km/h)…"
+        prefs.autoCalib && !prefs.calibrated && targetHz > 0 -> "Đang tự hiệu chỉnh camera (chạy thẳng trên 20 km/h)…"
         else -> ""
     }
 

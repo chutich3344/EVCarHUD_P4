@@ -186,24 +186,28 @@ class Overlay(ctx: Context) : View(ctx) {
 
     private fun drawTop(cv: Canvas, sn: Snap?, u: Float) {
         val top = 2.2f * u
-        // o thong so ben trai
-        var x = 2f * u
-        val lead = sn?.leadM
-        val leadTxt = if (lead != null && !calib) "${lead.roundToInt()} m" else "--"
-        val leadCol = when { sn == null || lead == null -> Color.WHITE; sn.level >= 2 -> Color.rgb(255, 84, 104); sn.level == 1 -> Color.rgb(255, 210, 63); else -> Color.WHITE }
-        x += box(cv, x, top, u, leadTxt, "XE TRƯỚC", leadCol) + 0.7f * u
+        // o lech lan ben trai (toc do da co tren HUD nen khong hien)
+        val x = 2f * u
         val off = sn?.offCm
         val offTxt = when { off == null || calib -> "--"; abs(off) < 5 -> "giữa"; off > 0 -> "← $off cm"; else -> "${-off} cm →" }
         val offCol = if (sn != null && sn.ldw != '-') Color.rgb(255, 84, 104) else Color.WHITE
         box(cv, x, top, u, offTxt, "LỆCH LÀN", offCol)
 
-        // toc do giua
-        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE
+        // giua: so lon = khoang cach xe truoc
+        val lead = sn?.leadM
+        val red = Color.rgb(255, 84, 104); val yel = Color.rgb(255, 210, 63)
+        val leadCol = when { sn == null || lead == null -> Color.WHITE; sn.level >= 2 -> red; sn.level == 1 -> yel; else -> Color.rgb(71, 224, 138) }
+        txt.textAlign = Paint.Align.CENTER; txt.color = leadCol
         txt.setShadowLayer(0.8f * u, 0f, 0.2f * u, Color.argb(150, 0, 0, 0))
         txt.textSize = 6.6f * u
-        cv.drawText("${sn?.vKmh?.roundToInt() ?: 0}", width / 2f, top + 5.6f * u, txt)
-        txt.textSize = 1.5f * u
-        cv.drawText("km/h", width / 2f, top + 7.6f * u, txt)
+        cv.drawText(if (lead != null && !calib) "${lead.roundToInt()}" else "--", width / 2f, top + 5.6f * u, txt)
+        txt.textSize = 1.5f * u; txt.color = Color.WHITE
+        val sub = when {
+            lead == null || calib -> "m · chưa thấy xe trước"
+            sn.level >= 1 -> "m · tối thiểu ${Op.safeDist(sn.vKmh).roundToInt()} m" + (sn.ttc?.let { " · %.1f s".format(it) } ?: "")
+            else -> "m · xe trước"
+        }
+        cv.drawText(sub, width / 2f, top + 7.6f * u, txt)
         txt.clearShadowLayer()
 
         // chip ben phai: [cai dat] [LAN] [HUD]

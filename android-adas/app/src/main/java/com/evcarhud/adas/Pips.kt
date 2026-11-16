@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
@@ -70,8 +72,8 @@ class TempPip(ctx: Context) : View(ctx) {
  * Huong Bac len tren, mui ten = huong xe chay. Cap nhat theo GPS (1 lan/giay).
  */
 class TileMap(ctx: Context) : View(ctx) {
-    /** Nguon nen: carto (mac dinh, nen toi), google (thu nghiem), osm. */
-    var source = "carto"
+    /** Nguon nen: google (mac dinh, thu nghiem, dao mau thanh nen toi), osm. CARTO da doi khoa API nen bo. */
+    var source = "google"
         set(v) { if (field != v) { field = v; mem.evictAll(); loading.clear(); err = ""; invalidate() } }
     private var err = ""
     private val zoom = 16
@@ -86,6 +88,14 @@ class TileMap(ctx: Context) : View(ctx) {
     private val dir = File(ctx.cacheDir, "tiles").apply { mkdirs() }
     private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = bold }
     private val clip = Path()
+    // dao mau + xoay sac do 180 do: nen sang -> nen toi, giu mau duong/song gan dung
+    private val dark = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+        colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+            0.574f, -1.430f, -0.144f, 0f, 255f,
+            -0.426f, -0.430f, -0.144f, 0f, 255f,
+            -0.426f, -1.430f, 0.856f, 0f, 255f,
+            0f, 0f, 0f, 1f, 0f)))
+    }
 
     fun update(s: Snap) {
         if (!s.hasFix) { if (fix) { fix = false; invalidate() }; return }
@@ -113,10 +123,10 @@ class TileMap(ctx: Context) : View(ctx) {
                 if (ty < 0 || ty >= n) continue
                 val bm = tile(((tx % n) + n) % n, ty) ?: continue
                 val left = cx + ((tx - fx) * ts).toFloat(); val top = cy + ((ty - fy) * ts).toFloat()
-                cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), null)
+                cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), if (source == "google") dark else null)
             }
             // lam toi nhe cho de nhin ban dem
-            cv.drawColor(Color.argb(70, 0, 0, 0))
+            if (source != "google") cv.drawColor(Color.argb(70, 0, 0, 0))
             // mui ten vi tri
             cv.save(); cv.translate(cx, cy); cv.rotate(bearing)
             val a = h * 0.07f
@@ -132,7 +142,7 @@ class TileMap(ctx: Context) : View(ctx) {
         p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14)
         cv.drawRect(0f, 0f, w, h * 0.15f, p)
         p.color = Color.WHITE; p.textSize = h * 0.075f; p.textAlign = Paint.Align.LEFT
-        val credit = when (source) { "google" -> "Google (thử)"; "osm" -> "© OpenStreetMap"; else -> "© OpenStreetMap © CARTO" }
+        val credit = if (source == "osm") "© OpenStreetMap" else "© Google"
         cv.drawText(if (err.isNotEmpty()) "Lỗi tải bản đồ: $err" else "GPS điện thoại · $credit", h * 0.05f, h * 0.1f, p)
         cv.restore()
         p.style = Paint.Style.STROKE; p.strokeWidth = 4f; p.color = Color.argb(230, 255, 255, 255)
@@ -146,9 +156,8 @@ class TileMap(ctx: Context) : View(ctx) {
         if (loading.add(k)) io.execute {
             val f = File(dir, "${src}_${zoom}_${x}_$y.png")
             val url = when (src) {
-                "google" -> "https://mt1.google.com/vt/lyrs=m&x=$x&y=$y&z=$zoom"
-                "osm" -> "https://tile.openstreetmap.org/$k.png"
-                else -> "https://basemaps.cartocdn.com/dark_all/$k.png"
+                "google" -> "https://mt1.google.com/vt/lyrs=m&hl=vi&x=$x&y=$y&z=$zoom"
+                else -> "https://tile.openstreetmap.org/$k.png"
             }
             var e = ""
             var bm: Bitmap? = null

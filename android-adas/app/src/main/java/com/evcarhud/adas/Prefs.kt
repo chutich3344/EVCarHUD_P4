@@ -34,7 +34,7 @@ class Prefs(ctx: Context) {
         get() = p.getString("mac", "") ?: ""
         set(v) = p.edit().putString("mac", v).apply()
     var mapSrc: String
-        get() = p.getString("msrc", "carto") ?: "carto"
+        get() = (p.getString("msrc", "google") ?: "google").let { if (it == "carto") "google" else it }
         set(v) = p.edit().putString("msrc", v).apply()
     var showMap: Boolean
         get() = p.getBoolean("map", true)

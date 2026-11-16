@@ -160,7 +160,7 @@ class MainActivity : Activity() {
                 3 -> { prefs.accel = if (prefs.accel == "npu") "cpu" else "npu"; svc?.reloadSettings(true) }
                 4 -> { prefs.showMap = !prefs.showMap; showPips() }
                 5 -> {
-                    val ks = arrayOf("carto", "google", "osm")
+                    val ks = arrayOf("google", "osm")
                     AlertDialog.Builder(this).setTitle("Nguồn bản đồ").setItems(ks.map { mapName(it) }.toTypedArray()) { _, k ->
                         prefs.mapSrc = ks[k]; map.source = ks[k]
                     }.show()
@@ -176,7 +176,7 @@ class MainActivity : Activity() {
         }.show()
     }
 
-    private fun mapName(k: String) = when (k) { "google" -> "Google (thử nghiệm)"; "osm" -> "OpenStreetMap"; else -> "CARTO nền tối (OSM)" }
+    private fun mapName(k: String) = when (k) { "osm" -> "OpenStreetMap"; else -> "Google (thử nghiệm, nền tối)" }
 
     companion object {
         private const val ABOUT = "Nhận diện làn đường, mép đường, xe phía trước và đường đi dùng mô hình openpilot " +
