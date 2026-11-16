@@ -125,7 +125,7 @@ static volatile int net_fail, scan_bad;
 static int lost_n;                                  /* so lan thu lai lien tiep tu khi mat mang (dat lai khi co IP) */
 static uint64_t retry_us(int base_s)
 {
-    bool bt = ble_link_state() == 2;
+    bool bt = ble_link_connected();
     int s = (bt ? 30 : base_s) << (lost_n < 3 ? lost_n : 3);
     int cap = bt ? 180 : 60;
     if (s > cap) s = cap;
@@ -136,7 +136,7 @@ static uint64_t retry_us(int base_s)
 
 static void c6_heal(const char *why)
 {
-    if (ble_link_state() == 2) {
+    if (ble_link_connected()) {
         ESP_LOGW(TAG, "C6 co ve ket (%s) nhung dien thoai dang noi Bluetooth: khong reset", why);
         return;
     }

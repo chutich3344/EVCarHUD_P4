@@ -798,10 +798,12 @@ void ble_link_start(void)
 }
 
 int ble_link_state(void) { return s_state; }
+bool ble_link_connected(void) { return s_conn != BLE_HS_CONN_HANDLE_NONE; }
 
 #else  /* Bluetooth tat trong menuconfig */
 
 void ble_link_start(void) {}
 int ble_link_state(void) { return 0; }
+bool ble_link_connected(void) { return false; }
 
 #endif
