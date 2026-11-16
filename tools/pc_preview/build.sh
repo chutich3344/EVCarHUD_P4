@@ -11,4 +11,4 @@ for f in $(find lvgl/src -name '*.c'); do
   [ "$o" -nt "$f" ] || cc -c -O1 -DLV_CONF_INCLUDE_SIMPLE -I. -Ilvgl "$f" -o "$o"
 done
 cc -O1 -Wall -Wextra -DXADAS_NO_UI -DLV_CONF_INCLUDE_SIMPLE -I. -Ilvgl -I$M -Istub -I../video_replay/stub $SRC build/*.o -lm -o build/preview
-./build/preview out
+[ -n "${NO_RUN:-}" ] || ./build/preview out

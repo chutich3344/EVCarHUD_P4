@@ -11,6 +11,7 @@
 #include "adas_feed.h"
 #include "detect.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -391,6 +392,28 @@ int main(int argc, char **argv)
     xa(1, 3, 0, 96, 48, 70);
     run(300);
     snprintf(p, sizeof p, "%s/xa_8_cao_toc_qua_gan.bmp", dir); save_bmp(p);
+    if (getenv("REPLAY")) {                          /* REPLAY=goi.txt: moi dong "km/h<TAB>goi A1", 10 dong/giay -> r_00000.bmp */
+        FILE *rf = fopen(getenv("REPLAY"), "r");
+        char ln[160];
+        int k = 0;
+        while (rf && fgets(ln, sizeof ln, rf)) {
+            char *tab = strchr(ln, '\t');
+            if (!tab) continue;
+            char *pkt = tab + 1;
+            pkt[strcspn(pkt, "\r\n")] = 0;
+            ui_set_speed(atoi(ln));
+            phone_adas_t pa;
+            xadas_frame_t f;
+            if (phone_adas_parse(pkt, strlen(pkt), &pa)) {
+                phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &f);
+                obstacle_ui_phone(&f, pa.ldw, pa.pl > 50 && pa.pr > 50, pa.level >= 3);
+            }
+            run(100);
+            snprintf(p, sizeof p, "%s/r_%05d.bmp", dir, k++); save_bmp(p);
+        }
+        if (rf) fclose(rf);
+        return 0;
+    }
     {                                               /* 17/11: app Lan tren dien thoai (goi A1, phone_adas.c) */
         static const char *pk[] = {
             "A1|-|3|98|97|74|-2|0|0|96|0",          /* an toan, thay 2 vach */
