@@ -63,7 +63,19 @@ static TaskHandle_t s_task;
 static StreamBufferHandle_t s_rx_sb;     /* byte tu dien thoai: ham GATT chi chep vao day roi tra ve ngay */
 static MessageBufferHandle_t s_tx_mb;    /* cac dong cho gui len dien thoai */
 static uint16_t s_rx_handle;             /* handle gia tri cua dac tinh RX (notify) */
-static volatile uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;
+static volatile uint16_t s_conn = BLE_HS_CONN_HANDLE_NONE;   /* ket noi cua app dan duong (GOFA / Waze Mod) */
+/* 16/11: cho 2 ket noi cung luc va van quang ba khi da co 1 ket noi, de xADAS tim thay HUD
+ * du GOFA / Waze noi truoc (truoc day noi xong la tat quang ba nen xADAS cu "dang tim HUD"). */
+#define BLE_CONN_MAX 2
+static volatile uint16_t s_hs[BLE_CONN_MAX] = {BLE_HS_CONN_HANDLE_NONE, BLE_HS_CONN_HANDLE_NONE};
+static volatile uint16_t s_xa_conn = BLE_HS_CONN_HANDLE_NONE;   /* ket noi xADAS dang ghi */
+static int conn_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < BLE_CONN_MAX; i++) n += s_hs[i] != BLE_HS_CONN_HANDLE_NONE;
+    return n;
+}
+static bool nav_adopt(uint16_t conn);
 static volatile int s_state;
 static uint8_t s_addr_type;
 static bool s_linked;                    /* da goi link_up (chi task ble dung) */
@@ -176,6 +188,7 @@ static int xa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *
     uint16_t n = 0;
     if (OS_MBUF_PKTLEN(ctxt->om) > sizeof b) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     if (ble_hs_mbuf_to_flat(ctxt->om, b, sizeof b, &n) != 0) return BLE_ATT_ERR_UNLIKELY;
+    s_xa_conn = conn;
     if (!s_xa_seen) ESP_LOGI(TAG, "xADAS bat dau gui khoang cach xe truoc");
     s_xa_seen = true;
     xadas_on_write(b, n);
@@ -252,7 +265,7 @@ static volatile uint16_t s_gofa_rd, s_gofa_snd, s_gofa_ovr, s_gofa_bad;   /* lan
 static int gofa_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     s_gofa_ms = now_ms();
-    if (!s_gofa && !s_waze) {                                      /* tu nhan: app dau tien cham dich vu GOFA -> che do GOFA */
+    if (!s_gofa && !s_waze && nav_adopt(conn)) {                                      /* tu nhan: app dau tien cham dich vu GOFA -> che do GOFA */
         s_gofa = true;
         s_own_ms = s_gofa_ms;
         wake(EV_GUP);
@@ -458,12 +471,27 @@ start:;
     if (s_state != 2) s_state = 1;
 }
 
+static bool nav_adopt(uint16_t conn)                              /* app dan duong cham dich vu tren ket noi `conn` */
+{
+    if (conn == s_conn) return true;
+    if (s_gofa || s_waze) return false;                           /* da co app giu HUD tren ket noi khac */
+    s_conn = conn;
+    return true;
+}
+
 static int gap_event(struct ble_gap_event *ev, void *arg)
 {
     (void)arg;
     switch (ev->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (ev->connect.status == 0) {
+            for (int i = 0; i < BLE_CONN_MAX; i++)
+                if (s_hs[i] == BLE_HS_CONN_HANDLE_NONE) { s_hs[i] = ev->connect.conn_handle; break; }
+            if (conn_count() < BLE_CONN_MAX) advertise();         /* con cho: tiep tuc quang ba cho xADAS / app thu 2 */
+            if (s_conn != BLE_HS_CONN_HANDLE_NONE) {
+                ESP_LOGI(TAG, "ket noi Bluetooth thu 2 (handle %u): de xADAS / app khac dung chung", ev->connect.conn_handle);
+                break;
+            }
             s_conn = ev->connect.conn_handle;
             /* Tu nhan nguon: chua biet app nao; app ghi/doc dich vu GOFA -> GOFA, bat thong bao RX cua HLP -> Waze Mod.
              * 12/11: KHONG tu xin MTU (app GOFA tu xin sau kham pha; HUD xin truoc thi app bo ban tin dan duong). */
@@ -476,22 +504,39 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         }
         break;
     case BLE_GAP_EVENT_DISCONNECT:
-        ESP_LOGI(TAG, "dien thoai ngat Bluetooth (ly do %d)", ev->disconnect.reason);
-        if (s_xa_seen) xadas_link_down();
-        s_xa_seen = false;
-        s_conn = BLE_HS_CONN_HANDLE_NONE;
+    {
+        uint16_t h = ev->disconnect.conn.conn_handle;
+        ESP_LOGI(TAG, "ngat Bluetooth handle %u (ly do %d)", h, ev->disconnect.reason);
+        uint16_t other = BLE_HS_CONN_HANDLE_NONE;
+        for (int i = 0; i < BLE_CONN_MAX; i++) {
+            if (s_hs[i] == h) s_hs[i] = BLE_HS_CONN_HANDLE_NONE;
+            else if (s_hs[i] != BLE_HS_CONN_HANDLE_NONE) other = s_hs[i];
+        }
+        if (h == s_xa_conn || (s_xa_seen && other == BLE_HS_CONN_HANDLE_NONE)) {
+            if (s_xa_seen) xadas_link_down();
+            s_xa_seen = false;
+            s_xa_conn = BLE_HS_CONN_HANDLE_NONE;
+        }
+        if (h != s_conn) {                                         /* ket noi phu (xADAS / may khac) ngat: giu app dan duong */
+            advertise();
+            break;
+        }
+        s_conn = other;                                            /* con ket noi kia (vd xADAS): app dan duong noi lai qua do duoc */
         s_state = 1;
         wake(EV_DOWN | (s_gofa ? EV_GDOWN : 0));
         s_gofa = s_waze = s_waze_sub = s_held = false;
         advertise();
         break;
+    }
     case BLE_GAP_EVENT_ADV_COMPLETE:
         advertise();
         break;
     case BLE_GAP_EVENT_SUBSCRIBE:
         ESP_LOGI(TAG, "dien thoai %s thong bao handle %u", ev->subscribe.cur_notify || ev->subscribe.cur_indicate ? "bat" : "tat",
                  ev->subscribe.attr_handle);
-        if (ev->subscribe.attr_handle == s_rx_handle) {           /* dien thoai bat/tat nhan thong bao tren RX */
+        if (ev->subscribe.attr_handle == s_rx_handle && !nav_adopt(ev->subscribe.conn_handle)) {
+            ESP_LOGI(TAG, "app khac bat RX tren ket noi phu: bo qua (app dang giu HUD van chay)");
+        } else if (ev->subscribe.attr_handle == s_rx_handle) {    /* dien thoai bat/tat nhan thong bao tren RX */
             s_waze_sub = ev->subscribe.cur_notify;
             if (ev->subscribe.cur_notify && s_gofa) {
                 ESP_LOGI(TAG, "Waze Mod noi chung ket noi khi GOFA dang giu HUD: cho GOFA im moi chuyen");
@@ -507,7 +552,8 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         }
         break;
     case BLE_GAP_EVENT_MTU:
-        ESP_LOGI(TAG, "MTU %d", ev->mtu.value);
+        ESP_LOGI(TAG, "MTU %d (handle %u)", ev->mtu.value, ev->mtu.conn_handle);
+        if (ev->mtu.conn_handle != s_conn) break;
         s_mtu = ev->mtu.value;
         wake(EV_SNIFF);
         break;
@@ -743,7 +789,7 @@ static void ble_task(void *arg)
     for (;;) {
         uint32_t ev = 0;
         xTaskNotifyWait(0, UINT32_MAX, &ev, pdMS_TO_TICKS(ADV_SWAP_MS));
-        if (s_conn == BLE_HS_CONN_HANDLE_NONE && xTaskGetTickCount() - adv_t >= pdMS_TO_TICKS(ADV_SWAP_MS)) {
+        if (conn_count() == 0 && xTaskGetTickCount() - adv_t >= pdMS_TO_TICKS(ADV_SWAP_MS)) {
             adv_t = xTaskGetTickCount();                           /* chua ai noi: doi goi quang ba GOFA <-> Waze Mod */
             if (ble_gap_adv_active()) {
                 s_adv_gofa = !s_adv_gofa;
@@ -798,7 +844,7 @@ void ble_link_start(void)
 }
 
 int ble_link_state(void) { return s_state; }
-bool ble_link_connected(void) { return s_conn != BLE_HS_CONN_HANDLE_NONE; }
+bool ble_link_connected(void) { return conn_count() > 0; }
 
 #else  /* Bluetooth tat trong menuconfig */
 

@@ -24,7 +24,8 @@ CONFIG_BT_NIMBLE_TRANSPORT_UART=n
 CONFIG_BT_NIMBLE_42_FEATURE_SUPPORT=y
 CONFIG_BT_NIMBLE_50_FEATURE_SUPPORT=n
 CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
-CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# 16/11: 2 ket noi (app dan duong + xADAS tren may khac), van quang ba khi da co 1 ket noi
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=2
 # Phai bat vai tro trung tam: tu ESP-IDF 5.5 GATT client (CONFIG_BT_NIMBLE_GATT_CLIENT) chi co khi bat vai tro nay.
 # Khong co GATT client thi NimBLE vut chi bao Service Changed (op 0x1d) dien thoai gui luc vua ket noi ma khong xac nhan,
 # Android ket o do, khong do duoc dich vu HLP va Waze Mod bao "HLP characteristics missing".
