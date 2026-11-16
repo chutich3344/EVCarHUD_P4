@@ -389,12 +389,14 @@ int main(int argc, char **argv)
     xa(1, 3, 0, 96, 48, 70);
     run(300);
     snprintf(p, sizeof p, "%s/xa_8_cao_toc_qua_gan.bmp", dir); save_bmp(p);
-    ui_cam_state(true);
+    ui_cam_state(true);                             /* 16/11: cam camera USB -> camera uu tien, bo xADAS */
+    obstacle_ui_cam(true);
     ui_cam_status(UI_CAM_OK);
     xa(1, 1, 2, 96, 25, 70);
     run(300);
-    snprintf(p, sizeof p, "%s/xa_9_cam_va_xadas_thu.bmp", dir); save_bmp(p);
+    snprintf(p, sizeof p, "%s/xa_9_cam_uu_tien.bmp", dir); save_bmp(p);
     ui_cam_state(false);
+    obstacle_ui_cam(false);
     run(3600);                                      /* het giu dan duong: man Cao toc that */
     {
         ui_alert_t a2[2] = {{20, 5200, -1}, {19, 18000, -1}};
@@ -502,6 +504,12 @@ int main(int argc, char **argv)
         run(200);
         snprintf(p, sizeof p, "%s/cai_dat_%d.bmp", dir, pg); save_bmp(p);
     }
+    ui_cam_state(false);
+    ui_cam_note("Lỗi camera: thấy camera, thiếu RAM · RAM còn 41K");
+    ui_open_settings_page(0);
+    run(200);
+    snprintf(p, sizeof p, "%s/cai_dat_cam_loi.bmp", dir); save_bmp(p);
+    ui_cam_note("");
     ui_test_switch(UI_SRC_GOFA);
     run(200);
     snprintf(p, sizeof p, "%s/cai_dat_doi_nguon.bmp", dir); save_bmp(p);

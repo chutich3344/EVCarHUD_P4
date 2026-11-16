@@ -40,6 +40,7 @@ static bool s_xa_box;                        /* o canh bao dang ve theo xADAS */
 static xadas_frame_t s_xf;
 static bool s_xa_on, s_xa_live, s_xa_city;   /* da tung nhan khung; con khung trong 3 s; xe < 25 km/h */
 static int s_xa_level;
+static bool s_cam;                          /* dang cam camera USB: camera uu tien, bo xADAS (chip CAM thay chip xADAS) */
 static uint32_t s_xa_tick, s_xa_lost_tick;
 #define XA_LOST_HIDE_MS 60000                /* mat tin hieu qua 1 phut: an chip (nguoi dung da tat xADAS) */
 /* O xADAS bo cuc 2 cot (chot 16/11): nam duoi the bien, chi so met to (chip tren cung da doi mau nen bo chu "xADAS");
@@ -573,9 +574,21 @@ void obstacle_ui_set(int level, int cls, int dist_m, float ttc_s, bool city)
     paint();
 }
 
+void obstacle_ui_cam(bool on)
+{
+    s_cam = on;
+    if (!s_strip || !on) return;                             /* rut camera: khung xADAS ke tiep tu hien lai */
+    if (s_xa_on || s_xa_level != OBS_NONE) {
+        s_xa_on = s_xa_live = false;
+        s_xa_level = OBS_NONE;
+        xa_chip();
+        paint();
+    }
+}
+
 void obstacle_ui_xadas(const xadas_frame_t *f)
 {
-    if (!s_strip) return;
+    if (!s_strip || s_cam) return;                           /* 16/11: cam camera USB thi bo qua xADAS hoan toan */
     int old = s_xa_level;
     if (!f) {                                                /* mat BLE: bao mat tin hieu ngay, khong giu so cu */
         if (s_xa_on && s_xa_live && s_xf.state != XA_ST_WAIT) {

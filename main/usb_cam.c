@@ -155,6 +155,20 @@ static void usb_lib_task(void *arg)
     }
 }
 
+/* Bao ly do camera khong chay: log + dong phu Cai dat (16/11: RAM chip het thi Cai dat chi ghi "chua cam", kho do loi) */
+static bool s_nomem;                                         /* lan mo vua roi thieu RAM: thu lai cham hon */
+static void cam_fail(const char *why, esp_err_t err)
+{
+    unsigned k = (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
+    unsigned big = (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) / 1024);
+    ESP_LOGE(TAG, "%s (%s) - RAM trong chip con %uK, khoi DMA lon nhat %uK", why, esp_err_to_name(err), k, big);
+    char t[96];
+    snprintf(t, sizeof t, "Lỗi camera: %s · RAM còn %uK", why, k);
+    board_ui_lock();
+    ui_cam_note(t);
+    board_ui_unlock();
+}
+
 /* Mo camera: thu MJPEG 640x480@30, roi 320x240, roi dinh dang mac dinh cua camera. */
 static bool open_stream(void)
 {
@@ -190,9 +204,13 @@ static bool open_stream(void)
                 s_fmt_h = tries[i].v_res;
             }
             ESP_LOGI(TAG, "da mo camera MJPEG %ux%u", s_fmt_w, s_fmt_h);
+            board_ui_lock();
+            ui_cam_note("");
+            board_ui_unlock();
             return true;
         }
         if (i == 0 && (err == ESP_ERR_TIMEOUT || err == ESP_ERR_NOT_FOUND)) return false;   /* chua cam camera */
+        if (err == ESP_ERR_NO_MEM) { cam_fail("thấy camera, thiếu RAM", err); s_nomem = true; return false; }
         ESP_LOGW(TAG, "khong mo duoc dinh dang %d (%s)", (int)i, esp_err_to_name(err));
     }
     return false;
@@ -411,8 +429,9 @@ static void cam_task(void *arg)
 {
     (void)arg;
     while (1) {
+        s_nomem = false;
         if (!open_stream()) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(s_nomem ? 10000 : 1000));
             continue;
         }
         s_connected = true;
@@ -428,6 +447,7 @@ static void cam_task(void *arg)
         board_ui_lock();
         ui_toast("Đã nhận camera · xem ảnh: Cài đặt › Hiển thị");
         ui_cam_state(true);
+        obstacle_ui_cam(true);                               /* camera uu tien: bo xADAS, chip CAM thay chip xADAS */
         board_ui_unlock();
         while (s_connected) {
             uvc_host_frame_t *f;
@@ -443,6 +463,7 @@ static void cam_task(void *arg)
         adas_feed_lost();
         board_ui_lock();
         ui_cam_state(false);
+        obstacle_ui_cam(false);
         ui_toast("Đã rút camera · tắt cảnh báo vật cản");
         board_ui_unlock();
     }
@@ -458,8 +479,11 @@ void usb_cam_start(void)
     for (int i = 0; i < 2; i++) s_pv[i] = heap_caps_calloc(PV_W * PV_H, 2, MALLOC_CAP_SPIRAM);
     s_q = xQueueCreate(N_FRAMES, sizeof(uvc_host_frame_t *));
     jpeg_decode_engine_cfg_t eng = {.intr_priority = 0, .timeout_ms = 100};
-    if (!s_in || !s_rgb || !s_pv[0] || !s_pv[1] || !s_q || jpeg_new_decoder_engine(&eng, &s_jpeg) != ESP_OK) {
-        ESP_LOGE(TAG, "thieu bo nho / khong mo duoc bo giai ma JPEG: tat camera USB");
+    ESP_LOGI(TAG, "khoi dong camera USB: RAM trong chip con %uK",
+             (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024));
+    esp_err_t e = ESP_ERR_NO_MEM;
+    if (!s_in || !s_rgb || !s_pv[0] || !s_pv[1] || !s_q || (e = jpeg_new_decoder_engine(&eng, &s_jpeg)) != ESP_OK) {
+        cam_fail("bộ giải mã ảnh", e);
         return;
     }
 
@@ -473,11 +497,14 @@ void usb_cam_start(void)
         .skip_phy_setup = false,
         .intr_flags = ESP_INTR_FLAG_LEVEL1,
     };
-    if (usb_host_install(&host_cfg) != ESP_OK) {
-        ESP_LOGE(TAG, "khong cai duoc USB Host");
+    if ((e = usb_host_install(&host_cfg)) != ESP_OK) {
+        cam_fail("USB Host", e);
         return;
     }
-    xTaskCreatePinnedToCore(usb_lib_task, "usb_lib", 4096, NULL, 15, NULL, 1);
+    if (xTaskCreatePinnedToCore(usb_lib_task, "usb_lib", 4096, NULL, 15, NULL, 1) != pdPASS) {
+        cam_fail("luồng USB", ESP_ERR_NO_MEM);
+        return;
+    }
 
     uvc_host_driver_config_t uvc_cfg = {
         .driver_task_stack_size = 4096,
@@ -487,12 +514,15 @@ void usb_cam_start(void)
         .event_cb = NULL,
         .user_ctx = NULL,
     };
-    if (uvc_host_install(&uvc_cfg) != ESP_OK) {
-        ESP_LOGE(TAG, "khong cai duoc driver UVC");
+    if ((e = uvc_host_install(&uvc_cfg)) != ESP_OK) {
+        cam_fail("driver UVC", e);
         return;
     }
     /* Phai o RAM trong chip: lan dau nhan dien doc mo hinh tu flash (ngan xep PSRAM + doc flash = tu khoi dong lai) */
-    xTaskCreatePinnedToCore(cam_task, "usb_cam", 16384, NULL, 5, NULL, 0);   /* stack lon: ESP-DL chay trong task nay */
+    if (xTaskCreatePinnedToCore(cam_task, "usb_cam", 16384, NULL, 5, NULL, 0) != pdPASS) {  /* stack lon: ESP-DL chay o day */
+        cam_fail("luồng camera", ESP_ERR_NO_MEM);                /* truoc day bo qua loi nay: Cai dat ghi "chua cam" mai */
+        return;
+    }
     ESP_LOGI(TAG, "cho camera USB o cong OTG...");
 }
 #endif /* CONFIG_EVCARHUD_USB_CAM */

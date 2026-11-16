@@ -201,6 +201,7 @@ static lv_obj_t *set_scr, *set_tab[PG_N], *set_page_obj[PG_N], *set_close, *set_
 static lv_obj_t *mode_card[3], *mode_sub[3], *rot_row, *rot_sw, *cam_row, *cam_sub;
 static void (*cam_cb)(void);
 static bool cam_on;
+static char cam_note[96];                                  /* ly do camera USB khong chay (thieu RAM...) */
 static int cam_st;
 static lv_obj_t *t_cam, *t_cam_l;
 static lv_obj_t *t_xa, *t_xa_l;                 /* chip xADAS: khoang cach xe truoc */
@@ -1809,7 +1810,7 @@ static void settings_render(void)
         lv_obj_set_style_text_color(mode_sub[i], mode == m ? S_GREEN3 : S_MUT, 0);
     }
     style_switch(rot_sw, rot_on);
-    if (cam_sub) lv_label_set_text(cam_sub, !cam_cb ? "Bản này chưa bật camera USB" : cam_on ? "Đã nhận camera · chỉnh góc lắp, xem vật nhận ra" : "Chưa cắm camera (cổng USB OTG)");
+    if (cam_sub) lv_label_set_text(cam_sub, cam_on ? "Đã nhận camera · chỉnh góc lắp, xem vật nhận ra" : cam_note[0] ? cam_note : !cam_cb ? "Bản này chưa bật camera USB" : "Chưa cắm camera (cổng USB OTG)");
     /* Canh bao */
     style_switch(snd_sw, snd_on);
     show(vol_card, snd_on);
@@ -3061,6 +3062,11 @@ void ui_cam_state(bool connected)
 {
     cam_on = connected;
     if (!connected) ui_cam_status(UI_CAM_OFF);
+    if (set_scr) settings_render();
+}
+void ui_cam_note(const char *txt)
+{
+    snprintf(cam_note, sizeof cam_note, "%s", txt ? txt : "");
     if (set_scr) settings_render();
 }
 void ui_cam_status(int st)

@@ -232,6 +232,8 @@ static void c6_reset_on_boot(void)
     gpio_set_level(pin, 1);                               /* C6 khoi dong (~0,5 s) trong luc P4 dung man hinh */
 }
 
+void lv_mem_psram_link(void);                              /* lv_mem_psram.c: LVGL dung PSRAM */
+
 void app_main(void)
 {
     cloud_log_init();                                        /* gom log gui len evcarhud.com/api/log */
@@ -295,6 +297,7 @@ void app_main(void)
     wifi_link_start();                                       /* Wi-Fi da luu: gio NTP + thoi tiet */
     ai_start();                                              /* tro ly Mi Mi: nut micro (can Wi-Fi + loa) */
     usb_cam_start();                                         /* camera USB (thu nghiem): xem truoc + FPS */
+    lv_mem_psram_link();
 #if CONFIG_EVCARHUD_LDR
     xTaskCreate(light_task, "anh_sang", 2560, NULL, 2, NULL);
 #endif

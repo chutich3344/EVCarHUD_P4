@@ -119,6 +119,8 @@ void ui_toast(const char *text);
 /* Camera USB: Cai dat > Hien thi > "Xem camera" goi cb (task LVGL); ui_cam_state: dang cam camera hay khong (dong phu) */
 void ui_set_cam_hook(void (*cb)(void));
 void ui_cam_state(bool connected);
+/* ly do camera USB khong chay (vd thieu RAM), hien o Cai dat thay "Chua cam camera"; "" = xoa */
+void ui_cam_note(const char *txt);
 /* chip "CAM" tren thanh tren (canh gio): an = chua cam camera; vang = dang tu chinh chan troi; xanh = san sang; do = loi */
 enum { UI_CAM_OFF = 0, UI_CAM_CALIB, UI_CAM_OK, UI_CAM_ERR };
 void ui_cam_status(int st);

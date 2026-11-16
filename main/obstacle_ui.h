@@ -23,3 +23,5 @@ int obstacle_ui_level(void);                        /* muc dang hien (OBS_*) */
  * level 3 (qua gan) -> o do Nguy hiem + tit. Ghep voi camera USB: lay muc cao hon. Khong co Khan cap (xADAS khong co TTC). */
 #include "xadas.h"
 void obstacle_ui_xadas(const xadas_frame_t *f);
+/* Camera USB cam/rut (usb_cam.c): dang cam thi camera uu tien, xADAS bi bo qua (an chip + o xADAS, khong tit theo xADAS) */
+void obstacle_ui_cam(bool on);
