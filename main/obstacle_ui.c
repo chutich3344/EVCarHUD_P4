@@ -42,6 +42,11 @@ static bool s_xa_on, s_xa_live, s_xa_city;   /* da tung nhan khung; con khung tr
 static int s_xa_level;
 static uint32_t s_xa_tick, s_xa_lost_tick;
 #define XA_LOST_HIDE_MS 60000                /* mat tin hieu qua 1 phut: an chip (nguoi dung da tat xADAS) */
+/* O xADAS bo cuc 2 cot (chot 16/11): nam duoi the bien, chi so met to (chip tren cung da doi mau nen bo chu "xADAS");
+ * gan / qua gan them dong "TOI THIEU N m"; mat tin hieu: "--". */
+static lv_obj_t *s_xc, *s_xc_lab, *s_xc_num, *s_xc_unit;
+static char s_xc_sig[96];                    /* lan ve truoc: khong doi thi khong ve lai */
+static bool s_xc_on;
 
 static void vis(lv_obj_t *o, bool on)
 {
@@ -190,6 +195,98 @@ static bool paint_box(bool show, bool danger, bool night, const char *d, const c
 
 static int eff_level(void) { return s_xa_level > s_level ? s_xa_level : s_level; }
 
+static bool xa_card_paint(void)
+{
+    lv_area_t a;
+    if (!s_xa_on || !ui_xa_slot(&a)) {
+        if (s_xc_on) { vis(s_xc, false); s_xc_on = false; s_xc_sig[0] = 0; }
+        return false;
+    }
+    bool night = ui_is_night();
+    bool cam = s_level > s_xa_level && s_level < OBS_CRITICAL;   /* camera thay vat can gan hon: hien so cua camera */
+    int kind;                                                    /* 0 an toan, 1 gan, 2 qua gan, 3 khong co so */
+    char num[12], lab[40];
+    const char *unit = "m";
+    lab[0] = 0;
+    if (cam) {
+        kind = s_level >= OBS_DANGER ? 2 : 1;
+        snprintf(num, sizeof num, "%d", s_dist);
+        snprintf(lab, sizeof lab, "%s", short_for(s_cls));
+    } else if (!s_xa_live || s_xf.state != XA_ST_MEASURE || s_xf.dist == XA_NONE16) {
+        kind = 3;
+        snprintf(num, sizeof num, "--");
+        unit = "";
+    } else {
+        kind = s_xa_level == OBS_DANGER ? 2 : s_xa_level == OBS_CAUTION ? 1 : 0;
+        snprintf(num, sizeof num, "%u", (unsigned)(s_xf.dist % 10000));
+        unit = s_xf.imperial ? "ft" : "m";
+        if (kind && s_xf.min != XA_NONE16) snprintf(lab, sizeof lab, "TỐI THIỂU %u %s", (unsigned)s_xf.min, unit);
+    }
+    bool dim = kind == 2 && s_dim;
+    char sig[96];
+    snprintf(sig, sizeof sig, "%d,%d,%d,%d|%d%d%d|%s|%s|%s", (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2, kind, night, dim, num, unit, lab);
+    s_xc_on = true;
+    if (!strcmp(sig, s_xc_sig) && !lv_obj_has_flag(s_xc, LV_OBJ_FLAG_HIDDEN)) return true;
+    snprintf(s_xc_sig, sizeof s_xc_sig, "%s", sig);
+
+    static const uint32_t bgN[4] = {0x252A40, 0x3A300A, 0x4A0F16, 0x252A40}, bgD[4] = {0xF4F5F8, 0xFFF4C2, 0xFFE0E4, 0xF4F5F8};
+    static const uint32_t bdN[4] = {0x343A58, 0xFFD400, 0xFF4D4F, 0x4A5068}, bdD[4] = {0xDADDE5, 0xB45309, 0xBE123C, 0xC4C8D2};
+    static const uint32_t nmN[4] = {0x34D399, 0xFFD400, 0xFF6B6B, 0x6B7280}, nmD[4] = {0x047857, 0xB45309, 0xBE123C, 0x9CA3AF};
+    int w = a.x2 - a.x1 + 1, h = a.y2 - a.y1 + 1;
+    lv_obj_set_pos(s_xc, a.x1, a.y1);
+    lv_obj_set_size(s_xc, w, h);
+    lv_obj_set_style_bg_color(s_xc, lv_color_hex((night ? bgN : bgD)[kind]), 0);
+    lv_obj_set_style_border_color(s_xc, lv_color_hex((night ? bdN : bdD)[kind]), 0);
+    lv_obj_set_style_shadow_color(s_xc, night ? lv_color_black() : lv_color_hex(0x96A0B8), 0);
+    lv_obj_set_style_shadow_opa(s_xc, night ? 128 : 140, 0);
+    lv_obj_set_style_opa(s_xc, dim ? 140 : LV_OPA_COVER, 0);
+    lv_color_t nc = lv_color_hex((night ? nmN : nmD)[kind]);
+    lv_color_t lc = kind == 0 ? nc : kind == 3 ? lv_color_hex(night ? 0xA3ACB5 : 0x4B5563) : night ? lv_color_white() : lv_color_hex(0x14112B);
+
+    bool compact = h < 110;                                      /* man dan duong: the thap */
+    const lv_font_t *lf = compact ? &ui_font_txt14 : &ui_font_txt16;
+    const lv_font_t *nf = &ui_font_d96;
+    int px = lab[0] ? (compact ? 60 : 84) : (compact ? 74 : 100);
+    int tw = lv_text_get_width(num, strlen(num), nf, -2);
+    int uw = unit[0] ? lv_text_get_width(unit, strlen(unit), &ui_font_unit22, 0) : 0;
+    int gap = unit[0] ? 4 : 0;
+    int sc = px * 256 / 96;
+    int room = w - 20 - uw - gap;
+    if (tw * sc / 256 > room) sc = room * 256 / (tw ? tw : 1);
+    int labH0 = lab[0] ? (int)lf->line_height + 2 : 0, hroom = h - 18 - labH0;   /* the thap: chu so khong tran khoi o */
+    if ((96 * 727 / 1000) * sc / 256 > hroom) sc = hroom * 256 / (96 * 727 / 1000);
+    int capS = (96 * 727 / 1000) * sc / 256, numW = tw * sc / 256;
+    int labH = lab[0] ? (int)lf->line_height + 2 : 0;
+    int top = h / 2 - (labH + capS) / 2;
+    int gx0 = w / 2 - (numW + gap + uw) / 2;
+
+    vis(s_xc_lab, lab[0] != 0);
+    if (lab[0]) {
+        lv_obj_set_style_text_font(s_xc_lab, lf, 0);
+        set_txt(s_xc_lab, lab);
+        lv_obj_set_style_text_color(s_xc_lab, lc, 0);
+        lv_obj_set_width(s_xc_lab, w - 8);
+        lv_obj_set_pos(s_xc_lab, 2, top);
+    }
+    set_txt(s_xc_num, num);
+    lv_obj_set_style_text_color(s_xc_num, nc, 0);
+    int bl = (int)nf->line_height - (int)nf->base_line;            /* dinh label -> chan chu */
+    int pvx = tw / 2, pvy = bl - (96 * 727 / 1000) / 2;
+    lv_obj_set_style_transform_pivot_x(s_xc_num, pvx, 0);
+    lv_obj_set_style_transform_pivot_y(s_xc_num, pvy, 0);
+    lv_obj_set_style_transform_scale(s_xc_num, sc, 0);
+    lv_obj_set_pos(s_xc_num, gx0 + numW / 2 - pvx - 2, top + labH + capS / 2 - pvy - 2);   /* -2: vien o */
+    vis(s_xc_unit, unit[0] != 0);
+    if (unit[0]) {
+        set_txt(s_xc_unit, unit);
+        lv_obj_set_style_text_color(s_xc_unit, nc, 0);
+        int ub = (int)ui_font_unit22.line_height - (int)ui_font_unit22.base_line;
+        lv_obj_set_pos(s_xc_unit, gx0 + numW + gap - 2, top + labH + capS - ub - 2);
+    }
+    vis(s_xc, true);
+    return true;
+}
+
 static void paint(void)
 {
     bool night = ui_is_night();
@@ -216,7 +313,8 @@ static void paint(void)
     }
     if (xa && s_xf.min != XA_NONE16) snprintf(sub, sizeof sub, "Tối thiểu %u %s", (unsigned)s_xf.min, s_xf.imperial ? "ft" : "m");
 
-    bool in_box = paint_box(mid, danger, night, d, t);
+    bool card = xa_card_paint();                             /* bo cuc 2 cot: so met nam o duoi the bien, khong can o de len bien */
+    bool in_box = paint_box(mid && !card, danger, night, d, t) || card;
     bool show_strip = mid && !in_box;
     vis(s_strip, show_strip);
     vis(s_frame, danger);
@@ -271,6 +369,8 @@ static void xa_chip(void)
     int c = 0;
     if (!s_xa_on) b[0] = 0;
     else xadas_chip_text(&s_xf, s_xa_live, b, sizeof b, &c);
+    if (s_xa_on && s_xa_live && s_xf.state == XA_ST_MEASURE && s_xf.dist != XA_NONE16 && c >= 1 && c <= 4)
+        snprintf(b, sizeof b, "%s", s_xf.test ? "xADAS THỬ" : "xADAS");   /* so met da o o duoi bien: chip chi doi mau */
     ui_xadas_chip(b, c);
 }
 
@@ -292,6 +392,7 @@ static void tick_cb(lv_timer_t *tm)
 {
     (void)tm;
     xa_tick();
+    xa_card_paint();                                         /* bam theo the bien khi doi man / doi co (chi ve lai khi doi) */
     if (eff_level() == OBS_NONE) return;
     if (s_level != OBS_NONE &&
         ((s_off_tick && lv_tick_elaps(s_off_tick) >= HOLD_MS) || lv_tick_elaps(s_set_tick) >= STALE_MS)) {
@@ -385,6 +486,20 @@ void obstacle_ui_init(void)
     lv_obj_set_style_text_color(s_mslbl, lv_color_hex(0x111111), 0);
     lv_obj_set_style_transform_pivot_x(s_mslbl, lv_pct(50), 0);
     lv_obj_set_style_transform_pivot_y(s_mslbl, lv_pct(50), 0);
+
+    s_xc = box(top);                                         /* o xADAS bo cuc 2 cot */
+    lv_obj_set_style_radius(s_xc, 14, 0);
+    lv_obj_set_style_bg_opa(s_xc, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_xc, 2, 0);
+    lv_obj_set_style_shadow_width(s_xc, 14, 0);
+    lv_obj_set_style_shadow_offset_x(s_xc, 6, 0);
+    lv_obj_set_style_shadow_offset_y(s_xc, 6, 0);
+    s_xc_lab = label(s_xc, &ui_font_txt16);
+    lv_obj_set_style_text_align(s_xc_lab, LV_TEXT_ALIGN_CENTER, 0);
+    s_xc_num = label(s_xc, &ui_font_d96);
+    lv_obj_set_style_text_letter_space(s_xc_num, -2, 0);
+    s_xc_unit = label(s_xc, &ui_font_unit22);
+    lv_obj_add_flag(s_xc, LV_OBJ_FLAG_HIDDEN);
 
     s_crit = box(top);
     lv_obj_set_size(s_crit, UI_W, UI_H);

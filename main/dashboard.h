@@ -53,6 +53,7 @@ bool ui_is_night(void);                          /* giao dien dang Dem (canh bao
  * hide = true: an bien (o vat can de len cho do), false: hien lai. Tra ve false neu man hien tai khong co bien (man cho). */
 int ui_speed_right(void);                              /* mep phai so toc do (o canh bao khong de len so) */
 bool ui_sign_slot(lv_area_t *a, int *lim, bool hide);
+bool ui_xa_slot(lv_area_t *a);                       /* bo cuc 2 cot: o xADAS duoi the bien (false: man nay khong co) */
 void ui_set_date(int day, int month);
 bool ui_get_clock(int *h, int *m);                /* false: chua co gio */
 enum { UI_TSRC_NONE = 0, UI_TSRC_RTC = 1, UI_TSRC_PHONE = 2, UI_TSRC_NTP = 3 };   /* nguon gio, thap -> cao */

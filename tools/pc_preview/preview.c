@@ -343,9 +343,20 @@ int main(int argc, char **argv)
     xa(1, 1, 2, 96, 25, 70);
     run(300);
     snprintf(p, sizeof p, "%s/xa_9_cam_va_xadas_thu.bmp", dir); save_bmp(p);
+    ui_cam_state(false);
+    run(3600);                                      /* het giu dan duong: man Cao toc that */
+    {
+        ui_alert_t a2[2] = {{20, 5200, -1}, {19, 18000, -1}};
+        ui_set_alerts(a2, 2);
+    }
+    xa(1, 1, 0, 96, 92, 70);
+    run(900);
+    snprintf(p, sizeof p, "%s/xa_10_cao_toc_ct.bmp", dir); save_bmp(p);
     xa(0, 0, 0, 96, 0xFFFF, 0xFFFF);
     obstacle_ui_xadas(NULL);
-    ui_cam_state(false);
+    run(300);
+    snprintf(p, sizeof p, "%s/cao_toc_ct.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
     ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
     ui_set_speed(58);
     ui_set_speed_limit(60);
