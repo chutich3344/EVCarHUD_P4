@@ -321,6 +321,28 @@ int main(int argc, char **argv)
     xa(1, 3, 0, 72, 42, 55);
     run(300);
     snprintf(p, sizeof p, "%s/xa_3_qua_gan.bmp", dir); save_bmp(p);
+    /* 16/11 toi: xADAS + dan duong + canh bao: canh bao gop vao o cuoi hang day, o xADAS giu to */
+    ui_set_route("17:36", 2900, 12);
+    {
+        ui_alert_t a[1] = {{3, 1500, -1}};
+        ui_set_alerts(a, 1);
+    }
+    xa(1, 1, 0, 72, 68, 55);
+    run(900);
+    snprintf(p, sizeof p, "%s/xn_1_an_toan_canh_bao.bmp", dir); save_bmp(p);
+    xa(1, 2, 0, 72, 57, 55);
+    run(300);
+    snprintf(p, sizeof p, "%s/xn_2_gan_canh_bao.bmp", dir); save_bmp(p);
+    xa(1, 3, 0, 72, 42, 55);
+    run(150);
+    snprintf(p, sizeof p, "%s/xn_3_qua_gan_canh_bao.bmp", dir); save_bmp(p);
+    xa(0, 0, 0, 0, 0xFFFF, 0xFFFF);
+    run(300);
+    snprintf(p, sizeof p, "%s/xn_4_cho_do.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    xa(1, 1, 0, 72, 68, 55);
+    run(900);
+    snprintf(p, sizeof p, "%s/xn_5_khong_canh_bao.bmp", dir); save_bmp(p);
     xa(1, 4, 0, 255, 30, 0xFFFF);
     run(800);
     snprintf(p, sizeof p, "%s/xa_4_mat_gps.bmp", dir); save_bmp(p);

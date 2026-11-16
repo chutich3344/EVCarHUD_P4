@@ -216,6 +216,10 @@ static bool xa_card_paint(void)
         kind = 3;
         snprintf(num, sizeof num, "--");
         unit = "";
+        /* 16/11: noi ro vi sao chua co so (app da noi nhung chua do / khong thay xe / mat tin hieu) */
+        snprintf(lab, sizeof lab, "%s", !s_xa_live ? "MẤT TÍN HIỆU" : s_xf.state == XA_ST_MEASURE ? "CHƯA THẤY XE"
+                 : s_xf.state == XA_ST_SLOW ? "XE DỪNG" : s_xf.state == XA_ST_HOT ? "MÁY NÓNG"
+                 : s_xf.state == XA_ST_NOIMG ? "MẤT HÌNH" : "CHỜ ĐO");
     } else {
         kind = s_xa_level == OBS_DANGER ? 2 : s_xa_level == OBS_CAUTION ? 1 : 0;
         snprintf(num, sizeof num, "%u", (unsigned)(s_xf.dist % 10000));
