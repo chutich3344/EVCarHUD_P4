@@ -1,0 +1,54 @@
+/* Chan doan Bluetooth qua chip C6 (2026-11-12: NimBLE gui HCI Reset ma khong co tra loi).
+ * Boc (--wrap) 2 ham cua esp_hosted de dem: lenh HCI P4 gui sang C6 (va ket qua gui), goi HCI C6 tra ve.
+ * In vai goi dau ra UART voi the "btdiag". */
+#include <stdint.h>
+#include "esp_err.h"
+#include "esp_log.h"
+
+#define ESP_HCI_IF_DIAG 4   /* ESP_HCI_IF trong eh_common_interface.h (enum noi bo) */
+
+static const char *TAG = "btdiag";
+static int s_tx, s_tx_err, s_rx;
+
+esp_err_t __real_eh_host_transport_tx(uint8_t if_type, uint8_t if_num, const uint8_t *payload, uint16_t len, uint8_t flags);
+esp_err_t __wrap_eh_host_transport_tx(uint8_t if_type, uint8_t if_num, const uint8_t *payload, uint16_t len, uint8_t flags)
+{
+    esp_err_t e = __real_eh_host_transport_tx(if_type, if_num, payload, len, flags);
+    if (if_type == ESP_HCI_IF_DIAG) {
+        s_tx++;
+        if (e != ESP_OK) s_tx_err++;
+        if (s_tx <= 6 || e != ESP_OK)
+            ESP_LOGW(TAG, "P4->C6 HCI #%d: %u byte [%02x %02x %02x %02x] -> %s (loi %d, nhan %d)", s_tx, len,
+                     len > 0 ? payload[0] : 0, len > 1 ? payload[1] : 0, len > 2 ? payload[2] : 0, len > 3 ? payload[3] : 0,
+                     esp_err_to_name(e), s_tx_err, s_rx);
+    }
+    return e;
+}
+
+void __real_eh_host_mcu_hci_rx_deliver(const uint8_t *frame, uint16_t len);
+void __wrap_eh_host_mcu_hci_rx_deliver(const uint8_t *frame, uint16_t len)
+{
+    /* Su kien rieng cua cau HCI tren C6 (c6/main.c): 04 FF 0C E6 'H' ... -> in ra, khong dua cho NimBLE */
+    if (len >= 15 && frame[0] == 0x04 && frame[1] == 0xFF && frame[3] == 0xE6 && frame[4] == 'H') {
+        ESP_LOGW(TAG, "C6 bao: nhan %u, BLE tra %u, loi gui %u, bo dieu khien=%u (2=bat), loai %u dai %u, "
+                      "dang ky=%d, san sang=%u, RAM C6 %u KB, cau v%u",
+                 frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], (int8_t)frame[11], frame[12],
+                 frame[13], frame[14]);
+        if (len >= 19)
+            ESP_LOGW(TAG, "C6 tu bat BLE: khoi tao 0x%x, bat 0x%x (0=OK, ffff=chua goi)",
+                     (frame[15] << 8) | frame[16], (frame[17] << 8) | frame[18]);
+        return;
+    }
+    s_rx++;
+    if (s_rx <= 6)
+        ESP_LOGW(TAG, "C6->P4 HCI #%d: %u byte [%02x %02x %02x %02x %02x %02x]", s_rx, len, len > 0 ? frame[0] : 0,
+                 len > 1 ? frame[1] : 0, len > 2 ? frame[2] : 0, len > 3 ? frame[3] : 0, len > 4 ? frame[4] : 0,
+                 len > 5 ? frame[5] : 0);
+    __real_eh_host_mcu_hci_rx_deliver(frame, len);
+}
+
+/* Goi tu ble_link.c de linker chac chan giu file nay (cac ham __wrap_ chi duoc tham chieu qua --wrap) */
+void bt_diag_log(void)
+{
+    ESP_LOGW(TAG, "tong: P4->C6 %d lenh (loi %d), C6->P4 %d goi", s_tx, s_tx_err, s_rx);
+}
