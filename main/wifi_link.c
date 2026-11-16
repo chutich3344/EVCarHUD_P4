@@ -30,6 +30,7 @@
 #include "settings.h"
 #include "ota.h"
 #include "ai.h"
+#include "ble_link.h"
 
 static const char *TAG = "wifi";
 
@@ -118,8 +119,27 @@ static int http_get(const char *url, char *buf, int cap);
 static __NOINIT_ATTR uint32_t heal_magic, heal_count;
 static volatile int net_fail, scan_bad;
 
+/* 16/11: tat chia se Wi-Fi tren dien thoai -> HUD mat Wi-Fi -> do song lien tuc + tu cuu C6 lam rot Bluetooth (xADAS hien
+ * "Mat xADAS", khong tu noi lai). Chip C6 dung chung song cho Wi-Fi va BLE: khi dien thoai dang noi Bluetooth thi KHONG
+ * reset C6 va gian nhip do song lai (retry_s). */
+static int lost_n;                                  /* so lan thu lai lien tiep tu khi mat mang (dat lai khi co IP) */
+static uint64_t retry_us(int base_s)
+{
+    bool bt = ble_link_state() == 2;
+    int s = (bt ? 30 : base_s) << (lost_n < 3 ? lost_n : 3);
+    int cap = bt ? 180 : 60;
+    if (s > cap) s = cap;
+    lost_n++;
+    ESP_LOGI(TAG, "thu lai Wi-Fi sau %d s%s", s, bt ? " (dien thoai dang noi Bluetooth: gian nhip)" : "");
+    return (uint64_t)s * 1000000ULL;
+}
+
 static void c6_heal(const char *why)
 {
+    if (ble_link_state() == 2) {
+        ESP_LOGW(TAG, "C6 co ve ket (%s) nhung dien thoai dang noi Bluetooth: khong reset", why);
+        return;
+    }
     if (heal_magic != HEAL_MAGIC) { heal_magic = HEAL_MAGIC; heal_count = 0; }
     if (heal_count >= 2) {
         ESP_LOGW(TAG, "C6 co ve ket (%s) nhung da tu cuu 2 lan: thoi (co the mang khong co Internet)", why);
@@ -377,7 +397,7 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
             } else {
                 ESP_LOGI(TAG, "khong thay mang da luu nao: do lai sau 30 s");
                 ui_state(UI_WIFI_IDLE, "");
-                esp_timer_start_once(retry_tmr, 30 * 1000000ULL);
+                esp_timer_start_once(retry_tmr, retry_us(30));
             }
         }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
@@ -405,15 +425,16 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
             fail_hint();
             ui_state(UI_WIFI_FAIL, cur_ssid);
             if (prev_ssid[0]) post(CMD_REVERT, NULL, NULL);      /* quay ve mang vua dung */
-            else esp_timer_start_once(retry_tmr, 20 * 1000000ULL);  /* 20 s sau: do lai, chon mang da luu manh nhat */
+            else esp_timer_start_once(retry_tmr, retry_us(20));  /* do lai, chon mang da luu manh nhat */
             return;
         }
-        if (was) ESP_LOGW(TAG, "mat Wi-Fi %s: thu lai sau 10 s", cur_ssid);
+        if (was) { ESP_LOGW(TAG, "mat Wi-Fi %s", cur_ssid); lost_n = 0; }
         ui_state(UI_WIFI_IDLE, cur_ssid);
-        esp_timer_start_once(retry_tmr, 10 * 1000000ULL);
+        esp_timer_start_once(retry_tmr, retry_us(10));
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         connected = true;
         retries = 0;
+        lost_n = 0;
         esp_timer_stop(join_tmr);
         /* HUD cam nguon xe, khong can tiet kiem dien: tat ngu modem de khong lo goi ARP/ket noi tu dien thoai
          * (trang tai firmware http://IP HUD bao ERR_ADDRESS_UNREACHABLE tren mot so router mesh) */
@@ -614,7 +635,7 @@ static void wifi_task(void *arg)
                 ui_wifi_scan_done(NULL, 0);
                 board_ui_unlock();
             }
-            if (scan_auto) { scan_auto = false; esp_timer_start_once(retry_tmr, 10 * 1000000ULL); }
+            if (scan_auto) { scan_auto = false; esp_timer_start_once(retry_tmr, retry_us(10)); }
             break;
         case CMD_JOIN:
             if (m.use_saved && !settings_wifi_find(m.ssid, m.pass)) m.pass[0] = 0;
@@ -635,7 +656,7 @@ static void wifi_task(void *arg)
             fail_hint();
             ui_state(UI_WIFI_FAIL, cur_ssid);
             if (prev_ssid[0]) post(CMD_REVERT, NULL, NULL);
-            else esp_timer_start_once(retry_tmr, 20 * 1000000ULL);
+            else esp_timer_start_once(retry_tmr, retry_us(20));
             break;
         case CMD_REVERT: {
             if (!prev_ssid[0] || connected) break;
