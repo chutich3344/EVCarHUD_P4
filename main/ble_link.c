@@ -32,6 +32,7 @@
 #include "gofa.h"
 #include "dashboard_hlp.h"
 #include "xadas.h"
+#include "phone_adas.h"
 #include "esp_app_desc.h"
 #include "esp_mac.h"
 #include "freertos/queue.h"
@@ -118,7 +119,7 @@ static int chr_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
  * 4556d004: ghi vi tri dien thoai "P1|vi do|kinh do|ten noi" (ten co the bo trong) -> thoi tiet theo GPS. */
 #define TS_UUID(n) BLE_UUID128_INIT(0x10, 0x2f, 0x7b, 0x0e, 0x1c, 0x5a, 0x3f, 0x9d, 0x7e, 0x4b, 0x2a, 0x8c, (n), 0xd0, 0x56, 0x45)
 static const ble_uuid128_t UUID_TS_SVC = TS_UUID(0x01), UUID_TS_STA = TS_UUID(0x02), UUID_TS_INFO = TS_UUID(0x03),
-                           UUID_TS_POS = TS_UUID(0x04);
+                           UUID_TS_POS = TS_UUID(0x04), UUID_TS_LAN = TS_UUID(0x05);
 
 static int ts_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
@@ -172,6 +173,19 @@ static int pos_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
     return 0;
 }
 
+/* 4556d005: app EVCarHUD Lan (mo hinh openpilot tren dien thoai) ghi goi "A1|..." (phone_adas.h), ~10 goi/giay */
+static int lan_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn; (void)attr; (void)arg;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
+    char b[96];
+    uint16_t n = 0;
+    if (OS_MBUF_PKTLEN(ctxt->om) >= sizeof b) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    if (ble_hs_mbuf_to_flat(ctxt->om, b, sizeof b - 1, &n) != 0) return BLE_ATT_ERR_UNLIKELY;
+    phone_adas_on_write(b, n);
+    return 0;
+}
+
 /* ===== xADAS HUD Link v1 (xadas.h): app xADAS ghi khung 10 byte khoang cach xe truoc. Dang ky o ca hai che do, UUID dich
  * vu nam trong goi tra loi quet (goi quang ba da du cho UUID GOFA / HLP). Khong doi chu HUD (GOFA / Waze Mod van tu nhan). */
 static const ble_uuid128_t UUID_XA_SVC = BLE_UUID128_INIT(0xfe, 0x7c, 0x06, 0x0f, 0xff, 0xc2, 0xfd, 0xa6, 0x1f, 0x46, 0xbb, 0x52,
@@ -221,6 +235,7 @@ static const struct ble_gatt_svc_def s_svcs[] = {
             {.uuid = &UUID_TS_STA.u, .access_cb = ts_access, .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
             {.uuid = &UUID_TS_INFO.u, .access_cb = ts_access, .flags = BLE_GATT_CHR_F_READ},
             {.uuid = &UUID_TS_POS.u, .access_cb = pos_access, .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
+            {.uuid = &UUID_TS_LAN.u, .access_cb = lan_access, .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
             {0},
         },
     },

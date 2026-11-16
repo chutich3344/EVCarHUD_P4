@@ -7,6 +7,8 @@
 #include <string.h>
 #include "dashboard_hlp.h"
 #include "obstacle_ui.h"
+#include "phone_adas.h"
+#include "adas_feed.h"
 #include "detect.h"
 #include <stdio.h>
 #include <stdint.h>
@@ -389,6 +391,27 @@ int main(int argc, char **argv)
     xa(1, 3, 0, 96, 48, 70);
     run(300);
     snprintf(p, sizeof p, "%s/xa_8_cao_toc_qua_gan.bmp", dir); save_bmp(p);
+    {                                               /* 17/11: app Lan tren dien thoai (goi A1, phone_adas.c) */
+        static const char *pk[] = {
+            "A1|-|3|98|97|74|-2|0|0|96|0",          /* an toan, thay 2 vach */
+            "A1|L|-62|95|93|74|-2|0|0|96|0",        /* lan lan trai */
+            "A1|-|5|96|96|52|-8|0|1|96|0",          /* gan hon TT38 (70 m) */
+            "A1|-|0|90|91|21|-60|13|3|96|0",        /* PHANH */
+            "A1|-|0|0|0|0|0|0|0|0|1",               /* xe do: AI dung */
+        };
+        static const char *nm[] = {"dt_1_an_toan", "dt_2_lan_lan_trai", "dt_3_gan", "dt_4_phanh", "dt_5_xe_do"};
+        for (int i = 0; i < 5; i++) {
+            phone_adas_t pa;
+            xadas_frame_t f;
+            phone_adas_parse(pk[i], strlen(pk[i]), &pa);
+            phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &f);
+            obstacle_ui_phone(&f, pa.ldw, pa.pl > 50 && pa.pr > 50, pa.level >= 3);
+            run(i == 1 ? 60 : 300);
+            snprintf(p, sizeof p, "%s/%s.bmp", dir, nm[i]); save_bmp(p);
+        }
+        obstacle_ui_phone(NULL, '-', false, false);
+        run(300);
+    }
     ui_cam_state(true);                             /* 16/11: cam camera USB -> camera uu tien, bo xADAS */
     obstacle_ui_cam(true);
     ui_cam_status(UI_CAM_OK);

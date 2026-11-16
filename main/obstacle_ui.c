@@ -49,6 +49,13 @@ static uint32_t s_xa_tick, s_xa_lost_tick;
 static lv_obj_t *s_xc, *s_xc_lab, *s_xc_num, *s_xc_unit;
 static char s_xc_sig[96];                    /* lan ve truoc: khong doi thi khong ve lai */
 static bool s_xc_on;
+/* 17/11: app EVCarHUD Lan (dien thoai, mo hinh openpilot) di chung duong xADAS (phone_adas.c): chip "LAN" thay chu xADAS,
+ * vach do chop o mep man khi lan lan, PHANH toan man khi app bao muc 3 (TTC < 1,5 s). */
+static bool s_ph, s_ph_next, s_ph_lanes, s_ph_crit_next;
+static char s_ph_ldw = '-';
+static uint32_t s_ph_ldw_tick;
+static lv_obj_t *s_ldw_l, *s_ldw_r;
+#define LDW_HOLD_MS 1200
 
 static void vis(lv_obj_t *o, bool on)
 {
@@ -376,8 +383,9 @@ static void paint(void)
         lv_obj_set_style_bg_color(s_crit, lv_color_hex(s_dim ? 0x7A0A12 : 0xE11D2A), 0);
         lv_image_set_src(s_cicon, icon_for(s_cls, true));
         char cd[40];
-        if (t[0]) snprintf(cd, sizeof cd, "%d m · %s", s_dist, t);
-        else snprintf(cd, sizeof cd, "%d m", s_dist);
+        int cdm = xa ? (int)s_xf.dist : s_dist;
+        if (t[0]) snprintf(cd, sizeof cd, "%d m · %s", cdm, t);
+        else snprintf(cd, sizeof cd, "%d m", cdm);
         lv_label_set_text(s_cdist, cd);
         lv_obj_move_foreground(s_crit);
     }
@@ -388,6 +396,12 @@ static void xa_chip(void)
     char b[24];
     int c = 0;
     if (!s_xa_on) b[0] = 0;
+    else if (s_ph) {                                         /* app dien thoai: chip LAN xanh / xam / do */
+        snprintf(b, sizeof b, "LÀN");
+        c = !s_xa_live ? UI_XA_GREY : s_ph_ldw != '-' ? UI_XA_RED : s_ph_lanes ? UI_XA_GREEN : UI_XA_GREY;
+        ui_xadas_chip(b, c);
+        return;
+    }
     else xadas_chip_text(&s_xf, s_xa_live, b, sizeof b, &c);
     if (s_xa_on && s_xa_live && s_xf.state == XA_ST_MEASURE && s_xf.dist != XA_NONE16 && c >= 1 && c <= 4)
         snprintf(b, sizeof b, "%s", s_xf.test ? "xADAS THỬ" : "xADAS");   /* so met da o o duoi bien: chip chi doi mau */
@@ -408,12 +422,25 @@ static void xa_tick(void)
     }
 }
 
+/* vach do doc o mep bi lan, chop 4 Hz, giu LDW_HOLD_MS sau goi lan lan cuoi */
+static void ldw_paint(void)
+{
+    if (!s_ldw_l) return;
+    bool on = s_ph && s_xa_live && s_ph_ldw != '-' && lv_tick_elaps(s_ph_ldw_tick) < LDW_HOLD_MS && !ui_settings_shown();
+    if (!on && s_ph_ldw != '-' && lv_tick_elaps(s_ph_ldw_tick) >= LDW_HOLD_MS) { s_ph_ldw = '-'; xa_chip(); }
+    bool blink = (lv_tick_get() / 125) % 2 == 0;
+    vis(s_ldw_l, on && s_ph_ldw == 'L' && blink);
+    vis(s_ldw_r, on && s_ph_ldw == 'R' && blink);
+    if (on) { lv_obj_move_foreground(s_ldw_l); lv_obj_move_foreground(s_ldw_r); }
+}
+
 static void tick_cb(lv_timer_t *tm)
 {
     (void)tm;
     xa_tick();
     if (s_cam_m && lv_tick_elaps(s_set_tick) >= STALE_MS) s_cam_m = 0;   /* camera ngung nhan dien: bo so cu */
     xa_card_paint();                                         /* bam theo the bien khi doi man / doi co (chi ve lai khi doi) */
+    ldw_paint();
     if (eff_level() == OBS_NONE) return;
     if (s_level != OBS_NONE &&
         ((s_off_tick && lv_tick_elaps(s_off_tick) >= HOLD_MS) || lv_tick_elaps(s_set_tick) >= STALE_MS)) {
@@ -542,6 +569,16 @@ void obstacle_ui_init(void)
     lv_obj_add_flag(s_box, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_ms, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s_crit, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < 2; i++) {                            /* vach lan lan (app Lan) */
+        lv_obj_t *o = box(top);
+        lv_obj_set_size(o, 16, UI_H);
+        lv_obj_set_pos(o, i ? UI_W - 16 : 0, 0);
+        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(o, lv_color_hex(0xF0323C), 0);
+        lv_obj_set_style_radius(o, 0, 0);
+        lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+        if (i) s_ldw_r = o; else s_ldw_l = o;
+    }
     s_tmr = lv_timer_create(tick_cb, TICK_MS, NULL);
 }
 
@@ -609,7 +646,10 @@ void obstacle_ui_cam(bool on)
 
 void obstacle_ui_xadas(const xadas_frame_t *f)
 {
+    bool from_phone = s_ph_next, crit = s_ph_crit_next;
+    s_ph_next = s_ph_crit_next = false;
     if (!s_strip || s_cam) return;                           /* 16/11: cam camera USB thi bo qua xADAS hoan toan */
+    if (f) s_ph = from_phone;                                /* khung moi quyet dinh nguon: app xADAS hay app Lan */
     int old = s_xa_level;
     if (!f) {                                                /* mat BLE: bao mat tin hieu ngay, khong giu so cu */
         if (s_xa_on && s_xa_live && s_xf.state != XA_ST_WAIT) {
@@ -628,6 +668,7 @@ void obstacle_ui_xadas(const xadas_frame_t *f)
         s_xa_city = sp < 25;
         int lv = xadas_obs_level(f);
         s_xa_level = lv == 2 ? OBS_DANGER : lv == 1 ? OBS_CAUTION : OBS_NONE;
+        if (crit && s_xa_level == OBS_DANGER) s_xa_level = OBS_CRITICAL;   /* app Lan: TTC < 1,5 s -> PHANH */
         if (ui_settings_shown()) s_xa_level = OBS_NONE;       /* dang mo cai dat: khong de len */
     }
     if (s_xa_level > old && s_xa_level > s_level && s_xa_level == OBS_DANGER && !s_xa_city) {
@@ -640,4 +681,19 @@ void obstacle_ui_xadas(const xadas_frame_t *f)
     if (old != OBS_NONE && s_xa_level == OBS_NONE && s_level == OBS_NONE) s_end_tick = lv_tick_get();
     xa_chip();
     paint();
+}
+
+void obstacle_ui_phone(const xadas_frame_t *f, char ldw, bool lanes, bool crit)
+{
+    if (!s_strip || s_cam) return;
+    if (ldw == 'L' || ldw == 'R') {
+        if (s_ph_ldw != ldw || lv_tick_elaps(s_ph_ldw_tick) >= LDW_HOLD_MS) board_beep(1);   /* moi lan lan: tit 1 tieng */
+        s_ph_ldw = ldw;
+        s_ph_ldw_tick = lv_tick_get();
+    }
+    s_ph_lanes = lanes;
+    s_ph_next = true;
+    s_ph_crit_next = crit;
+    obstacle_ui_xadas(f);
+    ldw_paint();
 }
