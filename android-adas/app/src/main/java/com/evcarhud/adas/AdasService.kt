@@ -1,0 +1,475 @@
+package com.evcarhud.adas
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.media.Image
+import android.os.BatteryManager
+import android.os.Binder
+import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
+import android.util.Log
+import android.view.Surface
+import kotlin.math.abs
+import kotlin.math.atan
+import kotlin.math.atan2
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
+
+/** 1 lan cap nhat gui cho giao dien. */
+class Snap(
+    val out: Op.Out?,
+    val cam: Op.Cam?,
+    val camH: Float,
+    val vKmh: Float,
+    val ldw: Char,
+    val offCm: Int?,
+    val leadM: Float?,
+    val ttc: Float?,
+    val level: Int,
+    val hz: Int,
+    val ms: Int,
+    val backend: String,
+    val batt: Float,
+    val thermal: Int,
+    val state: Int,
+    val msg: String,
+    val hud: String,
+    val hudOk: Boolean,
+    val lat: Double,
+    val lon: Double,
+    val bearing: Float,
+    val hasFix: Boolean,
+)
+
+/**
+ * Dich vu chay nen: camera -> mo hinh openpilot -> canh bao -> goi A1 len HUD.
+ * Chong nong (uu tien so 1):
+ *  - tan suat AI theo tinh huong: 5 Hz khi cham (<5 km/h), 10 Hz binh thuong, 20 Hz khi >80 km/h hoac xe truoc gan;
+ *    dung han khi xe do >30 giay (dong camera neu khong mo man hinh app)
+ *  - theo doi nhiet: pin >=42 do / Android bao "am" -> toi da 10 Hz; >=45 / "nong" -> 5 Hz;
+ *    >=48 / "rat nong" -> dung AI, bao MAY NONG len HUD, chay lai khi <44 do
+ *  - chay nen khong ve camera; camera 720p, khong ghi hinh
+ */
+class AdasService : Service() {
+    inner class LocalBinder : Binder() { val service get() = this@AdasService }
+
+    private val main = Handler(Looper.getMainLooper())
+    private val aiThread = HandlerThread("ai").apply { start() }
+    private val ai = Handler(aiThread.looper)
+    private lateinit var prefs: Prefs
+    private var cam: CamSource? = null
+    @Volatile private var model: OpModel? = null
+    private var hud: HudLink? = null
+    private var hudMsg = "Chưa nối HUD"
+    private var hudOk = false
+
+    var onSnap: ((Snap) -> Unit)? = null
+    var uiVisible = false
+        set(v) { field = v; main.post { applyRate() } }
+
+    // ---- trang thai (luong chinh) ----
+    @Volatile private var targetHz = 10
+    @Volatile private var busy = false
+    private var lastAccept = 0L
+    private var gpsKmh = -1f
+    private var gpsAt = 0L
+    private var lat = 0.0
+    private var lon = 0.0
+    private var bearing = 0f
+    private var stillSince = 0L
+    private var parked = false
+    private var batt = 0f
+    private var thermal = 0
+    private var hot = 0            // 0 binh thuong, 1 toi da 10 Hz, 2 toi da 5 Hz, 3 dung
+    private var loadMsg = "Đang nạp mô hình…"
+    private var lastSend = 0L
+    private var lastNotif = 0L
+
+    // ---- luong AI ----
+    private var geom: Op.Cam? = null
+    private var warpKey = ""
+    private var warpMed: Op.Warp? = null
+    private var warpBig: Op.Warp? = null
+    private var yArr = ByteArray(0)
+    private var uArr = ByteArray(0)
+    private var vArr = ByteArray(0)
+    private val ringN = 8
+    private val ringMed = Array(ringN) { ByteArray(Op.PACK) }
+    private val ringBig = Array(ringN) { ByteArray(Op.PACK) }
+    private val ringT = LongArray(ringN)
+    private var ringI = 0
+    private var ringCount = 0
+    private val img = ByteArray(2 * Op.PACK)
+    private val big = ByteArray(2 * Op.PACK)
+    private val hidT = LongArray(160)
+    private val hid = Array(160) { FloatArray(Op.HID_N) }
+    private var hidI = 0
+    private var hidCount = 0
+    private val feat = FloatArray(Op.FEAT_N * Op.HID_N)
+    private var poseKmh = 0f
+    private var ldwHoldUntil = 0L
+    private var ldwSide = '-'
+    @Volatile private var lastMs = 0
+
+    override fun onBind(i: Intent?): IBinder = LocalBinder()
+
+    override fun onCreate() {
+        super.onCreate()
+        prefs = Prefs(this)
+        goForeground("Đang khởi động…")
+        try {
+            cam = CamSource(this, ::onFrame) { e -> main.post { loadMsg = e; publishIdle() } }
+        } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
+        rebuildGeom()
+        ai.post {
+            try {
+                model = OpModel(this, prefs.accel)
+                loadMsg = ""
+            } catch (e: Throwable) {
+                Log.e(TAG, "model", e); loadMsg = "Lỗi mô hình: ${e.message}"
+            }
+            main.post { applyRate() }
+        }
+        startGps()
+        hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
+            it.onMac = { a -> prefs.hudMac = a }
+            if (hasPerm(Manifest.permission.BLUETOOTH_CONNECT)) it.start(prefs.hudMac) else hudMsg = "Chưa cho quyền Bluetooth"
+        }
+        main.post(tick)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        main.removeCallbacksAndMessages(null)
+        hud?.stop()
+        cam?.release()
+        try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
+        ai.post { model?.close(); model = null; aiThread.quitSafely() }
+        super.onDestroy()
+    }
+
+    // ---------------- giao dien goi ----------------
+    fun setPreview(s: Surface?) { cam?.setPreview(s) }
+    fun camInfo(): CamSource? = cam
+    fun currentGeom(): Op.Cam? = geom
+
+    /** Doi hieu chinh / chieu cao / bo tang toc. */
+    fun reloadSettings(accelChanged: Boolean) {
+        rebuildGeom()
+        if (accelChanged) ai.post {
+            model?.close(); model = null; loadMsg = "Đang nạp mô hình…"
+            try { model = OpModel(this, prefs.accel); loadMsg = "" } catch (e: Throwable) { loadMsg = "Lỗi mô hình: ${e.message}" }
+        }
+    }
+
+    fun findHudAgain() {
+        prefs.hudMac = ""
+        if (hasPerm(Manifest.permission.BLUETOOTH_CONNECT)) hud?.start("")
+    }
+
+    private fun rebuildGeom() {
+        val c = cam ?: return
+        val w = c.size.width; val h = c.size.height
+        val f = c.focalPx
+        val vx = prefs.vpX * w - w / 2.0
+        val vy = prefs.vpY * h - h / 2.0
+        val yaw = atan(vx / f)
+        val pitch = -atan2(vy, sqrt(f * f + vx * vx))
+        val g = Op.Cam(w, h, f, pitch, yaw)
+        ai.post { geom = g; warpKey = ""; ringCount = 0; hidCount = 0 }
+    }
+
+    // ---------------- camera -> AI ----------------
+    private fun onFrame(im: Image) {
+        val now = SystemClock.elapsedRealtime()
+        val hz = targetHz
+        if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
+        lastAccept = now
+        busy = true
+        val yRow: Int; val uvRow: Int; val uvPix: Int
+        try {
+            val p = im.planes
+            yRow = p[0].rowStride; uvRow = p[1].rowStride; uvPix = p[1].pixelStride
+            yArr = copy(p[0].buffer, yArr); uArr = copy(p[1].buffer, uArr); vArr = copy(p[2].buffer, vArr)
+        } catch (e: Exception) { im.close(); busy = false; return }
+        val ts = im.timestamp / 1_000_000L
+        im.close()
+        ai.post { try { infer(ts, now, yRow, uvRow, uvPix) } catch (e: Throwable) { Log.e(TAG, "infer", e) } finally { busy = false } }
+    }
+
+    private fun copy(b: java.nio.ByteBuffer, old: ByteArray): ByteArray {
+        b.rewind()
+        val a = if (old.size == b.remaining()) old else ByteArray(b.remaining())
+        b.get(a)
+        return a
+    }
+
+    private fun infer(ts: Long, wall: Long, yRow: Int, uvRow: Int, uvPix: Int) {
+        val m = model ?: return
+        val g = geom ?: return
+        val c = cam ?: return
+        val key = "$yRow/$uvRow/$uvPix/${g.hashCode()}"
+        if (key != warpKey) {
+            warpMed = Op.Warp(g, false, yRow, uvRow, uvPix, c.flip)
+            warpBig = Op.Warp(g, true, yRow, uvRow, uvPix, c.flip)
+            warpKey = key; ringCount = 0
+        }
+        val t0 = SystemClock.elapsedRealtime()
+        val slot = ringI
+        warpMed!!.pack(yArr, uArr, vArr, ringMed[slot], 0)
+        warpBig!!.pack(yArr, uArr, vArr, ringBig[slot], 0)
+        ringT[slot] = ts
+        ringI = (ringI + 1) % ringN
+        if (ringCount < ringN) ringCount++
+        // khung cu cach ~0,2 s (mo hinh hoc tren 2 khung cach 0,2 s)
+        var best = slot; var bestErr = Long.MAX_VALUE
+        for (k in 1 until ringCount) {
+            val j = (slot - k + ringN) % ringN
+            val err = abs((ts - ringT[j]) - 200)
+            if (err < bestErr) { bestErr = err; best = j }
+        }
+        if (bestErr > 120) best = slot
+        System.arraycopy(ringMed[best], 0, img, 0, Op.PACK); System.arraycopy(ringMed[slot], 0, img, Op.PACK, Op.PACK)
+        System.arraycopy(ringBig[best], 0, big, 0, Op.PACK); System.arraycopy(ringBig[slot], 0, big, Op.PACK, Op.PACK)
+
+        val o = Op.Out()
+        Op.parseVision(m.runVision(img, big), o)
+
+        // hang doi hidden_state cho mo hinh duong di: 25 moc cach 0,2 s
+        System.arraycopy(o.hidden, 0, hid[hidI], 0, Op.HID_N); hidT[hidI] = ts
+        hidI = (hidI + 1) % hid.size
+        if (hidCount < hid.size) hidCount++
+        if (m.hasPolicy) {
+            var span = 0L
+            for (k in 0 until Op.FEAT_N) {
+                val want = ts - (Op.FEAT_N - 1 - k) * 200L
+                var pick = -1
+                for (q in 0 until hidCount) {
+                    val j = (hidI - 1 - q + hid.size) % hid.size
+                    if (hidT[j] <= want + 60) { pick = j; break }
+                }
+                if (pick >= 0 && ts - hidT[pick] <= (Op.FEAT_N - 1 - k) * 200L + 150) {
+                    System.arraycopy(hid[pick], 0, feat, k * Op.HID_N, Op.HID_N)
+                    span = maxOf(span, ts - hidT[pick])
+                } else java.util.Arrays.fill(feat, k * Op.HID_N, (k + 1) * Op.HID_N, 0f)
+            }
+            if (span >= 1500) m.runPolicy(feat)?.let { Op.parsePlan(it, o) }
+        }
+        lastMs = (SystemClock.elapsedRealtime() - t0).toInt()
+
+        // ---- canh bao ----
+        poseKmh = 0.8f * poseKmh + 0.2f * o.poseVx * 3.6f
+        val gpsFresh = wall - gpsAt < 3000 && gpsKmh >= 0
+        val v = if (gpsFresh) gpsKmh else maxOf(0f, poseKmh)
+        val vms = v / 3.6f
+        val pL = o.laneProb[1]; val pR = o.laneProb[2]
+        val off = if (pL > 0.5f && pR > 0.5f) -(o.laneY[1][0] + o.laneY[2][0]) / 2 else null
+        // lech lan kieu openpilot (ldw.py): >= 50 km/h, vach gan + mo hinh doan dang troi sang lan ben
+        val lClose = pL > 0.5f && o.laneY[1][0] > -(1.08f + 0.04f)
+        val rClose = pR > 0.5f && o.laneY[2][0] < (1.08f - 0.04f)
+        val side = when {
+            v < 50 -> '-'
+            o.desireL > 0.1f && lClose -> 'L'
+            o.desireR > 0.1f && rClose -> 'R'
+            else -> '-'
+        }
+        if (side != '-') { ldwSide = side; ldwHoldUntil = wall + 1200 }
+        val ldw = if (wall < ldwHoldUntil) ldwSide else '-'
+        var leadM: Float? = null; var ttc: Float? = null; var level = 0
+        if (o.leadProb > 0.5f && o.leadX > 0) {
+            leadM = o.leadX
+            val vrel = o.leadV - vms
+            if (vrel < -0.5f) ttc = o.leadX / -vrel
+            if (v > 5 && o.leadX < Op.safeDist(v)) level = 1
+            if (v > 10 && ttc != null && ttc < 2.5f) level = 2
+            if (v > 10 && ttc != null && ttc < 1.5f) level = 3
+        }
+        val near = leadM != null && (level > 0 || (ttc != null && ttc < 4f))
+        main.post { onResult(o, g, v, ldw, off, leadM, ttc, level, near) }
+    }
+
+    private var lastNear = false
+
+    private fun onResult(o: Op.Out, g: Op.Cam, v: Float, ldw: Char, off: Float?, leadM: Float?, ttc: Float?, level: Int, near: Boolean) {
+        lastNear = near
+        val offCm = off?.let { (it * 100).roundToInt() }
+        val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, targetHz, lastMs, model?.backend ?: "-",
+            batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
+        onSnap?.invoke(s)
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSend >= 95) {
+            lastSend = now
+            // A1|lan|lech cm|pL%|pR%|xe truoc m|dv km/h|TTC x10|muc|v km/h|trang thai
+            val dv = if (leadM != null) ((o.leadV - v / 3.6f) * 3.6f).roundToInt() else 0
+            val pkt = "A1|$ldw|${offCm ?: 0}|${(o.laneProb[1] * 100).roundToInt()}|${(o.laneProb[2] * 100).roundToInt()}|" +
+                "${leadM?.roundToInt() ?: 0}|$dv|${ttc?.let { (it * 10).roundToInt().coerceAtMost(99) } ?: 0}|$level|${v.roundToInt()}|${stateCode()}"
+            hud?.send(pkt.toByteArray())
+        }
+        applyRate()
+    }
+
+    private fun stateCode() = when {
+        hot >= 3 -> 3
+        parked -> 1
+        hot > 0 -> 2
+        model == null -> 4
+        else -> 0
+    }
+
+    private fun stateMsg() = when {
+        loadMsg.isNotEmpty() -> loadMsg
+        hot >= 3 -> "Máy nóng: đã dừng AI, chạy lại khi mát"
+        parked -> "Xe đỗ: tạm dừng AI cho mát máy"
+        hot == 2 -> "Máy nóng: giảm còn 5 lần/giây"
+        else -> ""
+    }
+
+    /** Khong co ket qua AI (dung/nong/dang nap): van cap nhat giao dien + giu HUD biet trang thai. */
+    private fun publishIdle() {
+        onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
+            targetHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0))
+    }
+
+    // ---------------- tan suat + nhiet ----------------
+    private fun applyRate() {
+        val v = if (SystemClock.elapsedRealtime() - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
+        var hz = when {
+            v > 80 || lastNear -> 20
+            v < 5 -> 5
+            else -> 10
+        }
+        hz = when (hot) { 1 -> minOf(hz, 10); 2 -> minOf(hz, 5); 3 -> 0; else -> hz }
+        if (parked || model == null) hz = 0
+        targetHz = hz
+        val c = cam ?: return
+        // Khong can camera: AI dung va khong ai xem man hinh -> tat han camera
+        if (hz == 0 && !uiVisible) { if (c.isOpen) c.close() }
+        else { if (!c.isOpen) c.open(); c.setRate(if (hz == 0) 15 else hz) }
+    }
+
+    private val tick = object : Runnable {
+        override fun run() {
+            readThermal()
+            // xe do: GPS < 2 km/h lien tuc 30 giay
+            val now = SystemClock.elapsedRealtime()
+            val fresh = now - gpsAt < 5000
+            if (fresh && gpsKmh < 2f) { if (stillSince == 0L) stillSince = now; if (now - stillSince > 30_000) parked = true }
+            else stillSince = 0L
+            if (parked && fresh && gpsKmh > 5f) parked = false
+            if (!fresh) parked = false
+            applyRate()
+            if (targetHz == 0) {
+                publishIdle()
+                hud?.send("A1|-|0|0|0|0|0|0|0|${if (fresh) gpsKmh.roundToInt() else 0}|${stateCode()}".toByteArray())
+            }
+            if (now - lastNotif > 10_000) { lastNotif = now; goForeground(notifText()) }
+            main.postDelayed(this, 1000)
+        }
+    }
+
+    private var thermalAt = 0L
+
+    private fun readThermal() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - thermalAt < 5000) return
+        thermalAt = now
+        val bi = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        batt = (bi?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10f
+        thermal = if (Build.VERSION.SDK_INT >= 29) (getSystemService(POWER_SERVICE) as PowerManager).currentThermalStatus else 0
+        hot = when {
+            batt >= 48 || thermal >= PowerManager.THERMAL_STATUS_SEVERE -> 3
+            hot == 3 && (batt >= 44 || thermal >= PowerManager.THERMAL_STATUS_MODERATE) -> 3
+            batt >= 45 || thermal == PowerManager.THERMAL_STATUS_MODERATE -> 2
+            batt >= 42 || thermal == PowerManager.THERMAL_STATUS_LIGHT -> 1
+            else -> 0
+        }
+    }
+
+    // ---------------- GPS ----------------
+    private val locL = LocationListener { l: Location ->
+        gpsAt = SystemClock.elapsedRealtime()
+        gpsKmh = if (l.hasSpeed()) l.speed * 3.6f else gpsKmh
+        lat = l.latitude; lon = l.longitude
+        if (l.hasBearing() && l.speed > 1.5f) bearing = l.bearing
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startGps() {
+        if (!hasPerm(Manifest.permission.ACCESS_FINE_LOCATION)) return
+        try {
+            (getSystemService(LOCATION_SERVICE) as LocationManager)
+                .requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locL, Looper.getMainLooper())
+        } catch (e: Exception) { Log.w(TAG, "gps", e) }
+    }
+
+    // ---------------- thong bao ----------------
+    private fun notifText(): String {
+        val s = stateMsg()
+        return (if (s.isNotEmpty()) s else "Đang theo dõi làn · ${targetHz} lần/giây") + " · " + hudMsg
+    }
+
+    private fun hasPerm(p: String) = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+    private fun goForeground(text: String) {
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CH) == null)
+            nm.createNotificationChannel(NotificationChannel(CH, "Theo dõi làn", NotificationManager.IMPORTANCE_LOW))
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 1, Intent(this, AdasService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
+        val n = Notification.Builder(this, CH)
+            .setSmallIcon(R.drawable.ic_notif)
+            .setContentTitle("EVCarHUD Làn")
+            .setContentText(text)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .addAction(Notification.Action.Builder(null, "Dừng", stop).build())
+            .build()
+        var type = 0
+        if (Build.VERSION.SDK_INT >= 29) {
+            if (hasPerm(Manifest.permission.CAMERA)) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            if (hasPerm(Manifest.permission.ACCESS_FINE_LOCATION)) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            if (Build.VERSION.SDK_INT < 31 || hasPerm(Manifest.permission.BLUETOOTH_CONNECT))
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 29 && type != 0) startForeground(NID, n, type) else startForeground(NID, n)
+        } catch (e: Exception) {
+            Log.w(TAG, "fg", e)
+            try { startForeground(NID, n) } catch (_: Exception) {}
+        }
+    }
+
+    companion object {
+        private const val TAG = "AdasService"
+        private const val CH = "adas"
+        private const val NID = 7
+        const val ACTION_STOP = "stop"
+
+        fun start(ctx: Context) {
+            val i = Intent(ctx, AdasService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
+        }
+    }
+}

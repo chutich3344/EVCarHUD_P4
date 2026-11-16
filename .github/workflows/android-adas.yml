@@ -1,0 +1,66 @@
+# Build app Android "EVCarHUD Lan" (thu muc android-adas/): mo hinh openpilot tren dien thoai -> goi A1 len HUD.
+# Mo hinh .onnx (MIT, comma.ai) khong de trong git: tai tu Drive luc build roi dong vao APK.
+name: Build app Lan (openpilot)
+
+on:
+  push:
+    paths:
+      - "android-adas/**"
+      - ".github/workflows/android-adas.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: app-lan
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-adas
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Tai mo hinh openpilot v0.10.3
+        run: |
+          mkdir -p app/src/main/assets
+          get() { curl -fsSL --retry 4 -o "app/src/main/assets/$2" "https://drive.usercontent.google.com/download?id=$1&export=download&confirm=t"; }
+          get 1_dfJ4pQKVx8B4xi16LpOJjV-iMOcQUqT driving_vision.onnx
+          get 1v4tFEJI44wAcHSMGryp0-voq9ynDRRKJ driving_policy.onnx
+          sha256sum app/src/main/assets/*.onnx
+          ls -la app/src/main/assets
+          # file Drive hong (trang HTML) thi dung lai
+          test $(stat -c%s app/src/main/assets/driving_vision.onnx) -gt 40000000
+          test $(stat -c%s app/src/main/assets/driving_policy.onnx) -gt 10000000
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          SHORT=$(git rev-parse --short HEAD)
+          cp app/build/outputs/apk/release/app-release.apk "../evcarhud-lan-$SHORT.apk"
+          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evcarhud-lan-${{ env.SHORT }}
+          path: evcarhud-lan-${{ env.SHORT }}.apk
+
+      - name: Cap nhat ban phat hanh "app-lan-thu"
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete app-lan-thu --yes --cleanup-tag || true
+          gh release create app-lan-thu "evcarhud-lan-$SHORT.apk" --target "$GITHUB_SHA" \
+            --title "App EVCarHUD Làn ($SHORT)" \
+            --notes "APK thử, build tự động từ commit $SHORT (nhánh ${GITHUB_REF_NAME}). Mô hình openpilot v0.10.3 (MIT, comma.ai)." --prerelease
