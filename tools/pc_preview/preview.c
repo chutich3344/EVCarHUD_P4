@@ -91,6 +91,17 @@ int main(int argc, char **argv)
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
     dashboard_create(scr);
+    {                                               /* nut micro Mi Mi gia (ai.c khong chay tren PC) */
+        lv_obj_t *m = lv_obj_create(scr);
+        lv_obj_remove_style_all(m);
+        lv_obj_set_size(m, 24, 24);
+        lv_obj_set_style_radius(m, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(m, lv_color_hex(0x2A2550), 0);
+        lv_obj_set_style_bg_opa(m, LV_OPA_80, 0);
+        lv_obj_set_style_border_color(m, lv_color_hex(0x7C5CFF), 0);
+        lv_obj_set_style_border_width(m, 1, 0);
+        ui_set_mic_btn(m);
+    }
     hlp_dash_init(NULL, NULL);                     /* tren board: link_init() goi */
     obstacle_ui_init();                            /* tren board: usb_cam_start() goi */
     ui_set_cam_hook(cam_open);

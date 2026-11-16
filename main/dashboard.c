@@ -90,6 +90,7 @@ static const theme_t *th = &TH_NIGHT;
 static lv_obj_t *scr, *page[SCR_N];
 /* thanh tren (dung chung cac man dang chay) */
 static lv_obj_t *t_bolt;
+static lv_obj_t *mic_btn;                         /* nut micro Mi Mi (ai.c dang ky) */
 static lv_obj_t *top, *top_line, *t_clock, *t_street, *t_badge, *t_gps_dot, *t_src, *t_src_l;
 /* Phan tren cac man chay: toc do (so to, khung rong co dinh can phai) + "km/h" | bien gioi han, chia doi man hinh */
 typedef struct {
@@ -569,7 +570,10 @@ static hgeo_t head_geo_card(int y, int hgt, bool three, bool split)
     int rs = ch - 16;
     if (split) {
         if (rs > 70) rs = 70;
-        g.rcx = CARD_X + SPLIT_DX + 1 + (CARD_W - SPLIT_DX - 1 - 10) / 2;
+        /* 16/11: bien canh deu 4 canh trong nua phai (vach chia .. mep the), cach moi ben 10 px */
+        int hw = CARD_W - SPLIT_DX - 1 - 1;                        /* tu sau vach toi trong vien phai */
+        if (rs > hw - 20) rs = hw - 20;
+        g.rcx = CARD_X + SPLIT_DX + 1 + hw / 2;
     } else {
         if (rs > 160) rs = 160;
         g.rcx = CARD_X + CARD_W / 2;
@@ -1037,6 +1041,10 @@ static void render_top(void)
     const char *sn = g ? "GOFA" : "waze";
     int gw = text_w(sn, &ui_font_cap12) + 12;
     int right_x = UI_W - PAD - gw - 6 - 8;                        /* mep trai cham GPS */
+    if (mic_btn) {                                                /* 16/11: nut micro Mi Mi nam tren thanh tren, khong de len the bien */
+        right_x -= 8 + 24;
+        lv_obj_set_pos(mic_btn, right_x, (TOP_H - 24) / 2);
+    }
     const ui_alert_t *ex = NULL, *rs = NULL;
     if (hw)
         for (int i = 0; i < al_n; i++) {
@@ -3100,4 +3108,10 @@ void ui_set_station(const char *name, int dist_m, char side, int angle, int kw, 
     }
     if (was_dest || ts_dest_on()) apply_nav();
     else if (screen == SCR_CRUISE) render_cruise();
+}
+
+void ui_set_mic_btn(lv_obj_t *o)
+{
+    mic_btn = o;
+    render_all();
 }

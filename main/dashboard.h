@@ -110,6 +110,7 @@ int ui_get_mode(void);
 void ui_cycle_mode(void);
 void ui_set_ambient(int dark);                         /* 1 toi, 0 sang, -1 khong co cam bien */
 void ui_set_mode_hook(void (*cb)(int mode));           /* nguoi dung doi che do: de luu NVS */
+void ui_set_mic_btn(lv_obj_t *btn);                    /* nut micro Mi Mi: dashboard dat tren thanh tren */
 void ui_set_night_hook(void (*cb)(bool night));        /* giao dien vua doi sang Ngay/Dem: board chinh den nen */
 void ui_rotate(void);                                  /* xoay 180 do (bam BOOT 2 lan khi khong mo cai dat; giu BOOT 1-3 s roi tha = mo cai dat) */
 void ui_set_rotate_hook(void (*cb)(void));             /* bam BOOT 2 lan: board xoay 180 do */

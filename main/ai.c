@@ -135,7 +135,7 @@ static void ui_build(void)
     lv_obj_t *scr = ui_screen();
     if (!scr) return;
     /* nut micro: tron 34 px, ve micro bang hinh (font khong co bieu tuong micro) */
-    g_btn = box(scr, UI_W - 44, 40, 34, 34);
+    g_btn = box(scr, UI_W - 100, 3, 24, 24);          /* 16/11: nho lai, nam tren thanh tren (dashboard dat vi tri) */
     lv_obj_set_style_radius(g_btn, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(g_btn, lv_color_hex(0x2A2550), 0);
     lv_obj_set_style_bg_opa(g_btn, LV_OPA_80, 0);
@@ -145,19 +145,20 @@ static void ui_build(void)
     lv_obj_add_flag(g_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(g_btn, on_ui_tap, LV_EVENT_CLICKED, NULL);
     lv_color_t mc = lv_color_hex(0xC9BCFF);
-    lv_obj_t *cap = box(g_btn, 13, 7, 8, 13);         /* than micro */
-    lv_obj_set_style_radius(cap, 4, 0);
+    lv_obj_t *cap = box(g_btn, 9, 4, 6, 9);           /* than micro */
+    lv_obj_set_style_radius(cap, 3, 0);
     lv_obj_set_style_bg_color(cap, mc, 0);
     lv_obj_set_style_bg_opa(cap, LV_OPA_COVER, 0);
-    lv_obj_t *u = box(g_btn, 10, 13, 14, 11);         /* vong chu U */
-    lv_obj_set_style_radius(u, 7, 0);
+    lv_obj_t *u = box(g_btn, 7, 8, 10, 8);            /* vong chu U */
+    lv_obj_set_style_radius(u, 5, 0);
     lv_obj_set_style_border_color(u, mc, 0);
     lv_obj_set_style_border_width(u, 2, 0);
     lv_obj_set_style_border_side(u, LV_BORDER_SIDE_BOTTOM | LV_BORDER_SIDE_LEFT | LV_BORDER_SIDE_RIGHT, 0);
-    lv_obj_t *st = box(g_btn, 16, 24, 2, 4);          /* chan */
+    lv_obj_t *st = box(g_btn, 11, 16, 2, 3);          /* chan */
     lv_obj_set_style_bg_color(st, mc, 0);
     lv_obj_set_style_bg_opa(st, LV_OPA_COVER, 0);
     ui_below_settings(g_btn);
+    ui_set_mic_btn(g_btn);
 
     /* dai tim o day man */
     g_strip = box(scr, 12, UI_H - 62, UI_W - 24, 50);
