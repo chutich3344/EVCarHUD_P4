@@ -27,6 +27,10 @@ import kotlin.math.roundToInt
 class Overlay(ctx: Context) : View(ctx) {
     var snap: Snap? = null
         set(v) { field = v; invalidate() }
+    /** Anh camera tu ve (640x360). */
+    var frame: android.graphics.Bitmap? = null
+        set(v) { field = v; invalidate() }
+    private val dst = RectF()
     var imgW = 1280
     var imgH = 720
     var onGear: () -> Unit = {}
@@ -42,6 +46,7 @@ class Overlay(ctx: Context) : View(ctx) {
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
     private val path = Path()
+    private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pt = FloatArray(4)
     private val gearRect = RectF()
     private val btnOk = RectF()
@@ -67,6 +72,7 @@ class Overlay(ctx: Context) : View(ctx) {
     override fun onDraw(cv: Canvas) {
         layoutScale()
         val u = width / 100f
+        frame?.let { dst.set(ox, oy, ox + imgW * s, oy + imgH * s); cv.drawBitmap(it, null, dst, bmpPaint) }
         val sn = snap
         val o = sn?.out
         val c = sn?.cam

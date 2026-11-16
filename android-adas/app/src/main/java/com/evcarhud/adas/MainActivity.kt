@@ -8,18 +8,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.graphics.Matrix
-import android.graphics.RectF
-import android.graphics.SurfaceTexture
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
-import android.view.Surface
-import android.view.TextureView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import kotlin.math.max
 
 /**
  * Man hinh chinh kieu C: camera toan man + lop ve + o nhiet va ban do keo duoc.
@@ -28,12 +22,10 @@ import kotlin.math.max
 class MainActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var root: FrameLayout
-    private lateinit var tex: TextureView
     private lateinit var overlay: Overlay
     private lateinit var temp: TempPip
     private lateinit var map: TileMap
     private var svc: AdasService? = null
-    private var surface: Surface? = null
     private var started = false
 
     private val conn = object : ServiceConnection {
@@ -42,8 +34,8 @@ class MainActivity : Activity() {
             svc = s
             s.camInfo()?.let { overlay.imgW = it.size.width; overlay.imgH = it.size.height }
             s.onSnap = { sn -> overlay.snap = sn; temp.snap = sn; if (map.visibility == View.VISIBLE) map.update(sn) }
+            s.onPreview = { bm -> overlay.frame = bm }
             s.uiVisible = started
-            attachPreview()
         }
         override fun onServiceDisconnected(n: ComponentName?) { svc = null }
     }
@@ -56,11 +48,9 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         root = FrameLayout(this).apply { setBackgroundColor(0xff0b0e13.toInt()) }
-        tex = TextureView(this)
         overlay = Overlay(this)
         temp = TempPip(this)
         map = TileMap(this)
-        root.addView(tex, FrameLayout.LayoutParams(-1, -1))
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         root.addView(temp, FrameLayout.LayoutParams(1, 1))
         root.addView(map, FrameLayout.LayoutParams(1, 1))
@@ -72,14 +62,6 @@ class MainActivity : Activity() {
         overlay.onCalibDone = { ok ->
             if (ok) svc?.setManualVp(overlay.vpX, overlay.vpY)
             showPips()
-        }
-        tex.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) { attachPreview() }
-            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) { transform() }
-            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-                svc?.setPreview(null); surface?.release(); surface = null; return true
-            }
-            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
         }
         askPerms()
     }
@@ -101,57 +83,24 @@ class MainActivity : Activity() {
         map.visibility = if (prefs.showMap && !c) View.VISIBLE else View.GONE
     }
 
-    private fun attachPreview() {
-        val s = svc ?: return
-        val st = tex.surfaceTexture ?: return
-        if (!started) return
-        val sz = s.camInfo()?.size ?: return
-        st.setDefaultBufferSize(sz.width, sz.height)
-        if (surface == null) surface = Surface(st)
-        transform()
-        s.setPreview(surface)
-    }
-
-    /** Xoay + phong anh camera cho day man hinh ngang, cat giua (cung cach lop ve tinh toa do). */
-    private fun transform() {
-        val sz = svc?.camInfo()?.size ?: return
-        val vw = tex.width.toFloat(); val vh = tex.height.toFloat()
-        if (vw == 0f || vh == 0f) return
-        @Suppress("DEPRECATION")
-        val rot = windowManager.defaultDisplay.rotation
-        val m = Matrix()
-        val view = RectF(0f, 0f, vw, vh)
-        val buf = RectF(0f, 0f, sz.height.toFloat(), sz.width.toFloat())
-        val cx = view.centerX(); val cy = view.centerY()
-        if (rot == Surface.ROTATION_90 || rot == Surface.ROTATION_270) {
-            buf.offset(cx - buf.centerX(), cy - buf.centerY())
-            m.setRectToRect(view, buf, Matrix.ScaleToFit.FILL)
-            val sc = max(vh / sz.height, vw / sz.width)
-            m.postScale(sc, sc, cx, cy)
-            m.postRotate(90f * (rot - 2), cx, cy)
-        }
-        tex.setTransform(m)
-    }
-
     override fun onStart() {
         super.onStart()
         started = true
         svc?.uiVisible = true
-        attachPreview()
     }
 
     override fun onStop() {
         started = false
         // ra nen: bo ve camera, AI van chay trong dich vu
-        svc?.setPreview(null)
         svc?.uiVisible = false
+        overlay.frame = null
         super.onStop()
     }
 
     override fun onDestroy() {
         svc?.onSnap = null
+        svc?.onPreview = null
         if (svc != null) try { unbindService(conn) } catch (_: Exception) {}
-        surface?.release()
         super.onDestroy()
     }
 

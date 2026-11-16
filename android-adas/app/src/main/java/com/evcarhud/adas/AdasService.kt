@@ -19,6 +19,7 @@ import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.graphics.Bitmap
 import android.media.Image
 import android.os.BatteryManager
 import android.os.Binder
@@ -86,6 +87,17 @@ class AdasService : Service() {
     private var hudOk = false
 
     var onSnap: ((Snap) -> Unit)? = null
+    /** Khung xem truoc tu ve (640x360) tu chinh luong anh AI: nhieu may khong cho mo 2 luong camera cung luc. */
+    var onPreview: ((Bitmap) -> Unit)? = null
+    private val prevBmp = Array(2) { Bitmap.createBitmap(PW, PH, Bitmap.Config.ARGB_8888) }
+    private val prevPx = IntArray(PW * PH)
+    private var prevI = 0
+    private var lastPrev = 0L
+    @Volatile var bright = -1
+        private set
+    private var aiCount = 0
+    private var aiCountAt = 0L
+    @Volatile private var measHz = 0
     var uiVisible = false
         set(v) { field = v; main.post { applyRate() } }
 
@@ -286,6 +298,9 @@ class AdasService : Service() {
     private fun onFrame(im: Image) {
         val now = SystemClock.elapsedRealtime()
         lastFrameAt = now
+        val cb = onPreview
+        if (uiVisible && cb != null && now - lastPrev >= 66) { lastPrev = now; try { drawPreview(im, cb) } catch (e: Exception) { Log.w(TAG, "prev", e) } }
+        else if (now - lastPrev >= 1000) { lastPrev = now; try { bright = meanY(im) } catch (_: Exception) {} }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
         lastAccept = now
@@ -299,6 +314,51 @@ class AdasService : Service() {
         val ts = im.timestamp / 1_000_000L
         im.close()
         ai.post { try { infer(ts, now, yRow, uvRow, uvPix) } catch (e: Throwable) { Log.e(TAG, "infer", e) } finally { busy = false } }
+    }
+
+    /** YUV -> anh mau 640x360 (lay 1/2 diem moi chieu), tinh luon do sang trung binh. */
+    private fun drawPreview(im: Image, cb: (Bitmap) -> Unit) {
+        val p = im.planes
+        val yb = p[0].buffer; val ub = p[1].buffer; val vb = p[2].buffer
+        val yRow = p[0].rowStride; val yPix = p[0].pixelStride
+        val uvRow = p[1].rowStride; val uvPix = p[1].pixelStride
+        val w = im.width; val h = im.height
+        val flip = cam?.flip == true
+        val sx = w / PW.toFloat(); val sy = h / PH.toFloat()
+        val ny = yb.limit(); val nu = minOf(ub.limit(), vb.limit())
+        var sum = 0L
+        for (y in 0 until PH) {
+            val iy0 = (y * sy).toInt().coerceAtMost(h - 1)
+            val iy = if (flip) h - 1 - iy0 else iy0
+            val yo = iy * yRow; val uo = (iy / 2) * uvRow
+            val row = y * PW
+            for (x in 0 until PW) {
+                val ix0 = (x * sx).toInt().coerceAtMost(w - 1)
+                val ix = if (flip) w - 1 - ix0 else ix0
+                val yi = yo + ix * yPix
+                val Y = if (yi < ny) yb.get(yi).toInt() and 0xff else 0
+                val ui = uo + (ix / 2) * uvPix
+                val U = (if (ui < nu) ub.get(ui).toInt() and 0xff else 128) - 128
+                val V = (if (ui < nu) vb.get(ui).toInt() and 0xff else 128) - 128
+                sum += Y
+                val r = (Y + 1.402f * V).toInt().coerceIn(0, 255)
+                val g = (Y - 0.344f * U - 0.714f * V).toInt().coerceIn(0, 255)
+                val b = (Y + 1.772f * U).toInt().coerceIn(0, 255)
+                prevPx[row + x] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+        bright = (sum / (PW * PH)).toInt()
+        val bm = prevBmp[prevI]; prevI = 1 - prevI
+        bm.setPixels(prevPx, 0, PW, 0, 0, PW, PH)
+        main.post { cb(bm) }
+    }
+
+    private fun meanY(im: Image): Int {
+        val p = im.planes[0]; val b = p.buffer; val n = b.limit()
+        var s = 0L; var c = 0
+        var i = 0
+        while (i < n) { s += b.get(i).toInt() and 0xff; c++; i += 97 }
+        return if (c > 0) (s / c).toInt() else 0
     }
 
     private fun copy(b: java.nio.ByteBuffer, old: ByteArray): ByteArray {
@@ -360,6 +420,8 @@ class AdasService : Service() {
             if (span >= 1500) m.runPolicy(feat)?.let { Op.parsePlan(it, o) }
         }
         lastMs = (SystemClock.elapsedRealtime() - t0).toInt()
+        aiCount++
+        if (wall - aiCountAt >= 2000) { measHz = (aiCount * 1000 / (wall - aiCountAt)).toInt(); aiCount = 0; aiCountAt = wall }
 
         // ---- canh bao ----
         poseKmh = 0.8f * poseKmh + 0.2f * o.poseVx * 3.6f
@@ -398,7 +460,7 @@ class AdasService : Service() {
     private fun onResult(o: Op.Out, g: Op.Cam, v: Float, ldw: Char, off: Float?, leadM: Float?, ttc: Float?, level: Int, near: Boolean) {
         lastNear = near
         val offCm = off?.let { (it * 100).roundToInt() }
-        val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, targetHz, lastMs, model?.backend ?: "-",
+        val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-",
             batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
         onSnap?.invoke(s)
         val now = SystemClock.elapsedRealtime()
@@ -422,8 +484,10 @@ class AdasService : Service() {
     }
 
     private fun stateMsg() = when {
-        loadMsg.isNotEmpty() -> loadMsg
+        loadMsg.isNotEmpty() && camNoImage() -> loadMsg
+        loadMsg.isNotEmpty() && !loadMsg.startsWith("Camera") -> loadMsg
         camNoImage() -> "Camera chưa lên hình (app khác đang dùng camera?)"
+        bright in 0..12 -> "Ảnh camera quá tối hoặc bị che"
         hot >= 3 -> "Máy nóng: đã dừng AI, chạy lại khi mát"
         parked -> "Xe đỗ: tạm dừng AI cho mát máy"
         hot == 2 -> "Máy nóng: giảm còn 5 lần/giây"
@@ -440,7 +504,7 @@ class AdasService : Service() {
     /** Khong co ket qua AI (dung/nong/dang nap): van cap nhat giao dien + giu HUD biet trang thai. */
     private fun publishIdle() {
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
-            targetHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0))
+            if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0))
     }
 
     // ---------------- tan suat + nhiet ----------------
@@ -557,6 +621,8 @@ class AdasService : Service() {
         private const val CH = "adas"
         private const val NID = 7
         const val ACTION_STOP = "stop"
+        const val PW = 640
+        const val PH = 360
 
         fun start(ctx: Context) {
             val i = Intent(ctx, AdasService::class.java)
