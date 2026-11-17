@@ -48,8 +48,37 @@ void phone_adas_to_xadas(const phone_adas_t *p, int legal_m, xadas_frame_t *f)
     f->min = f->level >= XA_LV_NEAR ? (uint16_t)mn : XA_NONE16;
 }
 
+bool phone_nav_parse(const char *s, size_t n, phone_nav_t *p)
+{
+    char b[200];
+    if (n < 3 || n >= sizeof b) return false;
+    memcpy(b, s, n);
+    b[n] = 0;
+    if (strncmp(b, "D1|", 3) != 0) return false;
+    memset(p, 0, sizeof *p);
+    p->dist_m = -1;
+    char *f = b + 3;
+    for (int i = 0; f && i < 7; i++) {
+        char *q = i < 6 ? strchr(f, '|') : NULL;                  /* ten duong (truong cuoi) giu nguyen */
+        if (q) *q = 0;
+        switch (i) {
+        case 0: p->turn = atoi(f); break;
+        case 1: p->dist_m = f[0] ? atoi(f) : -1; break;
+        case 2: p->exit_n = atoi(f); break;
+        case 3: p->remain_m = atoi(f); break;
+        case 4: p->remain_min = atoi(f); break;
+        case 5: snprintf(p->eta, sizeof p->eta, "%.5s", f); break;
+        case 6: snprintf(p->street, sizeof p->street, "%.95s", f); break;
+        }
+        f = q ? q + 1 : NULL;
+    }
+    p->on = p->turn > 0;
+    return true;
+}
+
 #ifndef XADAS_NO_UI
 #include "esp_log.h"
+#include "dashboard.h"
 #include "board.h"
 #include "obstacle_ui.h"
 #include "adas_feed.h"
@@ -59,6 +88,15 @@ static unsigned s_cnt;
 
 void phone_adas_on_write(const char *s, size_t n)
 {
+    phone_nav_t nv;
+    if (phone_nav_parse(s, n, &nv)) {
+        static int d_turn = -1;
+        if (nv.turn != d_turn) { d_turn = nv.turn; ESP_LOGI(TAG, "%.*s", (int)n, s); }
+        board_ui_lock();
+        ui_phone_nav(nv.on, nv.turn, nv.dist_m, nv.exit_n, nv.remain_m, nv.remain_min, nv.eta, nv.street);
+        board_ui_unlock();
+        return;
+    }
     phone_adas_t p;
     if (!phone_adas_parse(s, n, &p)) return;
     if ((s_cnt++ % 50) == 0 || p.level >= 2 || p.ldw != '-') ESP_LOGI(TAG, "%.*s", (int)n, s);

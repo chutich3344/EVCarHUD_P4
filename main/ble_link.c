@@ -173,12 +173,13 @@ static int pos_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
     return 0;
 }
 
-/* 4556d005: app EVCarHUD Lan (mo hinh openpilot tren dien thoai) ghi goi "A1|..." (phone_adas.h), ~10 goi/giay */
+/* 4556d005: app EVCarHUD Lan (mo hinh openpilot tren dien thoai) ghi goi "A1|..." (phone_adas.h), ~10 goi/giay,
+ * va goi dan duong "D1|..." ~1 goi/giay */
 static int lan_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
     (void)conn; (void)attr; (void)arg;
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_UNLIKELY;
-    char b[96];
+    char b[200];                                                 /* D1 co ten duong tieng Viet */
     uint16_t n = 0;
     if (OS_MBUF_PKTLEN(ctxt->om) >= sizeof b) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     if (ble_hs_mbuf_to_flat(ctxt->om, b, sizeof b - 1, &n) != 0) return BLE_ATT_ERR_UNLIKELY;

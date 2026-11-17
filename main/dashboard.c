@@ -160,6 +160,7 @@ static lv_timer_t *blink_tmr, *toast_tmr;
 /* ---------------- trang thai ---------------- */
 static int speed = -2, limit = -1, level = -1;
 static bool nav_is_ts;                                       /* man dan duong dang dan toi tram sac */
+static bool nav_is_pn;                                       /* man dan duong theo tuyen tu app Lan (goi D1) */
 static bool nav_on, has_route, wz_on, wz_hold;   /* wz_hold: giu dan duong khi dien thoai tam ngung gui */                        /* wz_on: Waze dang co lenh re */
 static void apply_nav(void);
 static int clk_h = -1, clk_m = -1, day = -1, month = -1, wday = -1;
@@ -1029,7 +1030,7 @@ static void render_top(void)
         left_end += 6 + xw;
     }
 
-    bool tsd = screen == SCR_NAV && nav_on && nav_is_ts;              /* dan toi tram sac: luon hien ten tram */
+    bool tsd = screen == SCR_NAV && nav_on && (nav_is_ts || nav_is_pn);   /* dan toi tram sac / theo app Lan: hien ten duong, khong "Chỉ có GPS" */
     const char *st = tsd ? street_nav : !waze ? "Chỉ có GPS" : screen == SCR_NAV && street_nav[0] ? street_nav : street_now;
     bool hw = screen == SCR_HIGHWAY;
     show(t_badge, false);                                         /* 16/11: bo chu "CAO TOC", thay bang bien CT + ten tuyen */
@@ -1037,7 +1038,7 @@ static void render_top(void)
     if (hw && !strncmp(st, "Cao tốc ", strlen("Cao tốc "))) st += strlen("Cao tốc ");
     lv_label_set_text(t_street, st);
     lv_obj_set_style_text_color(t_street, th->fg, 0);
-    show(t_bolt, tsd);
+    show(t_bolt, tsd && (nav_is_ts || turn_now == 17));        /* app Lan: tia set chi khi sap toi dich */
     lv_obj_set_style_text_color(t_bolt, lv_color_hex(night ? 0x5EEAD4 : 0x0F766E), 0);
 
     /* ben phai: nguon + cham GPS; cao toc them loi ra / tram dung nghi (chi khi co trong danh sach canh bao) */
@@ -1538,7 +1539,7 @@ static void set_screen(int s)
 static void update_screen(void)
 {
     int s;
-    if (nav_on && (nav_is_ts || wz_hold)) s = SCR_NAV;              /* dan toi tram sac / dang giu dan duong: ca khi mat tin hieu */
+    if (nav_on && (nav_is_ts || nav_is_pn || wz_hold)) s = SCR_NAV;              /* dan toi tram sac / dang giu dan duong: ca khi mat tin hieu */
     else if (!sig_ok || (!nav_on && !moving)) s = SCR_STANDBY;
     else if (nav_on) s = SCR_NAV;
     else if (ev_now && ev_now->dist <= ALERT_M) s = SCR_CRUISE;   /* man Toc do o co nho + dai canh bao */
@@ -2780,12 +2781,25 @@ static bool ts_dest_on(void);
 static int ts_turn(void);
 static void ts_title(char *b, size_t n);
 
+/* Dan duong theo tuyen tu app EVCarHUD Lan (goi D1, phone_adas.c) */
+#define PN_STALE_MS 15000
+static bool pn_on;
+static int pn_turn, pn_dist, pn_exit;
+static char pn_street[96];
+static uint32_t pn_tick;
+static void route_set(const char *eta, int remaining_m, int remaining_min);
+
 static void apply_nav(void)
 {
     int turn, dist, exit_n = 0, turn2 = 0;
     char st[96];
     nav_is_ts = false;
-    if (wz_on && !(wz_hold && ts_dest_on())) {                    /* Waze dang dan (giu tam thi nhuong tram sac) */
+    nav_is_pn = false;
+    if (pn_on) {                                                  /* app Lan dang dan theo tuyen: uu tien nhat */
+        turn = pn_turn; dist = pn_dist; exit_n = pn_exit;
+        snprintf(st, sizeof st, "%s", pn_street);
+        nav_is_pn = true;
+    } else if (wz_on && !(wz_hold && ts_dest_on())) {                    /* Waze dang dan (giu tam thi nhuong tram sac) */
         turn = wz_turn; dist = wz_dist; exit_n = wz_exit; turn2 = wz_turn2;
         snprintf(st, sizeof st, "%s", wz_street);
     } else if (ts_dest_on()) {
@@ -2882,6 +2896,11 @@ static const char *arrive_side(char side)
 static void nav_hold_cb(lv_timer_t *t)
 {
     (void)t;
+    if (pn_on && lv_tick_elaps(pn_tick) > PN_STALE_MS) {           /* app Lan im 15 s (tat app / mat Bluetooth): bo */
+        pn_on = false;
+        route_set("", 0, 0);
+        apply_nav();
+    }
     if (wz_hold && !sig_ok) wz_hold_ms = NAV_HOLD_MS;             /* mat han tin hieu: giu 2 phut */
     if (wz_hold && !arr_box && lv_tick_elaps(wz_lost_tick) > wz_hold_ms) {   /* het thoi gian giu: bo */
         wz_on = wz_hold = false;
@@ -2929,7 +2948,34 @@ void ui_set_nav(bool active, int turn, int dist_m, int exit_n, const char *stree
     apply_nav();
 }
 
+void ui_phone_nav(bool on, int turn, int dist_m, int exit_n, int remaining_m, int remaining_min, const char *eta,
+                  const char *street)
+{
+    if (!nav_tmr) nav_tmr = lv_timer_create(nav_hold_cb, 1000, NULL);
+    if (!on) {
+        if (!pn_on) return;
+        pn_on = false;
+        route_set("", 0, 0);
+        apply_nav();
+        return;
+    }
+    if (!pn_on && arr_box && turn != 17) arrive_close();           /* lo trinh moi */
+    pn_on = true;
+    pn_tick = lv_tick_get();
+    pn_turn = turn; pn_dist = dist_m; pn_exit = exit_n;
+    snprintf(pn_street, sizeof pn_street, "%s", street ? street : "");
+    if (turn == 17 && dist_m >= 0 && dist_m <= ARRIVE_M && !arr_box) arrive_show("Bạn đã đến nơi", pn_street[0] ? pn_street : arrive_side('A'));
+    route_set(eta, remaining_m, remaining_min);
+    apply_nav();
+}
+
 void ui_set_route(const char *eta, int remaining_m, int remaining_min)
+{
+    if (pn_on) return;                                            /* app Lan dang dan: giu con lai / gio den cua app Lan */
+    route_set(eta, remaining_m, remaining_min);
+}
+
+static void route_set(const char *eta, int remaining_m, int remaining_min)
 {
     has_route = (eta && eta[0]) || remaining_m > 0;
     snprintf(eta_txt, sizeof eta_txt, "%s", eta ? eta : "");
