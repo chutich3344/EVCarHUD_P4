@@ -147,6 +147,7 @@ class MainActivity : Activity() {
             "Tìm lại HUD",
             "Xem ảnh mô hình AI đang thấy",
             "Dò cam gương Wi-Fi",
+            "Chẩn đoán AI (xem số liệu + ghi 1 khung)",
             "Giới thiệu & giấy phép",
             "Thoát hẳn (tắt chạy nền)",
         )
@@ -171,8 +172,9 @@ class MainActivity : Activity() {
                 7 -> svc?.findHudAgain()
                 8 -> showModelView()
                 9 -> probeCam()
-                10 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
-                11 -> {
+                10 -> diag()
+                11 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
+                12 -> {
                     startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
                     finish()
                 }
@@ -193,6 +195,16 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this).setTitle("Ảnh mô hình thấy · " + (svc?.aiInfo() ?: ""))
             .setView(iv).setPositiveButton("Đóng", null).show()
+    }
+
+    /** So lieu chan doan day du (khong bi cat nhu tieu de) + nut ghi 1 khung de gui phan tich. */
+    private fun diag() {
+        val s = svc ?: return
+        AlertDialog.Builder(this).setTitle("Chẩn đoán AI").setMessage(s.calibInfo())
+            .setPositiveButton("Ghi 1 khung") { _, _ ->
+                android.widget.Toast.makeText(this, "Đang ghi khung tiếp theo…", android.widget.Toast.LENGTH_SHORT).show()
+                s.requestDump { m -> AlertDialog.Builder(this).setMessage(m).setPositiveButton("OK", null).show() }
+            }.setNegativeButton("Đóng", null).show()
     }
 
     /** Do cam guong Wi-Fi, hien ket qua tung dong + nut sao chep. */

@@ -273,6 +273,35 @@ class AdasService : Service() {
             "\nẢnh vào: ${if (outPct >= 0) "$outPct% ngoài khung" else "chưa có"} · cam ${yRowS}/${uvRowS}/${uvPixS}" +
             (if (o != null) " · khung sống: xe ${(o.leadProb * 100).roundToInt()}% vạch ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}% pose ${"%.1f".format(o.poseVx)}" else "")
     }
+    /** Ghi 1 khung chan doan (anh camera goc + goi mo hinh + ket qua) vao thu muc Download de gui phan tich. */
+    fun requestDump(cb: (String) -> Unit) { dumpReq = cb }
+    @Volatile private var dumpReq: ((String) -> Unit)? = null
+
+    private fun writeDump(cb: (String) -> Unit, g: Op.Cam, c: CamSource, dt: Long, vo: FloatArray, o: Op.Out,
+                          yRow: Int, uvRow: Int, uvPix: Int) {
+        val msg = try {
+            val hdr = "{\"w\":${g.w},\"h\":${g.h},\"f\":${g.f},\"pitch\":$calPitch,\"yaw\":$calYaw,\"roll\":$calRoll,\"flip\":${c.flip}," +
+                "\"yRow\":$yRow,\"uvRow\":$uvRow,\"uvPix\":$uvPix,\"ny\":${yArr.size},\"nu\":${uArr.size},\"nv\":${vArr.size},\"dt\":$dt," +
+                "\"backend\":\"${model?.backend}\",\"self\":\"${model?.selfTest?.replace("\"", "'")}\",\"lp\":${o.leadProb},\"lx\":${o.leadX}," +
+                "\"p1\":${o.laneProb[1]},\"p2\":${o.laneProb[2]},\"model\":\"${Build.MODEL}\",\"v\":$gpsKmh}\n"
+            val bb = java.nio.ByteBuffer.allocate(vo.size * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            for (x in vo) bb.putFloat(x)
+            val name = "evcarhud-chan-doan-${System.currentTimeMillis() / 1000}.bin"
+            val cv = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+                put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+            }
+            val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
+                ?: throw IllegalStateException("không tạo được file")
+            contentResolver.openOutputStream(uri)!!.use { os ->
+                os.write(hdr.toByteArray()); os.write(img); os.write(big); os.write(bb.array())
+                os.write(yArr); os.write(uArr); os.write(vArr)
+            }
+            "Đã lưu Download/$name\n(xe ${(o.leadProb * 100).roundToInt()}%, vạch ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}%)\nGửi file này lên Drive cho em."
+        } catch (e: Exception) { "Lỗi ghi file: ${e.message}" }
+        main.post { cb(msg) }
+    }
+
     @Volatile private var lastOut: Op.Out? = null
     @Volatile private var yRowS = 0
     @Volatile private var uvRowS = 0
@@ -486,8 +515,10 @@ class AdasService : Service() {
         System.arraycopy(ringBig[best], 0, big, 0, Op.PACK); System.arraycopy(ringBig[slot], 0, big, Op.PACK, Op.PACK)
 
         val o = Op.Out()
-        Op.parseVision(m.runVision(img, big), o)
+        val vo = m.runVision(img, big)
+        Op.parseVision(vo, o)
         lastOut = o; yRowS = yRow; uvRowS = uvRow; uvPixS = uvPix
+        dumpReq?.let { cb -> dumpReq = null; writeDump(cb, g, c, ts - ringT[best], vo, o, yRow, uvRow, uvPix) }
 
         // hang doi hidden_state cho mo hinh duong di: 25 moc cach 0,2 s
         System.arraycopy(o.hidden, 0, hid[hidI], 0, Op.HID_N); hidT[hidI] = ts
