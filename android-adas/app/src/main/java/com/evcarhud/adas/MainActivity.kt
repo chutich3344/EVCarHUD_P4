@@ -146,6 +146,7 @@ class MainActivity : Activity() {
             (if (prefs.showTemp) "Ẩn" else "Hiện") + " ô nhiệt độ",
             "Tìm lại HUD",
             "Xem ảnh mô hình AI đang thấy",
+            "Dò cam gương Wi-Fi",
             "Giới thiệu & giấy phép",
             "Thoát hẳn (tắt chạy nền)",
         )
@@ -169,8 +170,9 @@ class MainActivity : Activity() {
                 6 -> { prefs.showTemp = !prefs.showTemp; showPips() }
                 7 -> svc?.findHudAgain()
                 8 -> showModelView()
-                9 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
-                10 -> {
+                9 -> probeCam()
+                10 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
+                11 -> {
                     startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
                     finish()
                 }
@@ -191,6 +193,21 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this).setTitle("Ảnh mô hình thấy · " + (svc?.aiInfo() ?: ""))
             .setView(iv).setPositiveButton("Đóng", null).show()
+    }
+
+    /** Do cam guong Wi-Fi, hien ket qua tung dong + nut sao chep. */
+    private fun probeCam() {
+        val tv = android.widget.TextView(this).apply { setTextIsSelectable(true); textSize = 12f; setPadding(32, 16, 32, 16); text = "Đang dò… (khoảng 30 giây)\n" }
+        val sv = android.widget.ScrollView(this).apply { addView(tv) }
+        val sb = StringBuilder()
+        AlertDialog.Builder(this).setTitle("Dò cam gương Wi-Fi").setView(sv)
+            .setPositiveButton("Sao chép") { _, _ ->
+                (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("do-cam", sb.toString()))
+            }.setNegativeButton("Đóng", null).show()
+        Thread {
+            Probe.run(this) { line -> runOnUiThread { sb.append(line).append('\n'); tv.text = sb.toString() } }
+        }.start()
     }
 
     private fun mapName(k: String) = when (k) { "osm" -> "OpenStreetMap"; else -> "Google (thử nghiệm, nền tối)" }

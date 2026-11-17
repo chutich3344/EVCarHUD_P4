@@ -76,6 +76,7 @@ class OpModel(ctx: Context, accel: String) : AutoCloseable {
             selfTest = "không có khung mẫu"; backend = "CPU"; return c
         }
         val ref = Op.Out().also { Op.parseVision(run(c, img, big).copyOf(), it) }
+        selfTest = "mẫu CPU: xe ${(ref.leadProb * 100).toInt()}% vạch ${(ref.laneProb[1] * 100).toInt()}/${(ref.laneProb[2] * 100).toInt()}% · "
         for (fp16 in booleanArrayOf(true, false)) {
             val name = if (fp16) "NPU" else "NPU32"
             var s: OrtSession? = null
@@ -86,7 +87,7 @@ class OpModel(ctx: Context, accel: String) : AutoCloseable {
                 Log.i(TAG, "tu kiem $name lech $err")
                 if (err < 0.35f) {
                     c.close(); backend = name
-                    selfTest = "$name khớp CPU (lệch ${"%.2f".format(err)})"
+                    selfTest += "$name khớp CPU (lệch ${"%.2f".format(err)})"
                     return s
                 }
                 selfTest += "$name sai (lệch ${"%.1f".format(err)}) · "

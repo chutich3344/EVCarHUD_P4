@@ -264,7 +264,19 @@ class AdasService : Service() {
     }
 
     /** Thong tin bo xu ly AI + ket qua tu kiem NPU. */
-    fun aiInfo(): String = model?.let { "AI ${it.backend}, ${lastMs} ms" + (if (it.selfTest.isNotEmpty()) " · ${it.selfTest}" else "") } ?: "AI chưa nạp"
+    fun aiInfo(): String {
+        val m = model ?: return "AI chưa nạp"
+        val w = warpMed
+        val outPct = if (w != null) 100 * w.y.count { it < 0 } / w.y.size else -1
+        val o = lastOut
+        return "AI ${m.backend}, ${lastMs} ms" + (if (m.selfTest.isNotEmpty()) " · ${m.selfTest}" else "") +
+            "\nẢnh vào: ${if (outPct >= 0) "$outPct% ngoài khung" else "chưa có"} · cam ${yRowS}/${uvRowS}/${uvPixS}" +
+            (if (o != null) " · khung sống: xe ${(o.leadProb * 100).roundToInt()}% vạch ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}% pose ${"%.1f".format(o.poseVx)}" else "")
+    }
+    @Volatile private var lastOut: Op.Out? = null
+    @Volatile private var yRowS = 0
+    @Volatile private var uvRowS = 0
+    @Volatile private var uvPixS = 0
 
     /** Ghep kenh Y cua khung moi nhat thanh anh xam 512x256 (goc hep) tren 512x256 (goc rong). */
     fun modelView(): Bitmap? {
@@ -475,6 +487,7 @@ class AdasService : Service() {
 
         val o = Op.Out()
         Op.parseVision(m.runVision(img, big), o)
+        lastOut = o; yRowS = yRow; uvRowS = uvRow; uvPixS = uvPix
 
         // hang doi hidden_state cho mo hinh duong di: 25 moc cach 0,2 s
         System.arraycopy(o.hidden, 0, hid[hidI], 0, Op.HID_N); hidT[hidI] = ts
