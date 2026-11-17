@@ -118,7 +118,7 @@ class TileMap(ctx: Context) : View(ctx) {
             val latR = Math.toRadians(lat)
             val fy = (1 - ln(tan(latR) + 1 / cos(latR)) / PI) / 2 * n
             val ts = 256f * (w / 300f).coerceIn(0.8f, 1.6f)
-            val cx = w / 2; val cy = h * 0.58f
+            val cx = w / 2; val cy = if (Nav.active) h * 0.74f else h * 0.58f   // dan duong: xe thap xuong, thay xa phia truoc
             // xoay ca ban do quanh vi tri xe: huong chay len tren -> can phu kin hinh tron ban kinh = duong cheo
             val rr = kotlin.math.hypot(maxOf(cx, w - cx).toDouble(), maxOf(cy, h - cy).toDouble()) / ts
             val tx0 = floor(fx - rr).toInt(); val tx1 = floor(fx + rr).toInt()
