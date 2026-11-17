@@ -155,6 +155,16 @@ class TileMap(ctx: Context) : View(ctx) {
         cv.drawRoundRect(RectF(2f, 2f, w - 2, h - 2), rad, rad, p)
     }
 
+    private val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+
+    private fun inetNet(): android.net.Network? {
+        fun ok(n: android.net.Network?) = n != null && cm.getNetworkCapabilities(n)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        val a = cm.activeNetwork
+        if (ok(a)) return a
+        @Suppress("DEPRECATION")
+        return cm.allNetworks.firstOrNull { ok(it) }
+    }
+
     private fun tile(x: Int, y: Int): Bitmap? {
         val src = source
         val k = "$zoom/$x/$y"
@@ -170,7 +180,8 @@ class TileMap(ctx: Context) : View(ctx) {
             try {
                 if (f.exists()) bm = BitmapFactory.decodeFile(f.absolutePath)
                 if (bm == null) {
-                    val c = URL(url).openConnection() as HttpURLConnection
+                    // dang noi Wi-Fi cam guong (khong co Internet): tai qua mang co Internet that (4G/5G)
+                    val c = (inetNet()?.openConnection(URL(url)) ?: URL(url).openConnection()) as HttpURLConnection
                     c.setRequestProperty("User-Agent", "EVCarHUD-Lan/0.1 (Android)")
                     c.connectTimeout = 8000; c.readTimeout = 8000
                     val code = c.responseCode
