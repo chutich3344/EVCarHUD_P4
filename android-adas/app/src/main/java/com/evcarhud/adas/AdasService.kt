@@ -452,7 +452,8 @@ class AdasService : Service() {
                     span = maxOf(span, ts - hidT[pick])
                 } else java.util.Arrays.fill(feat, k * Op.HID_N, (k + 1) * Op.HID_N, 0f)
             }
-            if (span >= 1500) m.runPolicy(feat)?.let { Op.parsePlan(it, o) }
+            // duong di chi de ve tren man hinh (HUD khong dung): chay nen thi bo cho mat may
+            if (span >= 1500 && uiVisible) m.runPolicy(feat)?.let { Op.parsePlan(it, o) }
         }
         lastMs = (SystemClock.elapsedRealtime() - t0).toInt()
         aiCount++
@@ -545,11 +546,11 @@ class AdasService : Service() {
     // ---------------- tan suat + nhiet ----------------
     private fun applyRate() {
         val v = if (SystemClock.elapsedRealtime() - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
-        // 17/11: giam tai (pin 44-45 do khi chay pho): toi da 10 lan/giay, binh thuong 8
+        // 17/11: giam tai (pin 44-45 do khi chay pho): toi da 10 lan/giay, binh thuong 5 (cap khung cach dung 0,2 s nhu mo hinh hoc)
         var hz = when {
             v > 80 || lastNear -> 10
             v < 5 -> 4
-            else -> 8
+            else -> 5
         }
         hz = when (hot) { 1 -> minOf(hz, 6); 2 -> minOf(hz, 4); 3 -> 0; else -> hz }
         if (parked || model == null) hz = 0
