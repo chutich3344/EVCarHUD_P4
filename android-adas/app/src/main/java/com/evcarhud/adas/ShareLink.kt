@@ -40,7 +40,7 @@ object ShareLink {
         fromText(text, name)?.let { return it }
         if (url == null) return null
         // theo chuyen huong (maps.app.goo.gl, her.is, share.here.com...) toi link day du
-        var u = url
+        var u: String = url
         for (k in 0 until 6) {
             fromText(u, name)?.let { return it }
             val c = Nav.open(ctx, u)
