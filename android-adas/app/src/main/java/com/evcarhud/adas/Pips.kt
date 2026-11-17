@@ -69,7 +69,7 @@ class TempPip(ctx: Context) : View(ctx) {
 
 /**
  * Ban do goc: nen OpenStreetMap (luu tam tren may, vung da di qua xem lai duoc khi mat mang) + vi tri GPS dien thoai.
- * Huong Bac len tren, mui ten = huong xe chay. Cap nhat theo GPS (1 lan/giay).
+ * Ban do xoay theo huong xe chay (mui ten luon chi len tren, nhu app dan duong). Cap nhat theo GPS (1 lan/giay).
  */
 class TileMap(ctx: Context) : View(ctx) {
     /** Nguon nen: google (mac dinh, thu nghiem, dao mau thanh nen toi), osm. CARTO da doi khoa API nen bo. */
@@ -81,7 +81,7 @@ class TileMap(ctx: Context) : View(ctx) {
     private var lon = 0.0
     private var bearing = 0f
     private var fix = false
-    private val mem = LruCache<String, Bitmap>(24)
+    private val mem = LruCache<String, Bitmap>(48)
     private val loading = HashSet<String>()
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -99,8 +99,10 @@ class TileMap(ctx: Context) : View(ctx) {
 
     fun update(s: Snap) {
         if (!s.hasFix) { if (fix) { fix = false; invalidate() }; return }
-        if (s.lat == lat && s.lon == lon && s.bearing == bearing && fix) return
-        lat = s.lat; lon = s.lon; bearing = s.bearing; fix = true
+        // chi lay huong khi xe dang chay (dung yen GPS bao huong lung tung)
+        val b = if (s.vKmh > 5f) s.bearing else bearing
+        if (s.lat == lat && s.lon == lon && b == bearing && fix) return
+        lat = s.lat; lon = s.lon; bearing = b; fix = true
         invalidate()
     }
 
@@ -117,18 +119,22 @@ class TileMap(ctx: Context) : View(ctx) {
             val fy = (1 - ln(tan(latR) + 1 / cos(latR)) / PI) / 2 * n
             val ts = 256f * (w / 300f).coerceIn(0.8f, 1.6f)
             val cx = w / 2; val cy = h * 0.58f
-            val tx0 = floor(fx - cx / ts).toInt(); val tx1 = floor(fx + (w - cx) / ts).toInt()
-            val ty0 = floor(fy - cy / ts).toInt(); val ty1 = floor(fy + (h - cy) / ts).toInt()
+            // xoay ca ban do quanh vi tri xe: huong chay len tren -> can phu kin hinh tron ban kinh = duong cheo
+            val rr = kotlin.math.hypot(maxOf(cx, w - cx).toDouble(), maxOf(cy, h - cy).toDouble()) / ts
+            val tx0 = floor(fx - rr).toInt(); val tx1 = floor(fx + rr).toInt()
+            val ty0 = floor(fy - rr).toInt(); val ty1 = floor(fy + rr).toInt()
+            cv.save(); cv.rotate(-bearing, cx, cy)
             for (tx in tx0..tx1) for (ty in ty0..ty1) {
                 if (ty < 0 || ty >= n) continue
                 val bm = tile(((tx % n) + n) % n, ty) ?: continue
                 val left = cx + ((tx - fx) * ts).toFloat(); val top = cy + ((ty - fy) * ts).toFloat()
                 cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), if (source == "google") dark else null)
             }
+            cv.restore()
             // lam toi nhe cho de nhin ban dem
             if (source != "google") cv.drawColor(Color.argb(70, 0, 0, 0))
-            // mui ten vi tri
-            cv.save(); cv.translate(cx, cy); cv.rotate(bearing)
+            // mui ten vi tri: luon chi len (ban do da xoay)
+            cv.save(); cv.translate(cx, cy)
             val a = h * 0.07f
             val arrow = Path().apply { moveTo(0f, -a * 1.3f); lineTo(a, a); lineTo(0f, a * 0.45f); lineTo(-a, a); close() }
             p.style = Paint.Style.FILL; p.color = Color.rgb(71, 224, 138); cv.drawPath(arrow, p)

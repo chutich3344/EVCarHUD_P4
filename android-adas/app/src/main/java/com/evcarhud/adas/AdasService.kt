@@ -114,7 +114,7 @@ class AdasService : Service() {
     private var parked = false
     private var batt = 0f
     private var thermal = 0
-    private var hot = 0            // 0 binh thuong, 1 toi da 10 Hz, 2 toi da 5 Hz, 3 dung
+    private var hot = 0            // 0 binh thuong, 1 toi da 6 Hz, 2 toi da 4 Hz, 3 dung
     private var loadMsg = "Đang nạp mô hình…"
     private var lastSend = 0L
     private var lastNotif = 0L
@@ -256,7 +256,31 @@ class AdasService : Service() {
         val hf = Math.toDegrees(2 * atan(c.size.width / 2 / c.focalPx))
         fun d(r: Double) = "%.1f°".format(Math.toDegrees(r))
         return "Camera ${c.size.width}x${c.size.height}, góc ngang ${"%.0f".format(hf)}° (${c.focalSrc})\nCúi ${d(calPitch)} · lệch ${d(calYaw)} · nghiêng ${d(calRoll)}" +
-            (if (prefs.autoCalib) (if (prefs.calibrated) " · tự hiệu chỉnh xong" else " · đang tự hiệu chỉnh") else " · chỉnh tay")
+            (if (prefs.autoCalib) (if (prefs.calibrated) " · tự hiệu chỉnh xong" else " · đang tự hiệu chỉnh") else " · chỉnh tay") +
+            "\n" + aiInfo()
+    }
+
+    /** Thong tin bo xu ly AI + ket qua tu kiem NPU. */
+    fun aiInfo(): String = model?.let { "AI ${it.backend}, ${lastMs} ms" + (if (it.selfTest.isNotEmpty()) " · ${it.selfTest}" else "") } ?: "AI chưa nạp"
+
+    /** Ghep kenh Y cua khung moi nhat thanh anh xam 512x256 (goc hep) tren 512x256 (goc rong). */
+    fun modelView(): Bitmap? {
+        if (ringCount == 0) return null
+        val j = (ringI - 1 + ringN) % ringN
+        val px = IntArray(512 * 512)
+        for ((half, src) in listOf(ringMed[j], ringBig[j]).withIndex()) {
+            for (c in 0..3) {
+                val dr = if (c == 1 || c == 3) 1 else 0
+                val dc = if (c >= 2) 1 else 0
+                for (r in 0 until 128) for (q in 0 until 256) {
+                    val v = src[(c * 128 + r) * 256 + q].toInt() and 0xff
+                    px[(half * 256 + 2 * r + dr) * 512 + 2 * q + dc] = (0xff shl 24) or (v shl 16) or (v shl 8) or v
+                }
+            }
+        }
+        // vach ngang phan cach 2 anh
+        for (x in 0 until 512) px[256 * 512 + x] = 0xff47e08a.toInt()
+        return Bitmap.createBitmap(px, 512, 512, Bitmap.Config.ARGB_8888)
     }
 
     // trong luc -> goc cui / nghieng cua camera. Man hinh ngang (dinh may ben trai), camera sau:
@@ -310,7 +334,7 @@ class AdasService : Service() {
         val now = SystemClock.elapsedRealtime()
         lastFrameAt = now
         val cb = onPreview
-        if (uiVisible && cb != null && now - lastPrev >= 66) { lastPrev = now; try { drawPreview(im, cb) } catch (e: Exception) { Log.w(TAG, "prev", e) } }
+        if (uiVisible && cb != null && now - lastPrev >= (if (hot >= 1) 200 else 100)) { lastPrev = now; try { drawPreview(im, cb) } catch (e: Exception) { Log.w(TAG, "prev", e) } }
         else if (now - lastPrev >= 1000) { lastPrev = now; try { bright = meanY(im) } catch (_: Exception) {} }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
@@ -501,7 +525,7 @@ class AdasService : Service() {
         bright in 0..12 -> "Ảnh camera quá tối hoặc bị che"
         hot >= 3 -> "Máy nóng: đã dừng AI, chạy lại khi mát"
         parked -> "Xe đỗ: tạm dừng AI cho mát máy"
-        hot == 2 -> "Máy nóng: giảm còn 5 lần/giây"
+        hot == 2 -> "Máy nóng: giảm còn 4 lần/giây"
         prefs.autoCalib && !prefs.calibrated && targetHz > 0 -> "Đang tự hiệu chỉnh camera (chạy thẳng trên 20 km/h)…"
         else -> ""
     }
@@ -521,12 +545,13 @@ class AdasService : Service() {
     // ---------------- tan suat + nhiet ----------------
     private fun applyRate() {
         val v = if (SystemClock.elapsedRealtime() - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
+        // 17/11: giam tai (pin 44-45 do khi chay pho): toi da 10 lan/giay, binh thuong 8
         var hz = when {
-            v > 80 || lastNear -> 20
-            v < 5 -> 5
-            else -> 10
+            v > 80 || lastNear -> 10
+            v < 5 -> 4
+            else -> 8
         }
-        hz = when (hot) { 1 -> minOf(hz, 10); 2 -> minOf(hz, 5); 3 -> 0; else -> hz }
+        hz = when (hot) { 1 -> minOf(hz, 6); 2 -> minOf(hz, 4); 3 -> 0; else -> hz }
         if (parked || model == null) hz = 0
         targetHz = hz
         val c = cam ?: return
@@ -565,10 +590,10 @@ class AdasService : Service() {
         batt = (bi?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0) / 10f
         thermal = if (Build.VERSION.SDK_INT >= 29) (getSystemService(POWER_SERVICE) as PowerManager).currentThermalStatus else 0
         hot = when {
-            batt >= 48 || thermal >= PowerManager.THERMAL_STATUS_SEVERE -> 3
+            batt >= 47 || thermal >= PowerManager.THERMAL_STATUS_SEVERE -> 3
             hot == 3 && (batt >= 44 || thermal >= PowerManager.THERMAL_STATUS_MODERATE) -> 3
-            batt >= 45 || thermal == PowerManager.THERMAL_STATUS_MODERATE -> 2
-            batt >= 42 || thermal == PowerManager.THERMAL_STATUS_LIGHT -> 1
+            batt >= 43 || thermal == PowerManager.THERMAL_STATUS_MODERATE -> 2
+            batt >= 40 || thermal == PowerManager.THERMAL_STATUS_LIGHT -> 1
             else -> 0
         }
     }

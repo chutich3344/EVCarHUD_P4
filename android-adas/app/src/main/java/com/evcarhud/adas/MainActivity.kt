@@ -145,6 +145,7 @@ class MainActivity : Activity() {
             "Nguồn bản đồ: " + mapName(prefs.mapSrc),
             (if (prefs.showTemp) "Ẩn" else "Hiện") + " ô nhiệt độ",
             "Tìm lại HUD",
+            "Xem ảnh mô hình AI đang thấy",
             "Giới thiệu & giấy phép",
             "Thoát hẳn (tắt chạy nền)",
         )
@@ -167,13 +168,29 @@ class MainActivity : Activity() {
                 }
                 6 -> { prefs.showTemp = !prefs.showTemp; showPips() }
                 7 -> svc?.findHudAgain()
-                8 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
-                9 -> {
+                8 -> showModelView()
+                9 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
+                10 -> {
                     startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
                     finish()
                 }
             }
         }.show()
+    }
+
+    /** Anh xam ma mo hinh nhan (tren: goc hep nhin xa, duoi: goc rong) de kiem tra hieu chinh / anh dau vao. */
+    private fun showModelView() {
+        val bm = svc?.modelView()
+        if (bm == null) {
+            AlertDialog.Builder(this).setMessage("Chưa có khung nào (AI đang dừng hoặc chưa chạy).").setPositiveButton("OK", null).show()
+            return
+        }
+        val iv = android.widget.ImageView(this).apply {
+            setImageBitmap(bm); adjustViewBounds = true; scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(android.graphics.Color.BLACK)
+        }
+        AlertDialog.Builder(this).setTitle("Ảnh mô hình thấy · " + (svc?.aiInfo() ?: ""))
+            .setView(iv).setPositiveButton("Đóng", null).show()
     }
 
     private fun mapName(k: String) = when (k) { "osm" -> "OpenStreetMap"; else -> "Google (thử nghiệm, nền tối)" }
