@@ -204,7 +204,8 @@ class MainActivity : Activity() {
             .setPositiveButton("Ghi 1 khung") { _, _ ->
                 android.widget.Toast.makeText(this, "Đang ghi khung tiếp theo…", android.widget.Toast.LENGTH_SHORT).show()
                 s.requestDump { m -> AlertDialog.Builder(this).setMessage(m).setPositiveButton("OK", null).show() }
-            }.setNegativeButton("Đóng", null).show()
+            }.setNeutralButton(if (prefs.showDbg) "Ẩn khỏi màn" else "Hiện trên màn") { _, _ -> prefs.showDbg = !prefs.showDbg }
+            .setNegativeButton("Đóng", null).show()
     }
 
     /** Do cam guong Wi-Fi, hien ket qua tung dong + nut sao chep. */

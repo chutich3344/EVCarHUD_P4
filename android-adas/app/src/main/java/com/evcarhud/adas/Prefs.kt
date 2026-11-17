@@ -42,6 +42,9 @@ class Prefs(ctx: Context) {
     var showMap: Boolean
         get() = p.getBoolean("map", true)
         set(v) = p.edit().putBoolean("map", v).apply()
+    var showDbg: Boolean
+        get() = p.getBoolean("dbg", false)
+        set(v) = p.edit().putBoolean("dbg", v).apply()
     var showTemp: Boolean
         get() = p.getBoolean("temp", true)
         set(v) = p.edit().putBoolean("temp", v).apply()

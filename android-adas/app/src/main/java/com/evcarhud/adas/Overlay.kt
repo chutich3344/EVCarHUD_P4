@@ -88,6 +88,7 @@ class Overlay(ctx: Context) : View(ctx) {
             cv.drawText("PHANH!", width / 2f, height / 2f + 5 * u, txt)
         }
         drawTop(cv, sn, u)
+        sn?.dbg?.let { drawDbg(cv, it, u) }
         if (sn != null && !calib) drawWarn(cv, sn, u)
         if (calib) { drawCalib(cv, u); if (sn != null && sn.msg.isNotEmpty()) pill(cv, sn.msg, width / 2f, 17.5f * u, u) }
     }
@@ -229,6 +230,28 @@ class Overlay(ctx: Context) : View(ctx) {
         xr -= chip(cv, xr, top, u, "LÀN", null, lanBg) + 0.6f * u
         val hudOk = sn?.hudOk == true
         chip(cv, xr, top, u, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32))
+    }
+
+    /** Bang so lieu chan doan trong suot o mep trai (de chup man hinh khi chay thu). */
+    private fun drawDbg(cv: Canvas, s: String, u: Float) {
+        txt.textAlign = Paint.Align.LEFT; txt.textSize = 1.15f * u
+        val maxW = width * 0.42f
+        val lines = ArrayList<String>()
+        for (raw in s.split("\n")) {
+            var cur = ""
+            for (part in raw.split(" · ")) {
+                val t = if (cur.isEmpty()) part else "$cur · $part"
+                if (txt.measureText(t) > maxW && cur.isNotEmpty()) { lines += cur; cur = part } else cur = t
+            }
+            if (cur.isNotEmpty()) lines += cur
+        }
+        val lh = 1.5f * u
+        val x = 2f * u; val y0 = 8.2f * u
+        val w = lines.maxOf { txt.measureText(it) } + 1.6f * u
+        fill.color = Color.argb(120, 0, 0, 0)
+        cv.drawRoundRect(RectF(x, y0, x + w, y0 + lines.size * lh + 0.8f * u), u, u, fill)
+        txt.color = Color.argb(235, 255, 255, 255)
+        lines.forEachIndexed { i, l -> cv.drawText(l, x + 0.8f * u, y0 + (i + 1) * lh, txt) }
     }
 
     private fun drawWarn(cv: Canvas, sn: Snap, u: Float) {

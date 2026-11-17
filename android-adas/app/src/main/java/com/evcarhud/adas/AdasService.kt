@@ -65,6 +65,8 @@ class Snap(
 ) {
     /** Mep tren taplo (ti le chieu cao anh, 1 = khong thay taplo): ve lan/duong di khong de len taplo. */
     var hood = 1f
+    /** So lieu chan doan hien tren man (bat trong Chan doan AI). */
+    var dbg: String? = null
 }
 
 /**
@@ -260,7 +262,7 @@ class AdasService : Service() {
         fun d(r: Double) = "%.1f°".format(Math.toDegrees(r))
         return "Camera ${c.size.width}x${c.size.height}, góc ngang ${"%.0f".format(hf)}° (${c.focalSrc})\nCúi ${d(calPitch)} · lệch ${d(calYaw)} · nghiêng ${d(calRoll)}" +
             (if (prefs.autoCalib) (if (prefs.calibrated) " · tự hiệu chỉnh xong" else " · đang tự hiệu chỉnh") else " · chỉnh tay") +
-            "\n" + aiInfo()
+            "\n" + aiInfo() + "\n${if (targetHz == 0) 0 else measHz} lần/giây · ${gpsKmh.roundToInt()} km/h · mép taplo ${(prefs.hood * 100).roundToInt()}% · pin ${batt.roundToInt()}°"
     }
 
     /** Thong tin bo xu ly AI + ket qua tu kiem NPU. */
@@ -585,6 +587,7 @@ class AdasService : Service() {
         val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-",
             batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
         s.hood = prefs.hood
+        if (prefs.showDbg) s.dbg = calibInfo()
         onSnap?.invoke(s)
         val now = SystemClock.elapsedRealtime()
         if (now - lastSend >= 95) {
@@ -628,7 +631,7 @@ class AdasService : Service() {
     private fun publishIdle() {
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
             if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
-            .also { it.hood = prefs.hood })
+            .also { it.hood = prefs.hood; if (prefs.showDbg) it.dbg = calibInfo() })
     }
 
     // ---------------- tan suat + nhiet ----------------
