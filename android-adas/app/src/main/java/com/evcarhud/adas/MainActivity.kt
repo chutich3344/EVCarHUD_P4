@@ -64,7 +64,34 @@ class MainActivity : Activity() {
             showPips()
         }
         askPerms()
+        handleNav(intent)
     }
+
+    override fun onNewIntent(i: Intent) {
+        super.onNewIntent(i)
+        setIntent(i)
+        handleNav(i)
+    }
+
+    /** Diem dich tu app EVCarHUD Charge / link chia se HERE WeGo, Google Maps -> dan duong tren ban do PiP. */
+    private fun handleNav(i: Intent?) {
+        val q = ShareLink.quick(i)
+        if (q != null) { goNav(q); return }
+        if (i == null || !ShareLink.isShare(i)) return
+        toast("Đang đọc link địa điểm…")
+        Thread {
+            val d = try { ShareLink.resolve(this, i) } catch (e: Exception) { null }
+            runOnUiThread { if (d != null) goNav(d) else toast("Link này không có toạ độ, thử chia sẻ lại từ HERE WeGo / Google Maps") }
+        }.start()
+    }
+
+    private fun goNav(d: Dest) {
+        Nav.start(this, d, prefs.hereKey)
+        if (!prefs.showMap) { prefs.showMap = true; showPips() }
+        toast("Dẫn đường tới ${d.name}")
+    }
+
+    private fun toast(t: String) = android.widget.Toast.makeText(this, t, android.widget.Toast.LENGTH_SHORT).show()
 
     private fun sizePips(w: Int) {
         val u = w / 100f
@@ -136,7 +163,11 @@ class MainActivity : Activity() {
     }
 
     private fun settings() {
-        val items = arrayOf(
+        val navItems = arrayOf(
+            if (Nav.active) "Kết thúc dẫn đường tới ${Nav.dest?.name}" else "Dẫn đường: mở trạm từ app EVCarHUD Charge hoặc chia sẻ link HERE WeGo / Google Maps",
+            "Khoá HERE (tính đường): " + (if (prefs.hereKey.isEmpty()) "chưa có, đang dùng OSRM" else "đã lưu …" + prefs.hereKey.takeLast(4)),
+        )
+        val items = navItems + arrayOf(
             "Tự hiệu chỉnh camera: " + (if (prefs.autoCalib) "BẬT" else "TẮT"),
             "Hiệu chỉnh tay (kéo điểm tụ)",
             "Chiều cao camera: ${"%.1f".format(prefs.camH)} m",
@@ -151,8 +182,10 @@ class MainActivity : Activity() {
             "Giới thiệu & giấy phép",
             "Thoát hẳn (tắt chạy nền)",
         )
-        AlertDialog.Builder(this).setTitle("Cài đặt\n" + (svc?.calibInfo() ?: "")).setItems(items) { _, i ->
-            when (i) {
+        AlertDialog.Builder(this).setTitle("Cài đặt\n" + (svc?.calibInfo() ?: "")).setItems(items) { _, k ->
+            if (k == 0) { if (Nav.active) Nav.stop(); return@setItems }
+            if (k == 1) { hereKeyDialog(); return@setItems }
+            when (k - navItems.size) {
                 0 -> svc?.setAuto(!prefs.autoCalib)
                 1 -> startCalib()
                 2 -> {
@@ -180,6 +213,17 @@ class MainActivity : Activity() {
                 }
             }
         }.show()
+    }
+
+    private fun hereKeyDialog() {
+        val e = android.widget.EditText(this).apply {
+            setText(prefs.hereKey); hint = "Dán API key từ platform.here.com"; setSingleLine()
+        }
+        AlertDialog.Builder(this).setTitle("Khoá HERE Routing")
+            .setMessage("Dùng để tính đường (chính xác hơn ở Việt Nam). Để trống thì dùng OSRM miễn phí. Khoá chỉ lưu trên máy này.")
+            .setView(e)
+            .setPositiveButton("Lưu") { _, _ -> prefs.hereKey = e.text.toString(); toast(if (prefs.hereKey.isEmpty()) "Dùng OSRM" else "Đã lưu khoá HERE") }
+            .setNegativeButton("Huỷ", null).show()
     }
 
     /** Anh xam ma mo hinh nhan (tren: goc hep nhin xa, duoi: goc rong) de kiem tra hieu chinh / anh dau vao. */

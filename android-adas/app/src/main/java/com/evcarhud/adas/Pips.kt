@@ -130,9 +130,9 @@ class TileMap(ctx: Context) : View(ctx) {
                 val left = cx + ((tx - fx) * ts).toFloat(); val top = cy + ((ty - fy) * ts).toFloat()
                 cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), if (source == "google") dark else null)
             }
+            if (source != "google") cv.drawColor(Color.argb(70, 0, 0, 0))   // lam toi nhe cho de nhin ban dem
+            drawRoute(cv, n, fx, fy, ts, cx, cy)
             cv.restore()
-            // lam toi nhe cho de nhin ban dem
-            if (source != "google") cv.drawColor(Color.argb(70, 0, 0, 0))
             // mui ten vi tri: luon chi len (ban do da xoay)
             cv.save(); cv.translate(cx, cy)
             val a = h * 0.07f
@@ -144,6 +144,7 @@ class TileMap(ctx: Context) : View(ctx) {
             p.style = Paint.Style.FILL; p.color = Color.argb(200, 255, 255, 255); p.textSize = h * 0.08f; p.textAlign = Paint.Align.CENTER
             cv.drawText("Đang chờ GPS…", w / 2, h / 2, p)
         }
+        if (Nav.active) { drawBanner(cv, w, h); cv.restore(); drawFrame(cv, w, h, rad); return }
         // thanh tieu de
         p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14)
         cv.drawRect(0f, 0f, w, h * 0.15f, p)
@@ -151,8 +152,151 @@ class TileMap(ctx: Context) : View(ctx) {
         val credit = if (source == "osm") "© OpenStreetMap" else "© Google"
         cv.drawText(if (err.isNotEmpty()) "Lỗi tải bản đồ: $err" else "GPS điện thoại · $credit", h * 0.05f, h * 0.1f, p)
         cv.restore()
+        drawFrame(cv, w, h, rad)
+    }
+
+    private fun drawFrame(cv: Canvas, w: Float, h: Float, rad: Float) {
         p.style = Paint.Style.STROKE; p.strokeWidth = 4f; p.color = Color.argb(230, 255, 255, 255)
         cv.drawRoundRect(RectF(2f, 2f, w - 2, h - 2), rad, rad, p)
+    }
+
+    // ---------------- dan duong: vach tuyen + tram o dich + bang chi dan ----------------
+    private val routePath = Path()
+    private val navListener: () -> Unit = { postInvalidate() }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); Nav.listeners += navListener }
+    override fun onDetachedFromWindow() { Nav.listeners -= navListener; super.onDetachedFromWindow() }
+
+    /** Ve trong canvas da xoay theo huong xe. n: so o o muc zoom; (fx, fy): vi tri xe theo don vi o. */
+    private fun drawRoute(cv: Canvas, n: Int, fx: Double, fy: Double, ts: Float, cx: Float, cy: Float) {
+        val d = Nav.dest ?: return
+        fun px(lo: Double) = cx + (((lo + 180) / 360 * n) - fx).toFloat() * ts
+        fun py(la: Double): Float {
+            val r = Math.toRadians(la)
+            return cy + (((1 - ln(tan(r) + 1 / cos(r)) / PI) / 2 * n) - fy).toFloat() * ts
+        }
+        val r = Nav.route
+        if (r != null) {
+            routePath.reset()
+            // tu vi tri xe toi het tuyen (bo doan da di), bo bot diem qua sat nhau
+            var i = r.cum.indexOfFirst { it >= Nav.along }.let { if (it <= 0) 0 else it - 1 }
+            routePath.moveTo(cx, cy)
+            var lx = cx; var ly = cy
+            val lim = maxOf(width, height) * 3f
+            while (i < r.lat.size) {
+                val x = px(r.lon[i]); val y = py(r.lat[i])
+                if ((x - lx) * (x - lx) + (y - ly) * (y - ly) > 9f || i == r.lat.size - 1) { routePath.lineTo(x, y); lx = x; ly = y }
+                if (kotlin.math.abs(x - cx) > lim && kotlin.math.abs(y - cy) > lim) break
+                i++
+            }
+            p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
+            p.strokeWidth = ts * 0.075f; p.color = Color.rgb(6, 40, 26); cv.drawPath(routePath, p)
+            p.strokeWidth = ts * 0.05f; p.color = Color.rgb(74, 222, 128); cv.drawPath(routePath, p)
+            p.strokeCap = Paint.Cap.BUTT
+        }
+        // bieu tuong o dich: tram sac (tia set) / diem den (co) - quay nguoc de luon dung thang
+        val x = px(d.lon); val y = py(d.lat)
+        val rr = height * 0.075f
+        cv.save(); cv.rotate(bearing, x, y)
+        p.style = Paint.Style.FILL; p.color = if (d.kind == "tramsac") Color.rgb(20, 184, 166) else Color.rgb(255, 84, 104)
+        cv.drawCircle(x, y, rr, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = 3f; p.color = Color.WHITE; cv.drawCircle(x, y, rr, p)
+        p.style = Paint.Style.FILL
+        if (d.kind == "tramsac") {
+            val b = Path().apply {
+                moveTo(x + rr * 0.12f, y - rr * 0.62f); lineTo(x - rr * 0.38f, y + rr * 0.08f); lineTo(x - rr * 0.02f, y + rr * 0.08f)
+                lineTo(x - rr * 0.14f, y + rr * 0.62f); lineTo(x + rr * 0.38f, y - rr * 0.08f); lineTo(x + rr * 0.02f, y - rr * 0.08f); close()
+            }
+            cv.drawPath(b, p)
+        } else cv.drawCircle(x, y, rr * 0.3f, p)
+        cv.restore()
+    }
+
+    /** Bang tren cung khi dan duong: mui ten re + khoang cach + ten duong; dong duoi: con lai / gio den. */
+    private fun drawBanner(cv: Canvas, w: Float, h: Float) {
+        val bh = h * 0.27f
+        p.style = Paint.Style.FILL; p.color = Color.argb(235, 8, 10, 14)
+        cv.drawRect(0f, 0f, w, bh, p)
+        val r = Nav.route; val s = Nav.next()
+        p.textAlign = Paint.Align.LEFT
+        if (r == null && !Nav.arrived) {
+            p.color = Color.WHITE; p.textSize = h * 0.075f
+            cv.drawText(fit(Nav.msg, w - h * 0.1f), h * 0.05f, bh * 0.58f, p)
+            return
+        }
+        val trn = if (Nav.arrived) 17 else s?.trn ?: 1
+        val box = bh * 0.78f; val bx = h * 0.04f; val by = (bh - box) / 2
+        p.color = Color.rgb(74, 222, 128); cv.drawRoundRect(RectF(bx, by, bx + box, by + box), box * 0.22f, box * 0.22f, p)
+        drawTurn(cv, trn, bx + box / 2, by + box / 2, box * 0.36f, s?.exit ?: 0)
+        val tx = bx + box + h * 0.04f
+        val dm = Nav.nextDist()
+        val big = when { Nav.arrived -> "Đã đến"; dm < 0 -> ""; dm < 1000 -> "${(dm / 10) * 10} m"; else -> "%.1f km".format(dm / 1000f).replace('.', ',') }
+        p.color = Color.WHITE; p.textSize = bh * 0.42f; p.typeface = bold
+        cv.drawText(big, tx, bh * 0.5f, p)
+        val st = if (Nav.arrived || trn == 17) Nav.dest?.name ?: "" else s?.name?.ifEmpty { "" } ?: ""
+        p.textSize = bh * 0.2f; p.color = Color.argb(235, 255, 255, 255)
+        cv.drawText(fit(st, w - tx - h * 0.03f), tx, bh * 0.82f, p)
+        // dong nho ngay duoi bang: con lai + gio den
+        val rm = Nav.remainM()
+        val info = (if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')) + " · ${(Nav.remainS() + 59) / 60} phút · đến ${Nav.eta()}"
+        p.textSize = h * 0.06f
+        val iw = p.measureText(info) + h * 0.06f
+        p.color = Color.argb(200, 8, 10, 14)
+        cv.drawRoundRect(RectF(w - iw - h * 0.03f, bh + h * 0.02f, w - h * 0.03f, bh + h * 0.11f), h * 0.04f, h * 0.04f, p)
+        p.color = Color.WHITE; p.textAlign = Paint.Align.RIGHT
+        cv.drawText(info, w - h * 0.06f, bh + h * 0.087f, p)
+        p.textAlign = Paint.Align.LEFT
+    }
+
+    private fun fit(t: String, maxW: Float): String {
+        if (p.measureText(t) <= maxW) return t
+        var k = t.length
+        while (k > 1 && p.measureText(t.take(k) + "…") > maxW) k--
+        return t.take(k) + "…"
+    }
+
+    /** Mui ten re don gian ve bang net (mau toi tren o xanh). */
+    private fun drawTurn(cv: Canvas, trn: Int, x: Float, y: Float, s: Float, exit: Int) {
+        p.style = Paint.Style.STROKE; p.strokeWidth = s * 0.32f; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
+        p.color = Color.rgb(6, 30, 20)
+        val path = Path()
+        if (trn == 17) {                                     // toi noi: co
+            path.moveTo(x - s * 0.5f, y + s); path.lineTo(x - s * 0.5f, y - s)
+            cv.drawPath(path, p)
+            p.style = Paint.Style.FILL
+            cv.drawPath(Path().apply { moveTo(x - s * 0.5f, y - s); lineTo(x + s * 0.8f, y - s * 0.55f); lineTo(x - s * 0.5f, y - s * 0.1f); close() }, p)
+            p.strokeCap = Paint.Cap.BUTT; return
+        }
+        if (trn in 10..12 || trn == 19 || trn == 20) {         // vong xuyen + so loi ra
+            p.strokeWidth = s * 0.22f
+            cv.drawCircle(x, y - s * 0.15f, s * 0.5f, p)
+            path.moveTo(x, y + s); path.lineTo(x, y + s * 0.35f); cv.drawPath(path, p)
+            if (exit > 0) { p.style = Paint.Style.FILL; p.textAlign = Paint.Align.CENTER; p.textSize = s * 0.8f; cv.drawText("$exit", x, y + s * 0.13f, p); p.textAlign = Paint.Align.LEFT }
+            p.strokeCap = Paint.Cap.BUTT; return
+        }
+        val deg = when (trn) { 2 -> -90f; 3 -> 90f; 4, 13, 15 -> -45f; 5, 14, 16 -> 45f; 6 -> -135f; 7 -> 135f; else -> 0f }
+        if (trn == 8 || trn == 9) {                          // quay dau
+            path.moveTo(x + s * 0.45f, y + s); path.lineTo(x + s * 0.45f, y - s * 0.2f)
+            path.arcTo(RectF(x - s * 0.45f, y - s * 0.65f, x + s * 0.45f, y + s * 0.25f), 0f, -180f)
+            path.lineTo(x - s * 0.45f, y + s * 0.3f)
+            cv.drawPath(path, p)
+            arrowHead(cv, x - s * 0.45f, y + s * 0.55f, 180f, s)
+        } else {
+            path.moveTo(x, y + s); path.lineTo(x, y)
+            val rad = Math.toRadians(deg.toDouble())
+            val ex = x + (kotlin.math.sin(rad) * s * 0.75).toFloat(); val ey = y - (kotlin.math.cos(rad) * s * 0.75).toFloat()
+            path.lineTo(ex, ey)
+            cv.drawPath(path, p)
+            arrowHead(cv, ex, ey, deg, s)
+        }
+        p.strokeCap = Paint.Cap.BUTT
+    }
+
+    private fun arrowHead(cv: Canvas, x: Float, y: Float, deg: Float, s: Float) {
+        cv.save(); cv.rotate(deg, x, y)
+        p.style = Paint.Style.FILL
+        cv.drawPath(Path().apply { moveTo(x, y - s * 0.55f); lineTo(x + s * 0.45f, y + s * 0.05f); lineTo(x - s * 0.45f, y + s * 0.05f); close() }, p)
+        p.style = Paint.Style.STROKE
+        cv.restore()
     }
 
     private val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager

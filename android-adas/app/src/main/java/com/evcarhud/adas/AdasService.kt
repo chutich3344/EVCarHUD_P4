@@ -191,8 +191,25 @@ class AdasService : Service() {
             it.onMac = { a -> prefs.hudMac = a }
             if (hasPerm(Manifest.permission.BLUETOOTH_CONNECT)) it.start(prefs.hudMac) else hudMsg = "Chưa cho quyền Bluetooth"
         }
+        Nav.listeners += navL
         main.post(tick)
     }
+
+    // ---------------- dan duong (Route.kt) -> goi D1 len HUD ----------------
+    private var navOffLeft = 0
+    private var lastStep = ""
+    private val navL: () -> Unit = {
+        // doi chi dan (ma re / ten duong) thi gui ngay, con lai gui theo nhip 1 giay o tick
+        val k = Nav.d1().split('|').let { if (it.size > 7) it[1] + it[3] + it[7] else it.joinToString() }
+        if (k != lastStep) { lastStep = k; pushNav() }
+    }
+
+    private fun pushNav() {
+        if (Nav.active) { navOffLeft = 3; hud?.sendNav(Nav.d1().toByteArray()); return }
+        if (navOffLeft > 0) { navOffLeft--; hud?.sendNav("D1|0".toByteArray()) }   // ket thuc: bao HUD vai lan cho chac
+    }
+
+    fun startNav(d: Dest) = Nav.start(this, d, prefs.hereKey)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
@@ -204,6 +221,7 @@ class AdasService : Service() {
         hud?.stop()
         cam?.release()
         try { (getSystemService(SENSOR_SERVICE) as SensorManager).unregisterListener(gravL) } catch (_: Exception) {}
+        Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
         super.onDestroy()
@@ -667,6 +685,7 @@ class AdasService : Service() {
                 publishIdle()
                 hud?.send("A1|-|0|0|0|0|0|0|0|${if (fresh) gpsKmh.roundToInt() else 0}|${stateCode()}".toByteArray())
             }
+            pushNav()
             if (now - lastNotif > 10_000) { lastNotif = now; goForeground(notifText()) }
             main.postDelayed(this, 1000)
         }
@@ -696,6 +715,7 @@ class AdasService : Service() {
         gpsKmh = if (l.hasSpeed()) l.speed * 3.6f else gpsKmh
         lat = l.latitude; lon = l.longitude
         if (l.hasBearing() && l.speed > 1.5f) bearing = l.bearing
+        Nav.onFix(l.latitude, l.longitude, l.speed, if (l.hasBearing()) l.bearing else null, if (l.hasAccuracy()) l.accuracy else 20f)
     }
 
     @SuppressLint("MissingPermission")

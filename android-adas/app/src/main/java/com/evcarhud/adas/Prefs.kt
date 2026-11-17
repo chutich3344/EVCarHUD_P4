@@ -55,4 +55,8 @@ class Prefs(ctx: Context) {
     var mapCorner: Int
         get() = p.getInt("mc", 3)
         set(v) = p.edit().putInt("mc", v).apply()
+    /** Khoa HERE Routing v8 (platform.here.com), trong = dung OSRM. */
+    var hereKey: String
+        get() = p.getString("here", "") ?: ""
+        set(v) = p.edit().putString("here", v.trim()).apply()
 }
