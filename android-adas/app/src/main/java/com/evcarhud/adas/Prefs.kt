@@ -24,6 +24,9 @@ class Prefs(ctx: Context) {
         get() = p.getFloat("roll", 0f)
         set(v) = p.edit().putFloat("roll", v).apply()
     /** Chieu cao camera so voi mat duong (m). */
+    var hood: Float
+        get() = p.getFloat("hood", 1f)
+        set(v) = p.edit().putFloat("hood", v).apply()
     var camH: Float
         get() = p.getFloat("camh", 1.2f)
         set(v) = p.edit().putFloat("camh", v).apply()

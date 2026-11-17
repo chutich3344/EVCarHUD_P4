@@ -76,7 +76,12 @@ class Overlay(ctx: Context) : View(ctx) {
         val sn = snap
         val o = sn?.out
         val c = sn?.cam
-        if (o != null && c != null && !calib) drawScene(cv, sn, o, c)
+        if (o != null && c != null && !calib) {
+            // khong ve lan/duong di de len taplo (camera dat thap thay taplo che phan duong gan)
+            cv.save(); cv.clipRect(0f, 0f, width.toFloat(), oy + sn.hood * imgH * s)
+            drawScene(cv, sn, o, c)
+            cv.restore()
+        }
         if (sn != null && !calib && sn.level >= 3) {
             fill.color = Color.argb(150, 220, 30, 40); cv.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
             txt.textSize = 14 * u; txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE

@@ -62,7 +62,10 @@ class Snap(
     val lon: Double,
     val bearing: Float,
     val hasFix: Boolean,
-)
+) {
+    /** Mep tren taplo (ti le chieu cao anh, 1 = khong thay taplo): ve lan/duong di khong de len taplo. */
+    var hood = 1f
+}
 
 /**
  * Dich vu chay nen: camera -> mo hinh openpilot -> canh bao -> goi A1 len HUD.
@@ -336,6 +339,7 @@ class AdasService : Service() {
         val cb = onPreview
         if (uiVisible && cb != null && now - lastPrev >= (if (hot >= 1) 200 else 100)) { lastPrev = now; try { drawPreview(im, cb) } catch (e: Exception) { Log.w(TAG, "prev", e) } }
         else if (now - lastPrev >= 1000) { lastPrev = now; try { bright = meanY(im) } catch (_: Exception) {} }
+        if (now - hoodAt >= 300) { hoodAt = now; try { hoodSample(im) } catch (_: Exception) {} }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
         lastAccept = now
@@ -386,6 +390,44 @@ class AdasService : Service() {
         val bm = prevBmp[prevI]; prevI = 1 - prevI
         bm.setPixels(prevPx, 0, PW, 0, 0, PW, PH)
         main.post { cb(bm) }
+    }
+
+    // ---- tu tim mep taplo: hang anh dung yen khi xe chay (taplo) vs hang thay doi (duong) ----
+    private var hoodAt = 0L
+    private val hoodPrev = IntArray(HOOD_R * HOOD_C)
+    private val hoodAct = FloatArray(HOOD_R)
+    private var hoodN = 0
+
+    private fun hoodSample(im: Image) {
+        val v = if (SystemClock.elapsedRealtime() - gpsAt < 3000) gpsKmh else poseKmh
+        if (v < 15f) return                                   // dung yen: ca duong cung khong doi, bo
+        val p = im.planes[0]; val b = p.buffer; val row = p.rowStride; val n = b.limit()
+        val w = im.width; val h = im.height; val flip = cam?.flip == true
+        for (r in 0 until HOOD_R) {
+            val y0 = ((r + 0.5f) * h / HOOD_R).toInt()
+            val y = if (flip) h - 1 - y0 else y0
+            var d = 0
+            for (c in 0 until HOOD_C) {
+                val x0 = ((c + 0.5f) * w / HOOD_C).toInt()
+                val x = if (flip) w - 1 - x0 else x0
+                val i = y * row + x
+                val px = if (i < n) b.get(i).toInt() and 0xff else 0
+                val k = r * HOOD_C + c
+                d += abs(px - hoodPrev[k]); hoodPrev[k] = px
+            }
+            val a = d / HOOD_C.toFloat()
+            if (hoodN > 0) hoodAct[r] = if (hoodN < 20) hoodAct[r] + (a - hoodAct[r]) / hoodN else hoodAct[r] + 0.03f * (a - hoodAct[r])
+        }
+        hoodN++
+        if (hoodN < 60 || hoodN % 20 != 0) return
+        // muc thay doi cua mat duong: trung vi vung 35-60% chieu cao
+        val ref = hoodAct.copyOfRange((HOOD_R * 0.35).toInt(), (HOOD_R * 0.6).toInt()).sortedArray().let { it[it.size / 2] }
+        if (ref < 2f) return
+        var top = HOOD_R
+        while (top > HOOD_R / 2 && hoodAct[top - 1] < 0.5f * ref) top--
+        // tru 2 hang cho phan chuyen tiep (mep taplo cong, kinh phan chieu); clip 17/11 ra ~0,71
+        val frac = if (top >= HOOD_R - 1) 1f else (top - 2) / HOOD_R.toFloat()
+        if (abs(frac - prefs.hood) > 0.02f) prefs.hood = frac
     }
 
     private fun meanY(im: Image): Int {
@@ -498,6 +540,7 @@ class AdasService : Service() {
         val offCm = off?.let { (it * 100).roundToInt() }
         val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-",
             batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
+        s.hood = prefs.hood
         onSnap?.invoke(s)
         val now = SystemClock.elapsedRealtime()
         if (now - lastSend >= 95) {
@@ -540,7 +583,8 @@ class AdasService : Service() {
     /** Khong co ket qua AI (dung/nong/dang nap): van cap nhat giao dien + giu HUD biet trang thai. */
     private fun publishIdle() {
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
-            if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0))
+            if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
+            .also { it.hood = prefs.hood })
     }
 
     // ---------------- tan suat + nhiet ----------------
@@ -659,6 +703,8 @@ class AdasService : Service() {
         private const val NID = 7
         const val ACTION_STOP = "stop"
         const val PW = 640
+        const val HOOD_R = 72
+        const val HOOD_C = 48
         const val PH = 360
 
         fun start(ctx: Context) {
