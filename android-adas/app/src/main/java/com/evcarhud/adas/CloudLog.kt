@@ -38,23 +38,39 @@ class CloudLog(private val ctx: Context, private val ver: String) {
 
     fun flushSoon() { h.post { flush() } }
 
+    /** Cac goi cho gui (moi goi <= 40 KB, may chu nhan toi da 64 KB); giu toi da ~20 goi gan nhat. */
+    private val pending = ArrayDeque<String>()
+
     private fun flush() {
         val body = synchronized(buf) { val b = buf.toString(); buf.setLength(0); b }
-        if (body.isEmpty()) return
-        try {
-            if (file.length() > 2_000_000) file.writeText("")
-            file.appendText(body)
-        } catch (_: Exception) {}
+        if (body.isNotEmpty()) {
+            try {
+                if (file.length() > 2_000_000) file.writeText("")
+                file.appendText(body)
+            } catch (_: Exception) {}
+            var i = 0
+            while (i < body.length) {
+                var j = minOf(body.length, i + 40_000)
+                if (j < body.length) { val nl = body.lastIndexOf('\n', j); if (nl > i) j = nl + 1 }
+                pending.addLast(body.substring(i, j)); i = j
+            }
+            while (pending.size > 20) pending.removeFirst()
+        }
         // chua noi HUD van gui: dung MAC HUD P4 da dang ky cua chu xe (E8:F6:0A:E5:50:ED, log HUD tu 12/11)
         val macs = if (okMac.isNotEmpty()) listOf(okMac) else (candidates(hudMac) + FALLBACK_MAC).distinct()
-        for (m in macs) {
-            val st = post(m, body)
-            if (st in 200..299) { okMac = m; seq++; lastStatus = "đã gửi lúc ${fmt.format(Date())}"; return }
-            if (st != 403) { lastStatus = "lỗi gửi $st (mạng?)"; break }
-            lastStatus = "máy chủ chưa nhận MAC HUD"
+        while (pending.isNotEmpty()) {
+            val part = pending.first()
+            var sent = false
+            for (m in macs) {
+                val st = post(m, part)
+                if (st in 200..299) { okMac = m; seq++; sent = true; lastStatus = "đã gửi lúc ${fmt.format(Date())}"; break }
+                if (st == 413) { sent = true; lastStatus = "bỏ 1 gói quá dài"; break }
+                if (st != 403) { lastStatus = "lỗi gửi $st (mạng?) lúc ${fmt.format(Date())}"; return }
+                lastStatus = "máy chủ chưa nhận MAC HUD"
+            }
+            if (!sent) return
+            pending.removeFirst()
         }
-        // khong gui duoc: tra lai bo dem cho lan sau (giu toi da 200 KB)
-        synchronized(buf) { if (buf.length + body.length < 200_000) buf.insert(0, body) }
     }
 
     private fun candidates(ble: String): List<String> {

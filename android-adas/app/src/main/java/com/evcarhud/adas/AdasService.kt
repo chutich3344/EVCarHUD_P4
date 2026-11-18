@@ -237,10 +237,13 @@ class AdasService : Service() {
 
     /** Doi hieu chinh / chieu cao / bo tang toc. */
     private fun makeCam() {
-        val err: (String) -> Unit = { e -> main.post { loadMsg = e; publishIdle() } }
+        var me: FrameSource? = null
+        // bo bao loi cua nguon cu (vd. cam guong da tat sau khi doi ve camera dien thoai)
+        val err: (String) -> Unit = { e -> main.post { if (me == null || cam === me) { loadMsg = e; publishIdle() } } }
         try {
-            cam = if (prefs.camSrc == "mirror") MirrorCam(this, ::onFrame, err) { main.post { rebuildGeom() } }
+            me = if (prefs.camSrc == "mirror") MirrorCam(this, ::onFrame, err) { main.post { rebuildGeom() } }
             else CamSource(this, ::onFrame, err)
+            cam = me
         } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
     }
 
