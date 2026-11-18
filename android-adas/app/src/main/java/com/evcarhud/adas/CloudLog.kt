@@ -29,7 +29,7 @@ class CloudLog(private val ctx: Context, private val ver: String) {
     private var okMac = ""
     @Volatile var lastStatus = "chưa gửi"
 
-    init { h.postDelayed(object : Runnable { override fun run() { flush(); h.postDelayed(this, 60_000) } }, 60_000) }
+    init { h.postDelayed(object : Runnable { override fun run() { flush(); h.postDelayed(this, 60_000) } }, 15_000) }
 
     fun line(s: String) {
         val l = "${fmt.format(Date())} $s\n"
@@ -63,10 +63,10 @@ class CloudLog(private val ctx: Context, private val ver: String) {
             var sent = false
             for (m in macs) {
                 val st = post(m, part)
-                if (st in 200..299) { okMac = m; seq++; sent = true; lastStatus = "đã gửi lúc ${fmt.format(Date())}"; break }
+                if (st in 200..299) { okMac = m; seq++; sent = true; lastStatus = "đã gửi lúc ${fmt.format(Date())}"; short = "✓"; break }
                 if (st == 413) { sent = true; lastStatus = "bỏ 1 gói quá dài"; break }
-                if (st != 403) { lastStatus = "lỗi gửi $st (mạng?) lúc ${fmt.format(Date())}"; return }
-                lastStatus = "máy chủ chưa nhận MAC HUD"
+                if (st != 403) { lastStatus = "lỗi gửi $st $lastErr lúc ${fmt.format(Date())}"; short = "✗ " + (if (st < 0) lastErr.substringBefore(':') else "$st"); return }
+                lastStatus = "máy chủ chưa nhận MAC $m"; short = "✗ 403"
             }
             if (!sent) return
             pending.removeFirst()
@@ -90,12 +90,16 @@ class CloudLog(private val ctx: Context, private val ver: String) {
         ((net?.openConnection(u) ?: u.openConnection()) as HttpURLConnection).run {
             requestMethod = "POST"; doOutput = true; connectTimeout = 10_000; readTimeout = 10_000
             setRequestProperty("Content-Type", "text/plain; charset=utf-8")
+            setRequestProperty("User-Agent", "EVCarHUD-Lan/$ver")
             outputStream.use { it.write(("[app-lan]\n" + body).toByteArray()) }
             val c = responseCode
             try { (if (c < 400) inputStream else errorStream)?.close() } catch (_: Exception) {}
             disconnect(); c
         }
-    } catch (e: Exception) { Log.w("CloudLog", "post", e); -1 }
+    } catch (e: Exception) { Log.w("CloudLog", "post", e); lastErr = e.javaClass.simpleName + (e.message?.let { ": " + it.take(60) } ?: ""); -1 }
+    /** Ma ngan hien tren dong trang thai: "✓" hoac ly do loi. */
+    @Volatile var short = "chờ"
+    @Volatile var lastErr = ""
 
     companion object { private const val FALLBACK_MAC = "E8:F6:0A:E5:50:ED" }
 

@@ -149,6 +149,11 @@ class AdasService : Service() {
     private val feat = FloatArray(Op.FEAT_N * Op.HID_N)
     private var poseKmh = 0f
     private var ldwHoldUntil = 0L
+    private var vrelF = Float.NaN
+    private var vrelT = 0L
+    private var l3Since = 0L
+    private var l3Hold = 0L
+    private var l2n = 0
     private var ldwSide = '-'
     @Volatile private var lastMs = 0
 
@@ -650,12 +655,23 @@ class AdasService : Service() {
         var leadM: Float? = null; var ttc: Float? = null; var level = 0
         if (o.leadProb > 0.5f && o.leadX > 0) {
             leadM = o.leadX
-            val vrel = o.leadV - vms
-            if (vrel < -0.5f) ttc = o.leadX / -vrel
+            // toc do tuong doi: lead v cua mo hinh tru toc do xe theo chinh mo hinh (cung thang do, khong tre nhu GPS), lam muot
+            val ego = if (o.poseVx > 0.5f) o.poseVx else vms
+            val raw = o.leadV - ego
+            vrelF = if (wall - vrelT > 1500 || vrelF.isNaN()) raw else vrelF + 0.3f * (raw - vrelF)
+            vrelT = wall
+            val vrel = vrelF
+            if (vrel < -1f) ttc = o.leadX / -vrel
             if (v > 5 && o.leadX < Op.safeDist(v)) level = 1
-            if (v > 10 && ttc != null && ttc < 2.5f) level = 2
-            if (v > 10 && ttc != null && ttc < 1.5f) level = 3
-        }
+            if (v > 15 && ttc != null && ttc < 2.5f && vrel < -2f) level = 2
+            if (v > 15 && ttc != null && ttc < 1.5f && vrel < -3f && o.leadX < 2f * Op.safeDist(v)) level = 3
+        } else vrelF = Float.NaN
+        // PHANH chi bat khi muc 3 keo dai >= 0,4 s; da bat thi giu 2 s (khong chop tat lien tuc)
+        if (level >= 3) { if (l3Since == 0L) l3Since = wall } else l3Since = 0L
+        if (level >= 3 && wall - l3Since < 400) level = 2
+        if (level >= 3) l3Hold = wall + 2000 else if (wall < l3Hold && leadM != null) level = 3
+        // muc 2 can 2 lan lien tiep
+        if (level == 2) { l2n++; if (l2n < 2) level = 1 } else if (level < 2) l2n = 0
         val near = leadM != null && (level > 0 || (ttc != null && ttc < 4f))
         calibYaw(o, v)
         main.post { onResult(o, g, v, ldw, off, leadM, ttc, level, near) }
@@ -670,7 +686,7 @@ class AdasService : Service() {
         val det = if (o != null) " · xe ${(o.leadProb * 100).roundToInt()}% · vạch ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}%" else ""
         val cal = if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "HC xong" else "đang HC"
         val src = if (prefs.camSrc == "mirror") "cam gương" else "cam ĐT"
-        val lg = clog?.lastStatus?.let { if (it.startsWith("đã gửi")) "log ✓" else "log ✗" } ?: ""
+        val lg = clog?.let { "log ${it.short}" } ?: ""
         return "$ai$det · $cal · $src · $lg"
     }
     private var clog: CloudLog? = null
