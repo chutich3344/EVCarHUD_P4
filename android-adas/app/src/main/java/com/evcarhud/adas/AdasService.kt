@@ -265,6 +265,31 @@ class AdasService : Service() {
             "\n" + aiInfo() + "\n${if (targetHz == 0) 0 else measHz} lần/giây · ${gpsKmh.roundToInt()} km/h · mép taplo ${(prefs.hood * 100).roundToInt()}% · pin ${batt.roundToInt()}°"
     }
 
+    // ---- doi chieu NPU voi CPU tren khung that, 8 s/lan (CPU them ~1 lan chay) ----
+    private var xcAt = 0L
+    private var xcBad = 0
+    private var xcN = 0
+    @Volatile private var xcInfo = ""
+
+    private fun crossCheck(m: OpModel, o: Op.Out, wall: Long) {
+        if (m.backend == "CPU" || wall - xcAt < 8000) return
+        xcAt = wall
+        val ref = m.crossCheck(img, big) ?: return
+        val r = Op.Out(); Op.parseVision(ref, r)
+        var lane = 0f
+        for (i in 1..2) for (k in 0 until 10) lane = maxOf(lane, abs(r.laneY[i][k] - o.laneY[i][k]))
+        val dLead = abs(r.leadProb - o.leadProb)
+        val bad = dLead > 0.3f || lane > 0.5f || (r.leadProb > 0.5f) != (o.leadProb > 0.5f)
+        xcN++
+        xcBad = if (bad) xcBad + 1 else 0
+        xcInfo = "đối chiếu CPU #$xcN: xe ${m.backend} ${(o.leadProb * 100).roundToInt()}% / CPU ${(r.leadProb * 100).roundToInt()}%, vạch lệch ${"%.2f".format(lane)} m${if (bad) " SAI" else " khớp"}"
+        // 2 lan lien tiep lech: NPU may nay khong tin duoc, dung CPU luon tu khung nay
+        if (xcBad >= 2) {
+            m.fallbackCpu("NPU lệch CPU trên khung thật (xe ${(o.leadProb * 100).roundToInt()}% vs ${(r.leadProb * 100).roundToInt()}%)")
+            prefs.accel = "cpu"
+        }
+    }
+
     /** Thong tin bo xu ly AI + ket qua tu kiem NPU. */
     fun aiInfo(): String {
         val m = model ?: return "AI chưa nạp"
@@ -273,6 +298,7 @@ class AdasService : Service() {
         val o = lastOut
         return "AI ${m.backend}, ${lastMs} ms" + (if (m.selfTest.isNotEmpty()) " · ${m.selfTest}" else "") +
             "\nẢnh vào: ${if (outPct >= 0) "$outPct% ngoài khung" else "chưa có"} · cam ${yRowS}/${uvRowS}/${uvPixS}" +
+            (if (xcInfo.isNotEmpty()) "\n$xcInfo" else "") +
             (if (o != null) " · khung sống: xe ${(o.leadProb * 100).roundToInt()}% vạch ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}% pose ${"%.1f".format(o.poseVx)}" else "")
     }
     /** Ghi 1 khung chan doan (anh camera goc + goi mo hinh + ket qua) vao thu muc Download de gui phan tich. */
@@ -368,8 +394,9 @@ class AdasService : Service() {
             val r = Op.mul(Op.rotFromEuler(calRoll, calPitch, calYaw), Op.rotFromEuler(0.0, 0.0, (if (prefs.calibrated) 0.7 else 0.85) * med))
             val e = Op.eulerFromRot(r)
             calYaw = e[2].coerceIn(-0.35, 0.35)
-            yawGood = if (abs(med) < 0.012) yawGood + 1 else 0
-            if (yawGood >= 2 && !prefs.calibrated) prefs.calibrated = true
+            yawGood = if (abs(med) < 0.02) yawGood + 1 else 0
+            // pho dong it doan thang dai: lech < 1,1 do 1 lan la du dung (van tiep tuc tinh chinh sau)
+            if (yawGood >= 1 && !prefs.calibrated) prefs.calibrated = true
             saveCalib()
             if (abs(med) > 0.002) rebuildGeom()
         }
@@ -521,6 +548,7 @@ class AdasService : Service() {
         Op.parseVision(vo, o)
         lastOut = o; yRowS = yRow; uvRowS = uvRow; uvPixS = uvPix
         dumpReq?.let { cb -> dumpReq = null; writeDump(cb, g, c, ts - ringT[best], vo, o, yRow, uvRow, uvPix) }
+        crossCheck(m, o, wall)
 
         // hang doi hidden_state cho mo hinh duong di: 25 moc cach 0,2 s
         System.arraycopy(o.hidden, 0, hid[hidI], 0, Op.HID_N); hidT[hidI] = ts

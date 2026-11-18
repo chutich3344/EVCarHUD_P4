@@ -22,7 +22,10 @@ import kotlin.math.abs
  */
 class OpModel(ctx: Context, accel: String) : AutoCloseable {
     private val env = OrtEnvironment.getEnvironment()
-    private val vision: OrtSession
+    private var vision: OrtSession
+    private val visionFile: File
+    /** Phien CPU phu de doi chieu NPU tren khung that (mo khi can). */
+    private var refCpu: OrtSession? = null
     private val policy: OrtSession?
     var backend = "CPU"
         private set
@@ -41,6 +44,7 @@ class OpModel(ctx: Context, accel: String) : AutoCloseable {
 
     init {
         val vf = asset(ctx, "driving_vision.onnx") ?: throw IllegalStateException("Thiếu mô hình driving_vision.onnx")
+        visionFile = vf
         val pf = asset(ctx, "driving_policy.onnx")
         vision = if (accel == "npu") openChecked(ctx, vf) else cpu(vf)
         // mo hinh duong di nho (vai chuc ms tren CPU) va khong co cach tu kiem rieng: luon chay CPU cho chac
@@ -127,6 +131,25 @@ class OpModel(ctx: Context, accel: String) : AutoCloseable {
 
     val hasPolicy get() = policy != null
 
+    /**
+     * Doi chieu: chay lai khung that tren CPU (chi khi dang dung NPU). Khung mau luc mo co the khop
+     * ma khung that van sai (vd. xe truoc), nen kiem them dinh ky trong luc chay.
+     */
+    fun crossCheck(img: ByteArray, big: ByteArray): FloatArray? {
+        if (backend == "CPU") return null
+        val c = refCpu ?: try { cpu(visionFile).also { refCpu = it } } catch (e: Exception) { Log.w(TAG, "ref cpu", e); return null }
+        return run(c, img, big).copyOf()
+    }
+
+    /** NPU sai tren khung that: chuyen han sang CPU. */
+    fun fallbackCpu(why: String) {
+        val c = refCpu ?: try { cpu(visionFile) } catch (e: Exception) { Log.w(TAG, "fallback", e); return }
+        refCpu = null
+        try { vision.close() } catch (_: Exception) {}
+        vision = c; backend = "CPU"
+        selfTest += " · $why → chuyển CPU"
+    }
+
     /** img/big: 2 khung dong goi lien nhau (cu truoc, moi sau), moi khung Op.PACK byte. */
     fun runVision(img: ByteArray, big: ByteArray): FloatArray = run(vision, img, big)
 
@@ -161,6 +184,7 @@ class OpModel(ctx: Context, accel: String) : AutoCloseable {
 
     override fun close() {
         try { vision.close() } catch (_: Exception) {}
+        try { refCpu?.close() } catch (_: Exception) {}
         try { policy?.close() } catch (_: Exception) {}
     }
 
