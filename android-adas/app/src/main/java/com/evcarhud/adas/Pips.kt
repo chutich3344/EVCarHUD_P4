@@ -227,6 +227,7 @@ class TileMap(ctx: Context) : View(ctx) {
         val box = bh * 0.78f; val bx = h * 0.04f; val by = (bh - box) / 2
         p.color = Color.rgb(74, 222, 128); cv.drawRoundRect(RectF(bx, by, bx + box, by + box), box * 0.22f, box * 0.22f, p)
         drawTurn(cv, trn, bx + box / 2, by + box / 2, box * 0.36f, s?.exit ?: 0)
+        p.style = Paint.Style.FILL; p.strokeWidth = 0f        // drawTurn de lai net STROKE day -> chu bi nhoe
         val tx = bx + box + h * 0.04f
         val dm = Nav.nextDist()
         val big = when { Nav.arrived -> "Đã đến"; dm < 0 -> ""; dm < 1000 -> "${(dm / 10) * 10} m"; else -> "%.1f km".format(dm / 1000f).replace('.', ',') }
@@ -238,12 +239,12 @@ class TileMap(ctx: Context) : View(ctx) {
         // dong nho ngay duoi bang: con lai + gio den
         val rm = Nav.remainM()
         val info = (if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')) + " · ${(Nav.remainS() + 59) / 60} phút · đến ${Nav.eta()}"
-        p.textSize = h * 0.06f
+        p.textSize = h * 0.07f
         val iw = p.measureText(info) + h * 0.06f
         p.color = Color.argb(200, 8, 10, 14)
-        cv.drawRoundRect(RectF(w - iw - h * 0.03f, bh + h * 0.02f, w - h * 0.03f, bh + h * 0.11f), h * 0.04f, h * 0.04f, p)
+        cv.drawRoundRect(RectF(w - iw - h * 0.03f, bh + h * 0.02f, w - h * 0.03f, bh + h * 0.12f), h * 0.04f, h * 0.04f, p)
         p.color = Color.WHITE; p.textAlign = Paint.Align.RIGHT
-        cv.drawText(info, w - h * 0.06f, bh + h * 0.087f, p)
+        cv.drawText(info, w - h * 0.06f, bh + h * 0.095f, p)
         p.textAlign = Paint.Align.LEFT
     }
 
