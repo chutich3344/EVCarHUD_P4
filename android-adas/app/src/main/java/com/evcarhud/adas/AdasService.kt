@@ -67,6 +67,8 @@ class Snap(
     var hood = 1f
     /** So lieu chan doan hien tren man (bat trong Chan doan AI). */
     var dbg: String? = null
+    /** 1 dong thong so ngan luon hien (AI, xe, vach, hieu chinh, log, camera). */
+    var stat = ""
 }
 
 /**
@@ -287,6 +289,14 @@ class AdasService : Service() {
     fun setAuto(on: Boolean) {
         prefs.autoCalib = on
         if (on) { yawGood = 0; prefs.calibrated = false; gP = Double.NaN }
+    }
+
+    /** Hoc lai hieu chinh tu dau (ve goc mac dinh cua nguon camera hien tai). */
+    fun resetCalib() {
+        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else { calYaw = 0.0; calRoll = 0.0; gP = Double.NaN }
+        prefs.autoCalib = true; prefs.calibrated = false; yawGood = 0
+        saveCalib(); rebuildGeom()
+        clog?.line("hoc lai hieu chinh")
     }
 
     private fun saveCalib() { prefs.pitch = calPitch.toFloat(); prefs.yaw = calYaw.toFloat(); prefs.roll = calRoll.toFloat() }
@@ -652,6 +662,17 @@ class AdasService : Service() {
     }
 
     private var lastNear = false
+
+    /** Dong thong so ngan tren man (nhu video demo) de chup man hinh khi chay thu. */
+    private fun statLine(o: Op.Out?): String {
+        val m = model
+        val ai = if (m == null) "AI đang nạp" else if (o == null || targetHz == 0) "AI ${m.backend} dừng" else "AI ${m.backend} ${lastMs}ms ${measHz}/s"
+        val det = if (o != null) " · xe ${(o.leadProb * 100).roundToInt()}% · vạch ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}%" else ""
+        val cal = if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "HC xong" else "đang HC"
+        val src = if (prefs.camSrc == "mirror") "cam gương" else "cam ĐT"
+        val lg = clog?.lastStatus?.let { if (it.startsWith("đã gửi")) "log ✓" else "log ✗" } ?: ""
+        return "$ai$det · $cal · $src · $lg"
+    }
     private var clog: CloudLog? = null
     private var logAt = 0L
     private var lastXc = ""
@@ -678,6 +699,7 @@ class AdasService : Service() {
         val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-",
             batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
         s.hood = prefs.hood
+        s.stat = statLine(o)
         if (prefs.showDbg) s.dbg = calibInfo()
         onSnap?.invoke(s)
         logTick(o, v, leadM)
@@ -724,7 +746,7 @@ class AdasService : Service() {
         logTick(null, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, null)
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
             if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
-            .also { it.hood = prefs.hood; if (prefs.showDbg) it.dbg = calibInfo() })
+            .also { it.hood = prefs.hood; it.stat = statLine(null); if (prefs.showDbg) it.dbg = calibInfo() })
     }
 
     // ---------------- tan suat + nhiet ----------------

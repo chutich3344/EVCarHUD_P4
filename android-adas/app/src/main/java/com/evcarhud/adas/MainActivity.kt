@@ -162,67 +162,72 @@ class MainActivity : Activity() {
         showPips()
     }
 
+    private fun menu(title: String, items: List<Pair<String, () -> Unit>>) {
+        AlertDialog.Builder(this).setTitle(title).setItems(items.map { it.first }.toTypedArray()) { _, k -> items[k].second() }.show()
+    }
+
     private fun settings() {
-        val navItems = arrayOf(
-            if (Nav.active) "Kết thúc dẫn đường tới ${Nav.dest?.name}" else "Dẫn đường: mở trạm từ app EVCarHUD Charge hoặc chia sẻ link HERE WeGo / Google Maps",
-            "Khoá HERE (tính đường): " + (if (prefs.hereKey.isEmpty()) "chưa có, đang dùng OSRM" else "đã lưu …" + prefs.hereKey.takeLast(4)),
-        )
-        val items = navItems + arrayOf(
-            "Nguồn camera: " + (if (prefs.camSrc == "mirror") "CAM GƯƠNG Wi-Fi (bấm để về camera điện thoại)" else "camera điện thoại (bấm để dùng cam gương Wi-Fi)"),
-            "Tự hiệu chỉnh camera: " + (if (prefs.autoCalib) "BẬT" else "TẮT"),
-            "Hiệu chỉnh tay (kéo điểm tụ)",
-            "Chiều cao camera: ${"%.1f".format(prefs.camH)} m",
-            "Bộ xử lý AI: " + (if (prefs.accel == "npu") "NPU (mát hơn)" else "CPU"),
-            (if (prefs.showMap) "Ẩn" else "Hiện") + " bản đồ góc",
-            "Nguồn bản đồ: " + mapName(prefs.mapSrc),
-            (if (prefs.showTemp) "Ẩn" else "Hiện") + " ô nhiệt độ",
-            "Tìm lại HUD",
-            "Xem ảnh mô hình AI đang thấy",
-            "Dò cam gương Wi-Fi",
-            "Chẩn đoán AI (xem số liệu + ghi 1 khung)",
-            "Vùng xanh/vạch: " + (if (prefs.overHood) "kéo xuống đáy màn (mờ trên taplo)" else "cắt ở mép taplo"),
-            "Giới thiệu & giấy phép",
-            "Thoát hẳn (tắt chạy nền)",
-        )
-        AlertDialog.Builder(this).setTitle("Cài đặt\n" + (svc?.calibInfo() ?: "")).setItems(items) { _, k ->
-            if (k == 0) { if (Nav.active) Nav.stop(); return@setItems }
-            if (k == 1) { hereKeyDialog(); return@setItems }
-            if (k == navItems.size) {
-                prefs.camSrc = if (prefs.camSrc == "mirror") "phone" else "mirror"
+        val mirror = prefs.camSrc == "mirror"
+        val calSt = if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "tự động, đã xong" else "tự động, đang học"
+        menu("Cài đặt", listOf<Pair<String, () -> Unit>>(
+            ("Camera: " + (if (mirror) "CAM GƯƠNG Wi-Fi" else "điện thoại") + " — bấm để đổi") to {
+                prefs.camSrc = if (mirror) "phone" else "mirror"
                 svc?.switchCam()
                 toast(if (prefs.camSrc == "mirror") "Dùng cam gương: điện thoại phải đang nối Wi-Fi mirror_wifi…" else "Dùng camera điện thoại")
-                return@setItems
-            }
-            when (k - navItems.size - 1) {
-                0 -> svc?.setAuto(!prefs.autoCalib)
-                1 -> startCalib()
-                2 -> {
-                    val hs = arrayOf(0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.7f, 1.9f)
-                    AlertDialog.Builder(this).setTitle("Camera cách mặt đường")
-                        .setItems(hs.map { "%.1f m".format(it) }.toTypedArray()) { _, k -> prefs.camH = hs[k]; svc?.reloadSettings(false) }.show()
-                }
-                3 -> { prefs.accel = if (prefs.accel == "npu") "cpu" else "npu"; svc?.reloadSettings(true) }
-                4 -> { prefs.showMap = !prefs.showMap; showPips() }
-                5 -> {
-                    val ks = arrayOf("google", "osm")
-                    AlertDialog.Builder(this).setTitle("Nguồn bản đồ").setItems(ks.map { mapName(it) }.toTypedArray()) { _, k ->
-                        prefs.mapSrc = ks[k]; map.source = ks[k]
-                    }.show()
-                }
-                6 -> { prefs.showTemp = !prefs.showTemp; showPips() }
-                7 -> svc?.findHudAgain()
-                8 -> showModelView()
-                9 -> probeCam()
-                10 -> diag()
-                11 -> { prefs.overHood = !prefs.overHood; overlay.overHood = prefs.overHood; overlay.invalidate() }
-                12 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
-                13 -> {
-                    startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
-                    finish()
-                }
-            }
-        }.show()
+            },
+            "Hiệu chỉnh camera ($calSt)…" to { calibMenu() },
+            (if (Nav.active) "Dẫn đường: đang tới ${Nav.dest?.name}…" else "Dẫn đường…") to { navMenu() },
+            "Hiển thị…" to { viewMenu() },
+            "Tìm lại HUD" to { svc?.findHudAgain(); toast("Đang tìm HUD…") },
+            "Chẩn đoán (cho kỹ thuật)…" to { diagMenu() },
+            "Giới thiệu & giấy phép" to { AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show() },
+            "Thoát hẳn (tắt chạy nền)" to {
+                startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
+                finish()
+            },
+        ))
     }
+
+    private fun calibMenu() = menu("Hiệu chỉnh camera\n" + (svc?.calibInfo()?.lineSequence()?.take(2)?.joinToString("\n") ?: ""), listOf<Pair<String, () -> Unit>>(
+        "Học lại từ đầu (sau khi gắn lại camera)" to { svc?.resetCalib(); toast("Chạy thẳng 1–2 phút trên đường có vạch để app tự học") },
+        ("Tự hiệu chỉnh: " + (if (prefs.autoCalib) "BẬT" else "TẮT") + " — bấm để đổi") to { svc?.setAuto(!prefs.autoCalib) },
+        "Chỉnh tay (kéo điểm tụ)" to { startCalib() },
+        "Chiều cao camera: ${"%.1f".format(prefs.camH)} m" to {
+            val hs = arrayOf(0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.7f, 1.9f)
+            AlertDialog.Builder(this).setTitle("Camera cách mặt đường")
+                .setItems(hs.map { "%.1f m".format(it) }.toTypedArray()) { _, k -> prefs.camH = hs[k]; svc?.reloadSettings(false) }.show()
+        },
+    ))
+
+    private fun navMenu() = menu("Dẫn đường", listOf<Pair<String, () -> Unit>>(
+        (if (Nav.active) "Kết thúc dẫn đường tới ${Nav.dest?.name}" else "Cách dùng: mở trạm từ app EVCarHUD Charge hoặc chia sẻ link HERE WeGo / Google Maps vào app này") to {
+            if (Nav.active) Nav.stop()
+        },
+        ("Khoá HERE (tính đường): " + (if (prefs.hereKey.isEmpty()) "chưa có, đang dùng OSRM" else "đã lưu …" + prefs.hereKey.takeLast(4))) to { hereKeyDialog() },
+    ))
+
+    private fun viewMenu() = menu("Hiển thị", listOf<Pair<String, () -> Unit>>(
+        ((if (prefs.showMap) "Ẩn" else "Hiện") + " bản đồ góc") to { prefs.showMap = !prefs.showMap; showPips() },
+        ("Nguồn bản đồ: " + mapName(prefs.mapSrc)) to {
+            val ks = arrayOf("google", "osm")
+            AlertDialog.Builder(this).setTitle("Nguồn bản đồ").setItems(ks.map { mapName(it) }.toTypedArray()) { _, k ->
+                prefs.mapSrc = ks[k]; map.source = ks[k]
+            }.show()
+        },
+        ((if (prefs.showTemp) "Ẩn" else "Hiện") + " ô nhiệt độ") to { prefs.showTemp = !prefs.showTemp; showPips() },
+        ("Vùng xanh/vạch: " + (if (prefs.overHood) "kéo xuống đáy màn" else "cắt ở mép taplo")) to {
+            prefs.overHood = !prefs.overHood; overlay.overHood = prefs.overHood; overlay.invalidate()
+        },
+    ))
+
+    private fun diagMenu() = menu("Chẩn đoán", listOf<Pair<String, () -> Unit>>(
+        ("Bộ xử lý AI: " + (if (prefs.accel == "npu") "NPU" else "CPU") + " — bấm để đổi") to {
+            prefs.accel = if (prefs.accel == "npu") "cpu" else "npu"; svc?.reloadSettings(true)
+        },
+        "Số liệu AI + ghi 1 khung" to { diag() },
+        "Xem ảnh mô hình AI đang thấy" to { showModelView() },
+        "Dò cam gương Wi-Fi" to { probeCam() },
+    ))
 
     private fun hereKeyDialog() {
         val e = android.widget.EditText(this).apply {

@@ -203,29 +203,36 @@ class Overlay(ctx: Context) : View(ctx) {
 
     private fun drawTop(cv: Canvas, sn: Snap?, u: Float) {
         val top = 2.2f * u
-        // o lech lan ben trai (toc do da co tren HUD nen khong hien)
+        // goc trai kieu clip demo: so lon = khoang cach xe truoc, duoi la toc do/lech lan va dong trang thai
         val x = 2f * u
-        val off = sn?.offCm
-        val offTxt = when { off == null || calib -> "--"; abs(off) < 5 -> "giữa"; off > 0 -> "← $off cm"; else -> "${-off} cm →" }
-        val offCol = if (sn != null && sn.ldw != '-') Color.rgb(255, 84, 104) else Color.WHITE
-        box(cv, x, top, u, offTxt, "LỆCH LÀN", offCol)
-
-        // giua: so lon = khoang cach xe truoc
         val lead = sn?.leadM
         val red = Color.rgb(255, 84, 104); val yel = Color.rgb(255, 210, 63)
         val leadCol = when { sn == null || lead == null -> Color.WHITE; sn.level >= 2 -> red; sn.level == 1 -> yel; else -> Color.rgb(71, 224, 138) }
-        txt.textAlign = Paint.Align.CENTER; txt.color = leadCol
-        txt.setShadowLayer(0.8f * u, 0f, 0.2f * u, Color.argb(150, 0, 0, 0))
-        txt.textSize = 6.6f * u
-        cv.drawText(if (lead != null && !calib) "${lead.roundToInt()}" else "--", width / 2f, top + 5.6f * u, txt)
+        txt.textAlign = Paint.Align.LEFT
+        txt.setShadowLayer(0.8f * u, 0f, 0.2f * u, Color.argb(170, 0, 0, 0))
+        txt.color = leadCol; txt.textSize = 6.6f * u
+        cv.drawText(if (lead != null && !calib) "${lead.roundToInt()}" else "--", x, top + 5.6f * u, txt)
         txt.textSize = 1.5f * u; txt.color = Color.WHITE
         val sub = when {
             lead == null || calib -> "m · chưa thấy xe trước"
             sn.level >= 1 -> "m · tối thiểu ${Op.safeDist(sn.vKmh).roundToInt()} m" + (sn.ttc?.let { " · %.1f s".format(it) } ?: "")
             else -> "m · xe trước"
         }
-        cv.drawText(sub, width / 2f, top + 7.6f * u, txt)
+        cv.drawText(sub, x, top + 7.6f * u, txt)
+        val off = sn?.offCm
+        val offTxt = when { off == null || calib -> "lệch làn --"; abs(off) < 5 -> "giữa làn"; off > 0 -> "lệch trái $off cm"; else -> "lệch phải ${-off} cm" }
+        txt.color = if (sn != null && sn.ldw != '-') red else Color.rgb(120, 200, 255)
+        cv.drawText("${sn?.vKmh?.roundToInt() ?: 0} km/h · $offTxt", x, top + 9.6f * u, txt)
         txt.clearShadowLayer()
+        val st = sn?.stat ?: ""
+        if (st.isNotEmpty()) {
+            txt.textSize = 1.2f * u
+            val w = minOf(txt.measureText(st), width * 0.6f) + 1.4f * u
+            fill.color = Color.argb(130, 0, 0, 0)
+            cv.drawRoundRect(RectF(x, top + 10.4f * u, x + w, top + 12.3f * u), 0.8f * u, 0.8f * u, fill)
+            txt.color = Color.argb(235, 255, 255, 255)
+            cv.drawText(st, x + 0.7f * u, top + 11.75f * u, txt)
+        }
 
         // chip ben phai: [cai dat] [LAN] [HUD]
         var xr = width - 2f * u
@@ -257,7 +264,7 @@ class Overlay(ctx: Context) : View(ctx) {
             if (cur.isNotEmpty()) lines += cur
         }
         val lh = 1.5f * u
-        val x = 2f * u; val y0 = 8.2f * u
+        val x = 2f * u; val y0 = 15f * u
         val w = lines.maxOf { txt.measureText(it) } + 1.6f * u
         fill.color = Color.argb(120, 0, 0, 0)
         cv.drawRoundRect(RectF(x, y0, x + w, y0 + lines.size * lh + 0.8f * u), u, u, fill)
