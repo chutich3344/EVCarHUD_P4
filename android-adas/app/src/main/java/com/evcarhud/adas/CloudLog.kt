@@ -45,12 +45,12 @@ class CloudLog(private val ctx: Context, private val ver: String) {
             if (file.length() > 2_000_000) file.writeText("")
             file.appendText(body)
         } catch (_: Exception) {}
-        val macs = if (okMac.isNotEmpty()) listOf(okMac) else candidates(hudMac)
-        if (macs.isEmpty()) { lastStatus = "chưa nối HUD, chỉ lưu trên máy"; return }
+        // chua noi HUD van gui: dung MAC HUD P4 da dang ky cua chu xe (E8:F6:0A:E5:50:ED, log HUD tu 12/11)
+        val macs = if (okMac.isNotEmpty()) listOf(okMac) else (candidates(hudMac) + FALLBACK_MAC).distinct()
         for (m in macs) {
             val st = post(m, body)
             if (st in 200..299) { okMac = m; seq++; lastStatus = "đã gửi lúc ${fmt.format(Date())}"; return }
-            if (st != 403) { lastStatus = "lỗi gửi $st"; break }
+            if (st != 403) { lastStatus = "lỗi gửi $st (mạng?)"; break }
             lastStatus = "máy chủ chưa nhận MAC HUD"
         }
         // khong gui duoc: tra lai bo dem cho lan sau (giu toi da 200 KB)
@@ -80,6 +80,8 @@ class CloudLog(private val ctx: Context, private val ver: String) {
             disconnect(); c
         }
     } catch (e: Exception) { Log.w("CloudLog", "post", e); -1 }
+
+    companion object { private const val FALLBACK_MAC = "E8:F6:0A:E5:50:ED" }
 
     fun close() { flush(); th.quitSafely() }
 }
