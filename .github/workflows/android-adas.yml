@@ -42,6 +42,10 @@ jobs:
           test $(stat -c%s app/src/main/assets/driving_vision.onnx) -gt 40000000
           test $(stat -c%s app/src/main/assets/driving_policy.onnx) -gt 10000000
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Doi mo hinh fp16 -> fp32 (ONNX Runtime ARM64 tinh fp16 thuan bi lech, xem tools/fp32.py)
         run: |
           pip install -q onnx==1.17.0 numpy
