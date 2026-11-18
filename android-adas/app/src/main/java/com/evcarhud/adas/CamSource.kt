@@ -25,13 +25,12 @@ import kotlin.math.max
  * Luon co luong anh YUV 1280x720 cho mo hinh; khung xem truoc (preview) chi gan khi man hinh app dang mo,
  * chay nen thi bo preview de do ton dien/nong.
  */
-@SuppressLint("MissingPermission")
 /** Nguon khung YUV cho mo hinh: camera dien thoai hoac cam guong Wi-Fi. */
 interface FrameSource {
     val size: Size
-    override val focalPx: Double
-    override val focalSrc: String
-    override val flip: Boolean
+    val focalPx: Double
+    val focalSrc: String
+    val flip: Boolean
     val isOpen: Boolean
     fun open()
     fun close()
@@ -40,6 +39,7 @@ interface FrameSource {
     fun release()
 }
 
+@SuppressLint("MissingPermission")
 class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val onErr: (String) -> Unit) : FrameSource {
     private val mgr = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private val thread = HandlerThread("cam").apply { start() }
@@ -48,11 +48,11 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
     val id: String
     override val size: Size
     /** Tieu cu (px) o kich thuoc anh YUV. */
-    val focalPx: Double
+    override val focalPx: Double
     /** Nguon tieu cu (de hien trong Cai dat). */
-    val focalSrc: String
+    override val focalSrc: String
     /** Anh tho tu cam bien bi nguoc 180 do so voi man hinh ngang (cam bien xoay 270). */
-    val flip: Boolean
+    override val flip: Boolean
     private val fpsRanges: Array<Range<Int>>
 
     private var dev: CameraDevice? = null
