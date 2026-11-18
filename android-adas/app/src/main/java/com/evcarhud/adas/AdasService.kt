@@ -187,8 +187,12 @@ class AdasService : Service() {
             main.post { applyRate() }
         }
         startGps()
+        clog = CloudLog(this, try { packageManager.getPackageInfo(packageName, 0).versionName ?: "?" } catch (_: Exception) { "?" }).also {
+            it.hudMac = prefs.hudMac
+            it.line("bat dau · ${android.os.Build.MODEL} · AI ${prefs.accel} · tu hieu chinh ${prefs.autoCalib}/${prefs.calibrated} · camH ${prefs.camH}")
+        }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
-            it.onMac = { a -> prefs.hudMac = a }
+            it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
             if (hasPerm(Manifest.permission.BLUETOOTH_CONNECT)) it.start(prefs.hudMac) else hudMsg = "Chưa cho quyền Bluetooth"
         }
         Nav.listeners += navL
@@ -224,6 +228,7 @@ class AdasService : Service() {
         Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
+        clog?.line("dung app"); clog?.close()
         super.onDestroy()
     }
 
@@ -305,6 +310,7 @@ class AdasService : Service() {
         if (xcBad >= 2) {
             m.fallbackCpu("NPU lệch CPU trên khung thật (xe ${(o.leadProb * 100).roundToInt()}% vs ${(r.leadProb * 100).roundToInt()}%)")
             prefs.accel = "cpu"
+            clog?.line("CHUYEN CPU: ${m.selfTest}"); clog?.flushSoon()
         }
     }
 
@@ -314,7 +320,7 @@ class AdasService : Service() {
         val w = warpMed
         val outPct = if (w != null) 100 * w.y.count { it < 0 } / w.y.size else -1
         val o = lastOut
-        return "AI ${m.backend}, ${lastMs} ms" + (if (m.selfTest.isNotEmpty()) " · ${m.selfTest}" else "") +
+        return "Log máy chủ: ${clog?.lastStatus ?: "-"}\nAI ${m.backend}, ${lastMs} ms" + (if (m.selfTest.isNotEmpty()) " · ${m.selfTest}" else "") +
             "\nẢnh vào: ${if (outPct >= 0) "$outPct% ngoài khung" else "chưa có"} · cam ${yRowS}/${uvRowS}/${uvPixS}" +
             (if (xcInfo.isNotEmpty()) "\n$xcInfo" else "") +
             (if (o != null) " · khung sống: xe ${(o.leadProb * 100).roundToInt()}% vạch ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}% pose ${"%.1f".format(o.poseVx)}" else "")
@@ -626,6 +632,25 @@ class AdasService : Service() {
     }
 
     private var lastNear = false
+    private var clog: CloudLog? = null
+    private var logAt = 0L
+    private var lastXc = ""
+
+    /** 1 dong/giay: du de biet NPU/CPU, xe truoc, vach, hieu chinh, nhiet khi nguoi dung dang lai. */
+    private fun logTick(o: Op.Out?, v: Float, leadM: Float?) {
+        val l = clog ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (now - logAt < 1000) return
+        logAt = now
+        val m = model
+        val ai = if (o == null) "AI dung(${stateCode()})" else
+            "AI ${m?.backend} ${lastMs}ms ${if (targetHz == 0) 0 else measHz}/s xe ${(o.leadProb * 100).roundToInt()}%" +
+            (if (leadM != null) " ${leadM.roundToInt()}m" else " --") + " vach ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}" +
+            " pose ${"%.1f".format(o.poseVx * 3.6f)}km/h"
+        l.line("${v.roundToInt()}km/h · $ai · yaw ${"%.3f".format(calYaw)} pitch ${"%.3f".format(calPitch)} ${if (prefs.calibrated) "HC xong" else "HC dang"}" +
+            " · pin ${batt.roundToInt()} nong $hot · taplo ${(prefs.hood * 100).roundToInt()}% · HUD ${if (hudOk) "noi" else "chua"} · gps ${if (gpsAt > 0) "co" else "khong"}")
+        if (xcInfo != lastXc) { lastXc = xcInfo; l.line(xcInfo) }
+    }
 
     private fun onResult(o: Op.Out, g: Op.Cam, v: Float, ldw: Char, off: Float?, leadM: Float?, ttc: Float?, level: Int, near: Boolean) {
         lastNear = near
@@ -635,6 +660,7 @@ class AdasService : Service() {
         s.hood = prefs.hood
         if (prefs.showDbg) s.dbg = calibInfo()
         onSnap?.invoke(s)
+        logTick(o, v, leadM)
         val now = SystemClock.elapsedRealtime()
         if (now - lastSend >= 95) {
             lastSend = now
@@ -675,6 +701,7 @@ class AdasService : Service() {
 
     /** Khong co ket qua AI (dung/nong/dang nap): van cap nhat giao dien + giu HUD biet trang thai. */
     private fun publishIdle() {
+        logTick(null, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, null)
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
             if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
             .also { it.hood = prefs.hood; if (prefs.showDbg) it.dbg = calibInfo() })
