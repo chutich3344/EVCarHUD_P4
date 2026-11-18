@@ -36,6 +36,25 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- app EVCarHUD Charge gui tram sac (toa do + ten) -->
+            <intent-filter>
+                <action android:name="com.evcarhud.adas.NAVIGATE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- chia se dia diem tu HERE WeGo / Google Maps -->
+            <intent-filter android:label="Dẫn đường trên EVCarHUD Làn">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <!-- mo dia diem geo:lat,lon -->
+            <intent-filter android:label="Dẫn đường trên EVCarHUD Làn">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+                <data android:scheme="google.navigation" />
+            </intent-filter>
         </activity>
 
         <service

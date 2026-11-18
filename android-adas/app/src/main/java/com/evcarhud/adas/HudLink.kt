@@ -30,6 +30,8 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
     private var chr: BluetoothGattCharacteristic? = null
     private var busy = false
     private var pending: ByteArray? = null
+    private var navPending: ByteArray? = null
+    private var wid = 0
     private var stopped = true
     private var mac = ""
     private var fails = 0
@@ -50,32 +52,42 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
         stopped = true
         main.removeCallbacksAndMessages(null)
         stopScan()
-        chr = null; busy = false; pending = null
+        chr = null; busy = false; pending = null; navPending = null
         gatt?.let { try { it.disconnect(); it.close() } catch (_: Exception) {} }
         gatt = null
     }
 
+    /** Goi dan duong D1 (thua, ~1 lan/giay): ghi co phan hoi (goi dai > MTU van toi du), uu tien hon goi A1. */
+    fun sendNav(data: ByteArray) {
+        navPending = data
+        if (!busy) flush()
+    }
+
     /** Ghi goi moi nhat; dang ghi thi giu goi moi nhat de ghi sau (khong don hang doi). */
-    fun send(data: ByteArray) {
+    fun send(data: ByteArray) = write(data, false)
+
+    private fun write(data: ByteArray, nav: Boolean) {
         val c = chr; val g = gatt
-        if (c == null || g == null || busy) { pending = data; return }
+        if (c == null || g == null || busy) { if (nav) navPending = data else pending = data; return }
         busy = true
-        val noRsp = c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
+        val noRsp = !nav && c.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
         val type = if (noRsp) BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE else BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         val ok = if (Build.VERSION.SDK_INT >= 33) {
             g.writeCharacteristic(c, data, type) == 0
         } else {
             @Suppress("DEPRECATION") run { c.writeType = type; c.value = data; g.writeCharacteristic(c) }
         }
-        if (!ok) { busy = false; pending = data; main.postDelayed({ flush() }, 300); return }
+        if (!ok) { busy = false; if (nav) navPending = data else pending = data; main.postDelayed({ flush() }, 300); return }
         // Ghi khong phan hoi: vai may khong goi onCharacteristicWrite -> tu mo khoa
         if (noRsp) main.postDelayed({ if (busy) { busy = false; flush() } }, 80)
+        else { val w = ++wid; main.postDelayed({ if (busy && w == wid) { busy = false; flush() } }, 1500) }   // mat phan hoi: khong treo
     }
 
     private fun flush() {
+        navPending?.let { navPending = null; write(it, true); return }
         val p = pending ?: return
         pending = null
-        send(p)
+        write(p, false)
     }
 
     private fun isHud(name: String?) = name != null && (name.startsWith("EVHUD") || name.startsWith("HUD_") || name.startsWith("EVCarHUD"))

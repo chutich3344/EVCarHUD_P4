@@ -87,7 +87,10 @@ void ui_set_weather(int kind, const char *text);  /* kind UI_WX_NONE: "Chua co t
 
 /* --- du lieu dan duong (Waze HLP) --- */
 void ui_set_nav(bool active, int turn, int dist_m, int exit_n, const char *street, int turn2);
-void ui_set_route(const char *eta, int remaining_m, int remaining_min);   /* eta rong va remaining <= 0: hien dong ho */
+void ui_set_route(const char *eta, int remaining_m, int remaining_min);
+/* App EVCarHUD Lan dan theo tuyen (goi D1): uu tien hon Waze / GOFA / tram sac; on=false: het dan duong. Tu bo sau 15 s im. */
+void ui_phone_nav(bool on, int turn, int dist_m, int exit_n, int remaining_m, int remaining_min, const char *eta,
+                  const char *street);   /* eta rong va remaining <= 0: hien dong ho */
 void ui_set_alerts(const ui_alert_t *alerts, int n);   /* gan -> xa; n = 0: khong co canh bao */
 void ui_set_chip(int kind, const char *text);
 void ui_set_signal(bool ok);                           /* false: chua co du lieu tu dien thoai -> man cho */

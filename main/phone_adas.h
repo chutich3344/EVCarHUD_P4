@@ -23,6 +23,18 @@ typedef struct {
 bool phone_adas_parse(const char *s, size_t n, phone_adas_t *p);
 /* Doi sang khung xADAS de dung chung o khoang cach (legal_m: khoang cach toi thieu TT38 theo toc do, 0 = duoi 55 km/h). */
 void phone_adas_to_xadas(const phone_adas_t *p, int legal_m, xadas_frame_t *f);
+/* Goi D1 (dan duong theo tuyen app Lan tinh, ~1 goi/giay va khi doi chi dan, ghi co phan hoi):
+ *   D1|ma re|met toi cho re|so loi ra vong xuyen|met con lai|phut con lai|gio den HH:MM|ten duong
+ *   ma re giong Waze HLP (1 thang, 2 trai, 3 phai, 4/5 cheo, 6/7 gat, 8 quay dau, 11 vong xuyen, 13-16 nhanh, 17 toi noi).
+ *   "D1|0" = het dan duong. HUD uu tien hon Waze / GOFA / tram sac, tu bo sau 15 s khong co goi. */
+typedef struct {
+    bool on;
+    int turn, dist_m, exit_n, remain_m, remain_min;
+    char eta[8];
+    char street[96];
+} phone_nav_t;
+bool phone_nav_parse(const char *s, size_t n, phone_nav_t *p);
+
 /* ble_link.c goi tu task host NimBLE khi app ghi 4556d005. */
 void phone_adas_on_write(const char *s, size_t n);
 

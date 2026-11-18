@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: app-lan
+  group: app-lan-pip
   cancel-in-progress: true
 
 jobs:
@@ -60,7 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete app-lan-thu --yes --cleanup-tag || true
-          gh release create app-lan-thu "evcarhud-lan-$SHORT.apk" --target "$GITHUB_SHA" \
-            --title "App EVCarHUD Làn ($SHORT)" \
+          gh release delete app-lan-pip-thu --yes --cleanup-tag || true
+          gh release create app-lan-pip-thu "evcarhud-lan-$SHORT.apk" --target "$GITHUB_SHA" \
+            --title "App EVCarHUD Làn + dẫn đường PiP ($SHORT)" \
             --notes "APK thử, build tự động từ commit $SHORT (nhánh ${GITHUB_REF_NAME}). Mô hình openpilot v0.10.3 (MIT, comma.ai)." --prerelease

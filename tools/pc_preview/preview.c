@@ -435,6 +435,26 @@ int main(int argc, char **argv)
         obstacle_ui_phone(NULL, '-', false, false);
         run(300);
     }
+    {                                               /* 18/11: app Lan dan theo tuyen (goi D1), co va khong co Waze */
+        static const char *pk[] = {
+            "D1|3|350|0|4200|9|06:42|Nguyễn Văn Linh",
+            "D1|11|120|2|2600|6|06:42|Đường Tân Mỹ",
+            "D1|17|180|0|180|1|06:42|VinFast Lotte Mart Q7",
+            "D1|17|20|0|20|1|06:42|VinFast Lotte Mart Q7",
+        };
+        static const char *nm[] = {"pn_1_re_phai", "pn_2_vong_xuyen", "pn_3_sap_toi_tram", "pn_4_da_den"};
+        ui_set_speed(42);
+        ui_set_speed_limit(50);
+        for (int i = 0; i < 4; i++) {
+            phone_nav_t nv;
+            phone_nav_parse(pk[i], strlen(pk[i]), &nv);
+            ui_phone_nav(nv.on, nv.turn, nv.dist_m, nv.exit_n, nv.remain_m, nv.remain_min, nv.eta, nv.street);
+            run(600);
+            snprintf(p, sizeof p, "%s/%s.bmp", dir, nm[i]); save_bmp(p);
+        }
+        ui_phone_nav(false, 0, -1, 0, 0, 0, "", "");
+        run(300);
+    }
     ui_cam_state(true);                             /* 16/11: cam camera USB -> camera uu tien, bo xADAS */
     obstacle_ui_cam(true);
     ui_cam_status(UI_CAM_OK);
