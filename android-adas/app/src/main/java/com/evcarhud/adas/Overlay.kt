@@ -38,6 +38,8 @@ class Overlay(ctx: Context) : View(ctx) {
 
     // hieu chinh
     var calib = false
+    /** Ve duong di/vach de len taplo (keo xuong day man). */
+    var overHood = true
         set(v) { field = v; invalidate() }
     var vpX = 0.5f
     var vpY = 0.5f
@@ -77,10 +79,18 @@ class Overlay(ctx: Context) : View(ctx) {
         val o = sn?.out
         val c = sn?.cam
         if (o != null && c != null && !calib) {
-            // khong ve lan/duong di de len taplo (camera dat thap thay taplo che phan duong gan)
-            cv.save(); cv.clipRect(0f, 0f, width.toFloat(), oy + sn.hood * imgH * s)
+            // tren mep taplo: ve ro; duoi mep (taplo/capo che duong gan): keo tiep xuong day man nhung mo hon
+            // (nhu DriveDeck, de liec nhanh) - tat trong Cai dat thi cat han o mep taplo
+            val hy = oy + sn.hood * imgH * s
+            cv.save(); cv.clipRect(0f, 0f, width.toFloat(), hy)
             drawScene(cv, sn, o, c)
             cv.restore()
+            if (overHood && hy < height) {
+                val sc = cv.saveLayerAlpha(0f, hy, width.toFloat(), height.toFloat(), 120)
+                cv.clipRect(0f, hy, width.toFloat(), height.toFloat())
+                drawScene(cv, sn, o, c)
+                cv.restoreToCount(sc)
+            }
         }
         if (sn != null && !calib && sn.level >= 3) {
             fill.color = Color.argb(150, 220, 30, 40); cv.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)

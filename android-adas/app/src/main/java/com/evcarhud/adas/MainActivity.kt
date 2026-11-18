@@ -48,7 +48,7 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         root = FrameLayout(this).apply { setBackgroundColor(0xff0b0e13.toInt()) }
-        overlay = Overlay(this)
+        overlay = Overlay(this).also { it.overHood = prefs.overHood }
         temp = TempPip(this)
         map = TileMap(this).apply { source = prefs.mapSrc }
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
@@ -179,6 +179,7 @@ class MainActivity : Activity() {
             "Xem ảnh mô hình AI đang thấy",
             "Dò cam gương Wi-Fi",
             "Chẩn đoán AI (xem số liệu + ghi 1 khung)",
+            "Vùng xanh/vạch: " + (if (prefs.overHood) "kéo xuống đáy màn (mờ trên taplo)" else "cắt ở mép taplo"),
             "Giới thiệu & giấy phép",
             "Thoát hẳn (tắt chạy nền)",
         )
@@ -206,8 +207,9 @@ class MainActivity : Activity() {
                 8 -> showModelView()
                 9 -> probeCam()
                 10 -> diag()
-                11 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
-                12 -> {
+                11 -> { prefs.overHood = !prefs.overHood; overlay.overHood = prefs.overHood; overlay.invalidate() }
+                12 -> AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show()
+                13 -> {
                     startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
                     finish()
                 }
