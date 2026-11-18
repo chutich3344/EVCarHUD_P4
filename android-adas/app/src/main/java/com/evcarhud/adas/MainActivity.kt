@@ -168,6 +168,7 @@ class MainActivity : Activity() {
             "Khoá HERE (tính đường): " + (if (prefs.hereKey.isEmpty()) "chưa có, đang dùng OSRM" else "đã lưu …" + prefs.hereKey.takeLast(4)),
         )
         val items = navItems + arrayOf(
+            "Nguồn camera: " + (if (prefs.camSrc == "mirror") "CAM GƯƠNG Wi-Fi (bấm để về camera điện thoại)" else "camera điện thoại (bấm để dùng cam gương Wi-Fi)"),
             "Tự hiệu chỉnh camera: " + (if (prefs.autoCalib) "BẬT" else "TẮT"),
             "Hiệu chỉnh tay (kéo điểm tụ)",
             "Chiều cao camera: ${"%.1f".format(prefs.camH)} m",
@@ -186,7 +187,13 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Cài đặt\n" + (svc?.calibInfo() ?: "")).setItems(items) { _, k ->
             if (k == 0) { if (Nav.active) Nav.stop(); return@setItems }
             if (k == 1) { hereKeyDialog(); return@setItems }
-            when (k - navItems.size) {
+            if (k == navItems.size) {
+                prefs.camSrc = if (prefs.camSrc == "mirror") "phone" else "mirror"
+                svc?.switchCam()
+                toast(if (prefs.camSrc == "mirror") "Dùng cam gương: điện thoại phải đang nối Wi-Fi mirror_wifi…" else "Dùng camera điện thoại")
+                return@setItems
+            }
+            when (k - navItems.size - 1) {
                 0 -> svc?.setAuto(!prefs.autoCalib)
                 1 -> startCalib()
                 2 -> {

@@ -85,7 +85,7 @@ class AdasService : Service() {
     private val aiThread = HandlerThread("ai").apply { start() }
     private val ai = Handler(aiThread.looper)
     private lateinit var prefs: Prefs
-    private var cam: CamSource? = null
+    private var cam: FrameSource? = null
     @Volatile private var model: OpModel? = null
     private var hud: HudLink? = null
     private var hudMsg = "Chưa nối HUD"
@@ -171,9 +171,7 @@ class AdasService : Service() {
         super.onCreate()
         prefs = Prefs(this)
         goForeground("Đang khởi động…")
-        try {
-            cam = CamSource(this, ::onFrame) { e -> main.post { loadMsg = e; publishIdle() } }
-        } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
+        makeCam()
         calPitch = prefs.pitch.toDouble(); calYaw = prefs.yaw.toDouble(); calRoll = prefs.roll.toDouble()
         startGravity()
         rebuildGeom()
@@ -234,10 +232,29 @@ class AdasService : Service() {
 
     // ---------------- giao dien goi ----------------
     fun setPreview(s: Surface?) { cam?.setPreview(s) }
-    fun camInfo(): CamSource? = cam
+    fun camInfo(): FrameSource? = cam
     fun currentGeom(): Op.Cam? = geom
 
     /** Doi hieu chinh / chieu cao / bo tang toc. */
+    private fun makeCam() {
+        val err: (String) -> Unit = { e -> main.post { loadMsg = e; publishIdle() } }
+        try {
+            cam = if (prefs.camSrc == "mirror") MirrorCam(this, ::onFrame, err) { main.post { rebuildGeom() } }
+            else CamSource(this, ::onFrame, err)
+        } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
+    }
+
+    /** Doi nguon camera (dien thoai <-> cam guong Wi-Fi). */
+    fun switchCam() {
+        cam?.release(); cam = null; loadMsg = ""
+        // cam guong: goc lap tu 3 clip 17/11 (cui -0,04, lech 0,09); tu hieu chinh yaw chay tiep. Dien thoai: lay lai tu trong luc
+        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else { calYaw = 0.0; gP = Double.NaN }
+        prefs.calibrated = false; yawGood = 0
+        saveCalib()
+        makeCam(); rebuildGeom(); applyRate()
+        clog?.line("nguon camera: ${prefs.camSrc}")
+    }
+
     fun reloadSettings(accelChanged: Boolean) {
         rebuildGeom()
         if (accelChanged) ai.post {
@@ -283,7 +300,7 @@ class AdasService : Service() {
         val c = cam ?: return "Chưa có camera"
         val hf = Math.toDegrees(2 * atan(c.size.width / 2 / c.focalPx))
         fun d(r: Double) = "%.1f°".format(Math.toDegrees(r))
-        return "Camera ${c.size.width}x${c.size.height}, góc ngang ${"%.0f".format(hf)}° (${c.focalSrc})\nCúi ${d(calPitch)} · lệch ${d(calYaw)} · nghiêng ${d(calRoll)}" +
+        return "Camera ${c.size.width}x${c.size.height}, góc ngang ${"%.0f".format(hf)}° (${c.focalSrc}${(c as? MirrorCam)?.let { " · " + it.status } ?: ""})\nCúi ${d(calPitch)} · lệch ${d(calYaw)} · nghiêng ${d(calRoll)}" +
             (if (prefs.autoCalib) (if (prefs.calibrated) " · tự hiệu chỉnh xong" else " · đang tự hiệu chỉnh") else " · chỉnh tay") +
             "\n" + aiInfo() + "\n${if (targetHz == 0) 0 else measHz} lần/giây · ${gpsKmh.roundToInt()} km/h · mép taplo ${(prefs.hood * 100).roundToInt()}% · pin ${batt.roundToInt()}°"
     }
@@ -329,7 +346,7 @@ class AdasService : Service() {
     fun requestDump(cb: (String) -> Unit) { dumpReq = cb }
     @Volatile private var dumpReq: ((String) -> Unit)? = null
 
-    private fun writeDump(cb: (String) -> Unit, g: Op.Cam, c: CamSource, dt: Long, vo: FloatArray, o: Op.Out,
+    private fun writeDump(cb: (String) -> Unit, g: Op.Cam, c: FrameSource, dt: Long, vo: FloatArray, o: Op.Out,
                           yRow: Int, uvRow: Int, uvPix: Int) {
         val msg = try {
             val hdr = "{\"w\":${g.w},\"h\":${g.h},\"f\":${g.f},\"pitch\":$calPitch,\"yaw\":$calYaw,\"roll\":$calRoll,\"flip\":${c.flip}," +
@@ -383,7 +400,7 @@ class AdasService : Service() {
     // truoc = -z may, phai = -y may, xuong = -x may. Gia toc ke do huong "len" (a).
     private val gravL = object : SensorEventListener {
         override fun onSensorChanged(e: SensorEvent) {
-            if (!prefs.autoCalib) return
+            if (!prefs.autoCalib || prefs.camSrc == "mirror") return   // cam guong: trong luc cua dien thoai khong lien quan
             val ax = e.values[0].toDouble(); val ay = e.values[1].toDouble(); val az = e.values[2].toDouble()
             val n = sqrt(ax * ax + ay * ay + az * az)
             if (n < 8.8 || n > 10.8) return                      // dang tang/giam toc, o ga: bo

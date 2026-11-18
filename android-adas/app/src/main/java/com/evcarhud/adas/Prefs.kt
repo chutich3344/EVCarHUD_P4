@@ -45,6 +45,10 @@ class Prefs(ctx: Context) {
     var overHood: Boolean
         get() = p.getBoolean("overhood", true)
         set(v) = p.edit().putBoolean("overhood", v).apply()
+    /** Nguon camera: "phone" hoac "mirror" (cam guong Wi-Fi). */
+    var camSrc: String
+        get() = p.getString("camsrc", "phone") ?: "phone"
+        set(v) = p.edit().putString("camsrc", v).apply()
     var showDbg: Boolean
         get() = p.getBoolean("dbg", false)
         set(v) = p.edit().putBoolean("dbg", v).apply()

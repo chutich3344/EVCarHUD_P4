@@ -72,6 +72,7 @@ class Overlay(ctx: Context) : View(ctx) {
     }
 
     override fun onDraw(cv: Canvas) {
+        snap?.cam?.let { if (it.w > 0) { imgW = it.w; imgH = it.h } }   // cam guong: kich thuoc biet sau khi luong len
         layoutScale()
         val u = width / 100f
         frame?.let { dst.set(ox, oy, ox + imgW * s, oy + imgH * s); cv.drawBitmap(it, null, dst, bmpPaint) }

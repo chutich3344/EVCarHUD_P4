@@ -26,13 +26,27 @@ import kotlin.math.max
  * chay nen thi bo preview de do ton dien/nong.
  */
 @SuppressLint("MissingPermission")
-class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val onErr: (String) -> Unit) {
+/** Nguon khung YUV cho mo hinh: camera dien thoai hoac cam guong Wi-Fi. */
+interface FrameSource {
+    val size: Size
+    override val focalPx: Double
+    override val focalSrc: String
+    override val flip: Boolean
+    val isOpen: Boolean
+    fun open()
+    fun close()
+    fun setRate(hz: Int)
+    fun setPreview(s: Surface?)
+    fun release()
+}
+
+class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val onErr: (String) -> Unit) : FrameSource {
     private val mgr = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private val thread = HandlerThread("cam").apply { start() }
     private val h = Handler(thread.looper)
 
     val id: String
-    val size: Size
+    override val size: Size
     /** Tieu cu (px) o kich thuoc anh YUV. */
     val focalPx: Double
     /** Nguon tieu cu (de hien trong Cai dat). */
@@ -87,7 +101,7 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
         Log.i(TAG, "cam $id ${size} ($focalSrc) f=${"%.0f".format(focalPx)} px (goc ngang ${"%.0f".format(Math.toDegrees(2 * atan(size.width / 2 / focalPx)))} do) flip=$flip")
     }
 
-    fun open() {
+    override fun open() {
         h.post {
             wantOpen = true
             if (dev != null) return@post
@@ -104,7 +118,7 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
         }
     }
 
-    fun close() {
+    override fun close() {
         h.post {
             wantOpen = false
             try { session?.close() } catch (_: Exception) {}
@@ -115,10 +129,10 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
         }
     }
 
-    val isOpen get() = wantOpen
+    override val isOpen get() = wantOpen
 
     /** Gan / bo khung xem truoc. */
-    fun setPreview(s: Surface?) {
+    override fun setPreview(s: Surface?) {
         h.post {
             if (preview == s) return@post
             preview = s
@@ -127,7 +141,7 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
     }
 
     /** Toc do khung camera: chon khoang thap nhat du cho tan suat AI (it khung = it nong). */
-    fun setRate(hz: Int) {
+    override fun setRate(hz: Int) {
         h.post {
             val need = max(hz, 15)
             val r = fpsRanges.filter { it.upper >= need }.minWithOrNull(compareBy({ it.upper }, { -it.lower }))
@@ -178,7 +192,7 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
         } catch (e: Exception) { Log.w(TAG, "repeat", e) }
     }
 
-    fun release() { close(); thread.quitSafely() }
+    override fun release() { close(); thread.quitSafely() }
 
     companion object { private const val TAG = "CamSource" }
 }

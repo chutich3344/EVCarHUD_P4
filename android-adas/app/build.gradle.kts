@@ -45,4 +45,7 @@ android {
 
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    // cam guong Wi-Fi: RTSP -> giai ma (MirrorCam.kt)
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.4.1")
 }

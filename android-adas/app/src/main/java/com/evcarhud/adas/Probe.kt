@@ -35,6 +35,22 @@ object Probe {
         val pre = me.substringBeforeLast('.', "192.168.5")
         hosts += "$pre.1"; hosts += "$pre.254"; hosts += "192.168.1.254"; hosts += "192.168.0.1"
         val sf = net.socketFactory
+        // cam guong Sinjet (app rearview_wifi): API http://IP:8000/app/..., vao xem truc tiep (enterrecorder) thi mo RTSP :554
+        gw?.let { g ->
+            for (q in listOf("app/getproductinfo", "app/getdeviceattr", "app/capability", "app/getparamitems?param=all",
+                    "app/getparamvalue?param=rec", "app/getparamvalue?param=mic", "app/enterrecorder")) {
+                try {
+                    val c = net.openConnection(URL("http://$g:8000/$q")) as HttpURLConnection
+                    c.connectTimeout = 1500; c.readTimeout = 2500
+                    val code = c.responseCode
+                    val body = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText().take(300) }?.replace(Regex("\\s+"), " ") ?: ""
+                    c.disconnect()
+                    log("  API :8000/$q -> $code $body")
+                } catch (e: Exception) { log("  API :8000/$q lỗi ${e.javaClass.simpleName}") }
+            }
+            try { Thread.sleep(1500) } catch (_: Exception) {}
+            rtsp(sf, g, 554, log)
+        }
         for (h in hosts) {
             val open = PORTS.filter { p ->
                 try { sf.createSocket().use { s -> s.connect(InetSocketAddress(h, p), 400) }; true } catch (_: Exception) { false }
@@ -46,6 +62,9 @@ object Probe {
                 else if (p in intArrayOf(80, 8080, 8081, 81, 8000, 8888, 9000, 10080, 5000, 7070)) http(net, h, p, log)
                 else banner(sf, h, p, log)
             }
+        }
+        gw?.let { g ->
+            try { (net.openConnection(URL("http://$g:8000/app/exitrecorder")) as HttpURLConnection).run { connectTimeout = 1500; readTimeout = 2000; log("  API exitrecorder -> $responseCode"); disconnect() } } catch (_: Exception) {}
         }
         log("Xong. Bấm Sao chép rồi dán gửi em.")
     }
