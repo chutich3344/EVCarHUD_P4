@@ -134,6 +134,57 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
         return sqrt(dx * dx + dy * dy)
     }
 
+    /**
+     * Doan duong phia truoc xe dai distM met theo hinh duong OSM (cho ban do khi dan duong Waze: Waze khong gui toa do tuyen).
+     * Bat dau tu duong khop gan nhat, di theo huong xe; het duong thi noi sang duong co dau mut chung, it doi huong nhat.
+     * Tra ve (lat[], lon[]) hoac null neu chua co duong quanh xe.
+     */
+    fun ahead(lat: Double, lon: Double, brg: Float, distM: Int): Pair<DoubleArray, DoubleArray>? {
+        val ws = ways; if (ws.isEmpty() || distM <= 0) return null
+        var w = match(lat, lon, brg, 30f) ?: return null
+        // doan gan nhat + chieu di
+        var bk = 0; var bd = 1e9
+        for (k in 0 until w.lat.size - 1) { val (d, _) = segDist(lat, lon, w.lat[k], w.lon[k], w.lat[k + 1], w.lon[k + 1]); if (d < bd) { bd = d; bk = k } }
+        var fwd = headingAlong(w, lat, lon, brg) || w.oneway != 0
+        val la = ArrayList<Double>(); val lo = ArrayList<Double>()
+        la += lat; lo += lon
+        var left = distM.toDouble()
+        var i = if (fwd) bk + 1 else bk
+        var guard = 0
+        while (left > 0 && guard++ < 400) {
+            if (i < 0 || i >= w.lat.size) {
+                // het duong: tim duong noi tiep o dau mut, huong gan nhat
+                val ex = la.last(); val ey = lo.last()
+                val pb = bearingOf(la[la.size - 2], lo[lo.size - 2], ex, ey)
+                var best: Way? = null; var bf = true; var bs = 1e9
+                for (o in ws) if (o !== w) {
+                    val n = o.lat.size
+                    if (dist(o.lat[0], o.lon[0], ex, ey) < 3) { val b = bearingOf(o.lat[0], o.lon[0], o.lat[1], o.lon[1]); val da = angDiff(b, pb); if (da < bs) { bs = da; best = o; bf = true } }
+                    if (o.oneway == 0 && dist(o.lat[n - 1], o.lon[n - 1], ex, ey) < 3) { val b = bearingOf(o.lat[n - 1], o.lon[n - 1], o.lat[n - 2], o.lon[n - 2]); val da = angDiff(b, pb); if (da < bs) { bs = da; best = o; bf = false } }
+                }
+                if (best == null || bs > 60) break
+                w = best; fwd = bf; i = if (fwd) 1 else w.lat.size - 2
+                continue
+            }
+            val d = dist(la.last(), lo.last(), w.lat[i], w.lon[i])
+            if (d >= left) {
+                val t = left / maxOf(d, 0.01)
+                la += la.last() + (w.lat[i] - la.last()) * t; lo += lo.last() + (w.lon[i] - lo.last()) * t
+                break
+            }
+            la += w.lat[i]; lo += w.lon[i]; left -= d
+            i += if (fwd) 1 else -1
+        }
+        return if (la.size >= 2) la.toDoubleArray() to lo.toDoubleArray() else null
+    }
+
+    private fun bearingOf(a1: Double, o1: Double, a2: Double, o2: Double): Float {
+        val dy = (a2 - a1) * 110_540.0; val dx = (o2 - o1) * 111_320.0 * cos(Math.toRadians(a1))
+        return ((Math.toDegrees(atan2(dx, dy)) + 360) % 360).toFloat()
+    }
+
+    private fun angDiff(a: Float, b: Float): Double { var d = abs(((a - b) % 360 + 360) % 360).toDouble(); if (d > 180) d = 360 - d; return d }
+
     fun release() = io.shutdownNow()
 
     companion object {

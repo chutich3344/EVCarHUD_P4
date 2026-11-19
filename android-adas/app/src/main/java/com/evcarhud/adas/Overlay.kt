@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.SystemClock
@@ -243,7 +244,24 @@ class Overlay(ctx: Context) : View(ctx) {
         txt.textAlign = Paint.Align.LEFT
         txt.setShadowLayer(0.8f * u, 0f, 0.2f * u, Color.argb(170, 0, 0, 0))
         txt.color = leadCol; txt.textSize = 6.6f * u; txt.typeface = fBold
-        cv.drawText(if (lead != null && !calib) "${lead.roundToInt()}" else "--", x, top + 5.6f * u, txt)
+        val numT = if (lead != null && !calib) "${lead.roundToInt()}" else "--"
+        cv.drawText(numT, x, top + 5.6f * u, txt)
+        // bien toc do (19/11, nguoi dung chot): canh ngang so khoang cach, cao bang chu so, chu nguon ben canh cung co chu dong duoi
+        val numB = Rect(); txt.getTextBounds("0", 0, 1, numB)
+        val numTop = top + 5.6f * u + numB.top; val numH = -numB.top.toFloat()
+        val lim = sn?.limit
+        if (sn != null && lim != null && !calib) {
+            val sx = x + maxOf(txt.measureText(numT), txt.measureText("00")) + 1.2f * u
+            drawSpeed(cv, lim, sx + numH / 2, numTop + numH / 2, numH)
+            txt.typeface = fSemi; txt.textSize = 1.5f * u; txt.textAlign = Paint.Align.LEFT
+            val cx = sx + numH + 0.8f * u
+            val why = sn.limitWhy
+            val (l1, l2) = when { sn.over -> "VƯỢT" to "TỐC ĐỘ"; why != null -> "giới hạn" to "tốc độ"; sn.limitSrc != null -> "tối đa" to "· ${sn.limitSrc}"; else -> "tốc độ" to "tối đa" }
+            txt.color = if (sn.over) red else Color.WHITE
+            cv.drawText(l1, cx, numTop + numH * 0.42f, txt)
+            txt.color = if (sn.over) red else if (sn.limitSrc != null || why != null) Color.rgb(150, 200, 255) else Color.WHITE
+            cv.drawText(l2, cx, numTop + numH * 0.42f + 1.9f * u, txt)
+        }
         txt.typeface = fSemi; txt.textSize = 1.5f * u; txt.color = Color.WHITE
         val kind = if (lead != null && SystemClock.elapsedRealtime() - kindAt < 4000) kindTxt else null
         val sub = when {
@@ -308,8 +326,8 @@ class Overlay(ctx: Context) : View(ctx) {
     private fun drawSigns(cv: Canvas, sn: Snap, u: Float) {
         // cot doc ben phai, to hon ban dau (11u ngang); thieu cho (ban do goc che) thi thu nho dan, toi thieu bo the camera roi the bien
         val x1 = width - 2f * u; val top = 2.2f * u + 3.4f * u
-        val lim = sn.limit
-        val sg0 = sn.sign?.takeIf { !(it.cls == SignDet.SPEED && it.value == lim) }
+        val lim: Int? = null   // bien toc do da dua len goc trai (drawTop)
+        val sg0 = sn.sign?.takeIf { !(it.cls == SignDet.SPEED && it.value == sn.limit) }
         val av = avoid()
         val bottom = if (av != null && av.left < x1 && av.right > x1 - 11f * u && av.top > top) av.top - 0.6f * u else height - 2f * u
         fun need(sg: SignDet.Hit?, cam: Boolean): Float = (if (lim != null) 7.5f else 0f) +
@@ -341,16 +359,17 @@ class Overlay(ctx: Context) : View(ctx) {
     private fun drawCam(cv: Canvas, sn: Snap, x0: Float, x1: Float, y: Float, u: Float) {
         val t = sn.camType ?: return
         val h = 3.6f * u
-        fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * u, 1.2f * u, fill)
+        txt.setShadowLayer(0.6f * u, 0f, 0.15f * u, Color.argb(200, 0, 0, 0))
         val r = 1.2f * u; val cx = x0 + 0.7f * u + r; val cy = y + h / 2
         fill.color = Color.rgb(255, 138, 61); cv.drawCircle(cx, cy, r, fill)
         txt.textAlign = Paint.Align.CENTER; txt.color = Color.rgb(20, 20, 20); txt.textSize = 0.65f * u; txt.typeface = fBold
         cv.drawText("CAM", cx, cy + 0.23f * u, txt); txt.typeface = fSemi
         txt.textAlign = Paint.Align.LEFT; txt.color = Color.WHITE; txt.textSize = 0.8f * u
         val tx = cx + r + 0.5f * u
-        cv.drawText(CamDb.name(t), tx, y + 1.45f * u, txt)
+        cv.drawText(CamDb.name(t).removePrefix("CAM ").removePrefix("camera "), tx, y + 1.45f * u, txt)   // da co cham CAM: bo chu CAM cho gon
         txt.color = Color.rgb(255, 138, 61); txt.textSize = 1.2f * u; txt.typeface = fBold
         cv.drawText(sn.camM?.let { "$it m" } ?: "phía trước", tx, y + 2.95f * u, txt); txt.typeface = fSemi
+        txt.clearShadowLayer()
     }
 
     /** The bien vua qua (hinh mau) + bien phu; tra ve day the. */
@@ -358,8 +377,7 @@ class Overlay(ctx: Context) : View(ctx) {
         val cw = x1 - x0
         val img = 5.4f * u
         val auxH = sg.aux?.let { minOf(2.6f * u, (cw - 1f * u) * it.height / it.width) } ?: 0f
-        val h = img + auxH + 2.4f * u
-        fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * u, 1.2f * u, fill)
+        val h = img + auxH + 2.4f * u   // nen trong suot (19/11): chi bong cho chu
         val cx = (x0 + x1) / 2
         val ic = if (sg.cls == SignDet.SPEED) null else icon(sg.cls)
         val bh: Float
@@ -371,8 +389,10 @@ class Overlay(ctx: Context) : View(ctx) {
         sg.aux?.let { a -> val ak = minOf(auxH / a.height, (cw - 1f * u) / a.width); val aw = a.width * ak; val ah = a.height * ak
             cv.drawBitmap(a, null, RectF(cx - aw / 2, yy, cx + aw / 2, yy + ah), bmpPaint); yy += ah + 0.2f * u }
         txt.textAlign = Paint.Align.CENTER; txt.color = Color.rgb(255, 210, 63); txt.textSize = 0.95f * u
+        txt.setShadowLayer(0.6f * u, 0f, 0.15f * u, Color.argb(220, 0, 0, 0))
         val name = SignDet.NAME[sg.cls]
         cv.drawText(if (txt.measureText(name) > cw - 0.6f * u) name.take(16) + "…" else name, cx, minOf(yy + 1.2f * u, y + h - 0.4f * u), txt)
+        txt.clearShadowLayer()
         return y + h
     }
 

@@ -118,7 +118,8 @@ class TileMap(ctx: Context) : View(ctx) {
             val latR = Math.toRadians(lat)
             val fy = (1 - ln(tan(latR) + 1 / cos(latR)) / PI) / 2 * n
             val ts = 256f * (w / 300f).coerceIn(0.8f, 1.6f)
-            val cx = w / 2; val cy = if (Nav.active) h * 0.74f else h * 0.58f   // dan duong: xe thap xuong, thay xa phia truoc
+            val wz = !Nav.active && WazeNav.active
+            val cx = w / 2; val cy = if (Nav.active || wz) h * 0.74f else h * 0.58f   // dan duong: xe thap xuong, thay xa phia truoc
             // xoay ca ban do quanh vi tri xe: huong chay len tren -> can phu kin hinh tron ban kinh = duong cheo
             val rr = kotlin.math.hypot(maxOf(cx, w - cx).toDouble(), maxOf(cy, h - cy).toDouble()) / ts
             val tx0 = floor(fx - rr).toInt(); val tx1 = floor(fx + rr).toInt()
@@ -132,6 +133,7 @@ class TileMap(ctx: Context) : View(ctx) {
             }
             if (source != "google") cv.drawColor(Color.argb(70, 0, 0, 0))   // lam toi nhe cho de nhin ban dem
             drawRoute(cv, n, fx, fy, ts, cx, cy)
+            if (wz) drawWazeStub(cv, n, fx, fy, ts, cx, cy)
             cv.restore()
             // mui ten vi tri: luon chi len (ban do da xoay)
             cv.save(); cv.translate(cx, cy)
@@ -145,6 +147,7 @@ class TileMap(ctx: Context) : View(ctx) {
             cv.drawText("Đang chờ GPS…", w / 2, h / 2, p)
         }
         if (Nav.active) { drawBanner(cv, w, h); cv.restore(); drawFrame(cv, w, h, rad); return }
+        if (WazeNav.active) { drawWazeBanner(cv, w, h); cv.restore(); drawFrame(cv, w, h, rad); return }
         // thanh tieu de
         p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14)
         cv.drawRect(0f, 0f, w, h * 0.15f, p)
@@ -163,8 +166,8 @@ class TileMap(ctx: Context) : View(ctx) {
     // ---------------- dan duong: vach tuyen + tram o dich + bang chi dan ----------------
     private val routePath = Path()
     private val navListener: () -> Unit = { postInvalidate() }
-    override fun onAttachedToWindow() { super.onAttachedToWindow(); Nav.listeners += navListener }
-    override fun onDetachedFromWindow() { Nav.listeners -= navListener; super.onDetachedFromWindow() }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); Nav.listeners += navListener; WazeNav.listeners += navListener }
+    override fun onDetachedFromWindow() { Nav.listeners -= navListener; WazeNav.listeners -= navListener; super.onDetachedFromWindow() }
 
     /** Ve trong canvas da xoay theo huong xe. n: so o o muc zoom; (fx, fy): vi tri xe theo don vi o. */
     private fun drawRoute(cv: Canvas, n: Int, fx: Double, fy: Double, ts: Float, cx: Float, cy: Float) {
@@ -209,6 +212,78 @@ class TileMap(ctx: Context) : View(ctx) {
             cv.drawPath(b, p)
         } else cv.drawCircle(x, y, rr * 0.3f, p)
         cv.restore()
+    }
+
+    /** PA3: Waze khong gui hinh tuyen -> doan xanh theo duong OSM dang di toi diem re + mui ten re o cuoi (luon dung thang). */
+    private fun drawWazeStub(cv: Canvas, n: Int, fx: Double, fy: Double, ts: Float, cx: Float, cy: Float) {
+        fun px(lo: Double) = cx + (((lo + 180) / 360 * n) - fx).toFloat() * ts
+        fun py(la: Double): Float {
+            val r = Math.toRadians(la)
+            return cy + (((1 - ln(tan(r) + 1 / cos(r)) / PI) / 2 * n) - fy).toFloat() * ts
+        }
+        val la = WazeNav.stubLat; val lo = WazeNav.stubLon
+        var ex = cx; var ey = cy - height * 0.4f        // chua co duong OSM: ve thang len phia truoc
+        routePath.reset(); routePath.moveTo(cx, cy)
+        if (la != null && lo != null && la.size == lo.size) {
+            for (i in 1 until la.size) routePath.lineTo(px(lo[i]), py(la[i]))
+            ex = px(lo[la.size - 1]); ey = py(la[la.size - 1])
+        } else {
+            // xoay nguoc lai de doan thang chi theo huong xe
+            val r = Math.toRadians(bearing.toDouble()); val d = height * 0.4f
+            ex = cx + (kotlin.math.sin(r) * d).toFloat(); ey = cy - (kotlin.math.cos(r) * d).toFloat()
+            routePath.lineTo(ex, ey)
+        }
+        p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
+        p.strokeWidth = ts * 0.075f; p.color = Color.rgb(6, 40, 26); cv.drawPath(routePath, p)
+        p.strokeWidth = ts * 0.05f; p.color = Color.rgb(74, 222, 128); cv.drawPath(routePath, p)
+        p.strokeCap = Paint.Cap.BUTT
+        val rr = height * 0.085f
+        cv.save(); cv.rotate(bearing, ex, ey)
+        p.style = Paint.Style.FILL; p.color = Color.rgb(74, 222, 128); cv.drawCircle(ex, ey, rr, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = 3f; p.color = Color.WHITE; cv.drawCircle(ex, ey, rr, p)
+        drawTurn(cv, WazeNav.turn, ex, ey, rr * 0.55f, WazeNav.exit)
+        cv.restore()
+        p.style = Paint.Style.FILL; p.strokeWidth = 0f
+    }
+
+    /** Bang tren cung khi dang dan duong bang Waze (cung kieu bang dan duong cua app). */
+    private fun drawWazeBanner(cv: Canvas, w: Float, h: Float) {
+        val dm = WazeNav.distM; val trn = WazeNav.turn
+        val big = when { trn == 17 -> "Đã đến"; dm < 1000 -> "${(dm / 10) * 10} m"; else -> "%.1f km".format(dm / 1000f).replace('.', ',') }
+        val rm = WazeNav.remainM
+        val parts = ArrayList<String>()
+        if (rm >= 0) parts += if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')
+        if (WazeNav.etaMin >= 0) parts += "${WazeNav.etaMin} phút"
+        if (WazeNav.etaClock.isNotEmpty()) parts += "đến ${WazeNav.etaClock}"
+        bannerCore(cv, w, h, trn, WazeNav.exit, big, WazeNav.street, parts.joinToString(" · "), "Waze")
+    }
+
+    private fun bannerCore(cv: Canvas, w: Float, h: Float, trn: Int, exit: Int, big: String, st: String, info: String, tag: String) {
+        val bh = h * 0.27f
+        p.style = Paint.Style.FILL; p.color = Color.argb(235, 8, 10, 14)
+        cv.drawRect(0f, 0f, w, bh, p)
+        p.textAlign = Paint.Align.LEFT
+        val box = bh * 0.78f; val bx = h * 0.04f; val by = (bh - box) / 2
+        p.color = Color.rgb(74, 222, 128); cv.drawRoundRect(RectF(bx, by, bx + box, by + box), box * 0.22f, box * 0.22f, p)
+        drawTurn(cv, trn, bx + box / 2, by + box / 2, box * 0.36f, exit)
+        p.style = Paint.Style.FILL; p.strokeWidth = 0f
+        val tx = bx + box + h * 0.04f
+        p.color = Color.WHITE; p.textSize = bh * 0.42f; p.typeface = bold
+        cv.drawText(big, tx, bh * 0.5f, p)
+        if (tag.isNotEmpty()) {
+            p.textSize = bh * 0.17f; p.textAlign = Paint.Align.RIGHT; p.color = Color.argb(160, 255, 255, 255)
+            cv.drawText(tag, w - h * 0.04f, bh * 0.36f, p); p.textAlign = Paint.Align.LEFT
+        }
+        p.textSize = bh * 0.2f; p.color = Color.argb(235, 255, 255, 255)
+        cv.drawText(fit(st, w - tx - h * 0.03f), tx, bh * 0.82f, p)
+        if (info.isEmpty()) return
+        p.textSize = h * 0.07f
+        val iw = p.measureText(info) + h * 0.06f
+        p.color = Color.argb(200, 8, 10, 14)
+        cv.drawRoundRect(RectF(w - iw - h * 0.03f, bh + h * 0.02f, w - h * 0.03f, bh + h * 0.12f), h * 0.04f, h * 0.04f, p)
+        p.color = Color.WHITE; p.textAlign = Paint.Align.RIGHT
+        cv.drawText(info, w - h * 0.06f, bh + h * 0.095f, p)
+        p.textAlign = Paint.Align.LEFT
     }
 
     /** Bang tren cung khi dan duong: mui ten re + khoang cach + ten duong; dong duoi: con lai / gio den. */

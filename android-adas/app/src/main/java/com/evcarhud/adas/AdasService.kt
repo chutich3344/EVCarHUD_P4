@@ -871,6 +871,7 @@ class AdasService : Service() {
 
     /** Du lieu Waze Mod (Data API): bien toc do (bong bong) + camera gan nhat. null = mat ket noi. */
     private fun onWaze(b: Bundle?) {
+        WazeNav.update(b) { d -> if (gpsAt > 0) road?.ahead(lat, lon, bearing, d) else null }
         if (b == null) { setNavLim(0, "WAZE"); setCam(null, -1); return }
         setNavLim(b.getInt("speed_limit", 0), "WAZE")
         @Suppress("DEPRECATION") val al = b.getParcelableArray("alerts")
