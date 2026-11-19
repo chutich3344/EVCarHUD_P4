@@ -13,6 +13,9 @@ import java.net.URLDecoder
  *  - mo dia diem kieu geo:lat,lon?q=... / google.navigation:q=lat,lon (ACTION_VIEW)
  * Google Maps / HERE WeGo khong xuat duong di, chi co diem dich -> app tu tinh tuyen.
  */
+/** Link Waze "theo doi chuyen di": khong co diem den. */
+class WazeDrive : Exception()
+
 object ShareLink {
     const val ACTION_NAV = "com.evcarhud.adas.NAVIGATE"
 
@@ -45,6 +48,8 @@ object ShareLink {
         val name = guessName(text.replace(url ?: "\u0000", ""), subj)
         fromText(text, name)?.let { return it }
         waze(text, name)?.let { return it }
+        // Waze "theo doi chuyen di" (a=share_drive&sd=...): chi la ma phien song, khong co toa do dich -> khong tim theo ten
+        if (Regex("waze\\.com/ul\\?[^\\s]*share_drive").containsMatchIn(text)) { log("LINK Waze share_drive, khong co toa do"); throw WazeDrive() }
         var place: String? = null
         if (url != null) {
             // theo chuyen huong (maps.app.goo.gl, her.is, share.here.com, waze.com/ul...) toi link day du

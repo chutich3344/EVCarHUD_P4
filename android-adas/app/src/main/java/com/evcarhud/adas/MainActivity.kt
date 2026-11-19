@@ -87,7 +87,10 @@ class MainActivity : Activity() {
         if (i == null || !ShareLink.isShare(i)) return
         toast("Đang đọc link địa điểm…")
         Thread {
-            val d = try { ShareLink.resolve(this, i, Nav.here(), prefs.hereKey) { m -> svc?.logLine(m) } } catch (e: Exception) { svc?.logLine("LINK loi ${e.javaClass.simpleName} ${e.message}"); null }
+            val d = try { ShareLink.resolve(this, i, Nav.here(), prefs.hereKey) { m -> svc?.logLine(m) } } catch (e: WazeDrive) {
+                runOnUiThread { toast("Đây là link theo dõi chuyến đi của Waze, không có toạ độ điểm đến. Cứ dẫn đường trong Waze, app Làn tự lấy hướng rẽ qua Waze Mod") }
+                return@Thread
+            } catch (e: Exception) { svc?.logLine("LINK loi ${e.javaClass.simpleName} ${e.message}"); null }
             runOnUiThread { if (d != null) goNav(d) else toast("Không tìm được địa điểm trong link này, thử chia sẻ lại từ HERE WeGo / Google Maps") }
         }.start()
     }
