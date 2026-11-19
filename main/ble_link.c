@@ -119,7 +119,8 @@ static int chr_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
  * 4556d004: ghi vi tri dien thoai "P1|vi do|kinh do|ten noi" (ten co the bo trong) -> thoi tiet theo GPS. */
 #define TS_UUID(n) BLE_UUID128_INIT(0x10, 0x2f, 0x7b, 0x0e, 0x1c, 0x5a, 0x3f, 0x9d, 0x7e, 0x4b, 0x2a, 0x8c, (n), 0xd0, 0x56, 0x45)
 static const ble_uuid128_t UUID_TS_SVC = TS_UUID(0x01), UUID_TS_STA = TS_UUID(0x02), UUID_TS_INFO = TS_UUID(0x03),
-                           UUID_TS_POS = TS_UUID(0x04), UUID_TS_LAN = TS_UUID(0x05);
+                           UUID_TS_POS = TS_UUID(0x04), UUID_TS_LAN = TS_UUID(0x05),
+                           UUID_TS_CAM = TS_UUID(0x06);
 
 static int ts_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
@@ -187,6 +188,30 @@ static int lan_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
     return 0;
 }
 
+/* 4556d006 (doc + thong bao): camera gan nhat HUD nhan tu Waze Mod / GOFA, chuyen cho app EVCarHUD Lan (cung dien thoai,
+ * chung 1 ket noi BLE): "C1|loai|met" (loai: S bat toc do, R den do, A camera AI, G camera giao thong; met -1 = khong ro),
+ * "C1|" = het camera. Chi thong bao khi doi loai hoac lech >= 10 m. */
+static uint16_t s_cam_handle;
+static char s_cam[32] = "C1|";
+
+static int cam_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn; (void)attr; (void)arg;
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_UNLIKELY;
+    return os_mbuf_append(ctxt->om, s_cam, strlen(s_cam)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
+void ui_cam_hook(int code, int dist)
+{
+    static int last_code = -1, last_dist = -100;
+    if (code == last_code && (code == 0 || abs(dist - last_dist) < 10)) return;
+    last_code = code; last_dist = dist;
+    char t = code == 2 ? 'S' : code == 3 ? 'R' : code == 41 ? 'A' : 'G';
+    if (code) snprintf(s_cam, sizeof s_cam, "C1|%c|%d", t, dist);
+    else snprintf(s_cam, sizeof s_cam, "C1|");
+    if (s_cam_handle) ble_gatts_chr_updated(s_cam_handle);       /* NimBLE tu gui toi cac ket noi da bat thong bao */
+}
+
 /* ===== xADAS HUD Link v1 (xadas.h): app xADAS ghi khung 10 byte khoang cach xe truoc. Dang ky o ca hai che do, UUID dich
  * vu nam trong goi tra loi quet (goi quang ba da du cho UUID GOFA / HLP). Khong doi chu HUD (GOFA / Waze Mod van tu nhan). */
 static const ble_uuid128_t UUID_XA_SVC = BLE_UUID128_INIT(0xfe, 0x7c, 0x06, 0x0f, 0xff, 0xc2, 0xfd, 0xa6, 0x1f, 0x46, 0xbb, 0x52,
@@ -237,6 +262,7 @@ static const struct ble_gatt_svc_def s_svcs[] = {
             {.uuid = &UUID_TS_INFO.u, .access_cb = ts_access, .flags = BLE_GATT_CHR_F_READ},
             {.uuid = &UUID_TS_POS.u, .access_cb = pos_access, .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
             {.uuid = &UUID_TS_LAN.u, .access_cb = lan_access, .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
+            {.uuid = &UUID_TS_CAM.u, .access_cb = cam_access, .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY, .val_handle = &s_cam_handle},
             {0},
         },
     },

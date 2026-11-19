@@ -3005,8 +3005,17 @@ static bool alert_seen(int code, int dist)
     return false;
 }
 
+/* Chuyen camera gan nhat (Waze HLP / GOFA) sang app EVCarHUD Lan qua BLE (ble_link.c dinh nghia; may PC xem truoc: khong co). */
+void ui_cam_hook(int code, int dist) __attribute__((weak));
+
 void ui_set_alerts(const ui_alert_t *alerts, int n)
 {
+    if (ui_cam_hook) {
+        int cc = 0, cd = -1;
+        for (int i = 0; alerts && i < n; i++)
+            if (alerts[i].code == 2 || alerts[i].code == 3 || (alerts[i].code >= 40 && alerts[i].code <= 46)) { cc = alerts[i].code; cd = alerts[i].dist; break; }
+        ui_cam_hook(cc, cd);
+    }
     al_n = 0;
     for (int i = 0; alerts && i < n && al_n < (int)(sizeof al_list / sizeof al_list[0]); i++) {
         bool dup = false;                                         /* cung loai, cach nhau < 150 m: trung */

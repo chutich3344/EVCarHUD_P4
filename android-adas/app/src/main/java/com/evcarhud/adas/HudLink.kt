@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
@@ -37,6 +38,8 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
     private var fails = 0
     private var scanning = false
     var onMac: (String) -> Unit = {}
+    /** Camera HUD nhan tu Waze/GOFA (4556d006, "C1|loai|met"), goi tren luong chinh. */
+    var onCam: (String) -> Unit = {}
 
     val ready get() = chr != null
 
@@ -81,6 +84,20 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
         // Ghi khong phan hoi: vai may khong goi onCharacteristicWrite -> tu mo khoa
         if (noRsp) main.postDelayed({ if (busy) { busy = false; flush() } }, 80)
         else { val w = ++wid; main.postDelayed({ if (busy && w == wid) { busy = false; flush() } }, 1500) }   // mat phan hoi: khong treo
+    }
+
+    /** Bat thong bao camera (firmware moi). true = dang ghi CCCD, flush khi xong. */
+    private fun subscribeCam(g: BluetoothGatt): Boolean {
+        val c = g.getService(SERVICE)?.getCharacteristic(CAM) ?: return false
+        val d = c.getDescriptor(CCCD) ?: return false
+        if (!g.setCharacteristicNotification(c, true)) return false
+        val v = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        val ok = if (Build.VERSION.SDK_INT >= 33) g.writeDescriptor(d, v) == 0
+                 else @Suppress("DEPRECATION") run { d.value = v; g.writeDescriptor(d) }
+        if (!ok) return false
+        busy = true; val w = ++wid
+        main.postDelayed({ if (busy && w == wid) { busy = false; flush() } }, 1500)
+        return true
     }
 
     private fun flush() {
@@ -166,17 +183,33 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
                 if (c == null) { drop("HUD chưa có kênh Làn (cần firmware mới)", 60000); return@post }
                 chr = c; fails = 0
                 onState("Đã nối HUD", true)
-                flush()
+                if (!subscribeCam(g)) flush()
             }
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
             main.post { if (g == gatt) { busy = false; flush() } }
         }
+
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            main.post { if (g == gatt) { busy = false; flush() } }
+        }
+
+        @Deprecated("API < 33")
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+            @Suppress("DEPRECATION") val v = c.value ?: return
+            if (c.uuid == CAM) { val s = String(v, Charsets.UTF_8); main.post { onCam(s) } }
+        }
+
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
+            if (c.uuid == CAM) { val s = String(value, Charsets.UTF_8); main.post { onCam(s) } }
+        }
     }
 
     companion object {
         val SERVICE: UUID = UUID.fromString("4556d001-8c2a-4b7e-9d3f-5a1c0e7b2f10")
         val ADAS: UUID = UUID.fromString("4556d005-8c2a-4b7e-9d3f-5a1c0e7b2f10")
+        val CAM: UUID = UUID.fromString("4556d006-8c2a-4b7e-9d3f-5a1c0e7b2f10")
+        val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }

@@ -316,8 +316,30 @@ class Overlay(ctx: Context) : View(ctx) {
             cv.drawText(if (txt.measureText(cap) > cw - 0.4f * u) cap.substringAfter("· ") else cap, cx, y + h - 0.45f * u, txt)
             y += h + 0.5f * u
         }
-        val sg = sn.sign ?: return
-        if (sg.cls == SignDet.SPEED && sg.value == lim) return   // trung voi o tren
+        val sg0 = sn.sign
+        if (sg0 != null && !(sg0.cls == SignDet.SPEED && sg0.value == lim)) y = drawSignCard(cv, sg0, x0, x1, y, u) + 0.5f * u
+        drawCam(cv, sn, x0, x1, y, u)
+    }
+
+    /** The camera (tu HUD: Waze/GOFA): cham cam + ten + met con lai. */
+    private fun drawCam(cv: Canvas, sn: Snap, x0: Float, x1: Float, y: Float, u: Float) {
+        val t = sn.camType ?: return
+        val h = 3.6f * u
+        fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * u, 1.2f * u, fill)
+        val r = 1.2f * u; val cx = x0 + 0.7f * u + r; val cy = y + h / 2
+        fill.color = Color.rgb(255, 138, 61); cv.drawCircle(cx, cy, r, fill)
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.rgb(20, 20, 20); txt.textSize = 0.65f * u; txt.typeface = fBold
+        cv.drawText("CAM", cx, cy + 0.23f * u, txt); txt.typeface = fSemi
+        txt.textAlign = Paint.Align.LEFT; txt.color = Color.WHITE; txt.textSize = 0.8f * u
+        val tx = cx + r + 0.5f * u
+        cv.drawText(CamDb.name(t), tx, y + 1.45f * u, txt)
+        txt.color = Color.rgb(255, 138, 61); txt.textSize = 1.2f * u; txt.typeface = fBold
+        cv.drawText(sn.camM?.let { "$it m" } ?: "phía trước", tx, y + 2.95f * u, txt); txt.typeface = fSemi
+    }
+
+    /** The bien vua qua (hinh mau) + bien phu; tra ve day the. */
+    private fun drawSignCard(cv: Canvas, sg: SignDet.Hit, x0: Float, x1: Float, y: Float, u: Float): Float {
+        val cw = x1 - x0
         val img = 5.4f * u
         val auxH = sg.aux?.let { minOf(2.6f * u, (cw - 1f * u) * it.height / it.width) } ?: 0f
         val h = img + auxH + 2.4f * u
@@ -335,6 +357,7 @@ class Overlay(ctx: Context) : View(ctx) {
         txt.textAlign = Paint.Align.CENTER; txt.color = Color.rgb(255, 210, 63); txt.textSize = 0.95f * u
         val name = SignDet.NAME[sg.cls]
         cv.drawText(if (txt.measureText(name) > cw - 0.6f * u) name.take(16) + "…" else name, cx, minOf(yy + 1.2f * u, y + h - 0.4f * u), txt)
+        return y + h
     }
 
     /** Bang so lieu chan doan trong suot o mep trai (de chup man hinh khi chay thu). */

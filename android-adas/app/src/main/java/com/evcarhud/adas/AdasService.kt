@@ -72,6 +72,8 @@ class Snap(
     /** Bien toc do dang ap dung (camera doc), bien vua qua (anh that + bien phu), dang vuot toc do. */
     var limit: Int? = null
     var objs: List<SignDet.Obj>? = null   // xe/nguoi YOLOX (de ghi loai xe truoc)
+    var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
+    var camM: Int? = null
     var limitWhy: String? = null   // null = bien that; khac = toc do mac dinh (theo luat / ban do)
     var sign: SignDet.Hit? = null
     var over = false
@@ -160,6 +162,12 @@ class AdasService : Service() {
     private var signDb: SignDb? = null
     private var road: RoadInfo? = null
     private var objs: List<SignDet.Obj>? = null
+    private var camDb: CamDb? = null
+    private var camType: Char? = null
+    private var camDist = -1
+    private var camAt = 0L
+    private var camLat = 0.0
+    private var camLon = 0.0
     private var objsAt = 0L
     private var limit: Int? = null
     private var limitAt = 0L
@@ -217,10 +225,11 @@ class AdasService : Service() {
             it.hudMac = prefs.hudMac
             it.line("bat dau · ${android.os.Build.MODEL} · AI ${prefs.accel} · tu hieu chinh ${prefs.autoCalib}/${prefs.calibrated} · camH ${prefs.camH}")
         }
-        signDb = SignDb(this); road = RoadInfo { m -> clog?.line(m) }
+        signDb = SignDb(this); camDb = CamDb(this); road = RoadInfo { m -> clog?.line(m) }
         signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
+            it.onCam = { m -> onCam(m) }
             if (hasPerm(Manifest.permission.BLUETOOTH_CONNECT)) it.start(prefs.hudMac) else hudMsg = "Chưa cho quyền Bluetooth"
         }
         Nav.listeners += navL
@@ -257,7 +266,7 @@ class AdasService : Service() {
         Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
-        signDet?.release(); road?.release(); signDb?.flush()
+        signDet?.release(); road?.release(); signDb?.flush(); camDb?.flush()
         clog?.line("dung app"); clog?.close()
         super.onDestroy()
     }
@@ -812,12 +821,31 @@ class AdasService : Service() {
         if ((signDb?.size ?: 0) % 5 == 0) signDb?.flush()
     }
 
+    /** Camera HUD chuyen tu Waze/GOFA: "C1|loai|met" ("C1|" = het). Ghi CSDL camera theo vi tri xe. */
+    private fun onCam(m: String) {
+        if (!m.startsWith("C1|")) return
+        val f = m.substring(3).split('|')
+        val t = f.getOrNull(0)?.firstOrNull()
+        if (t == null) { camType = null; camDb?.flush(); return }
+        val d = f.getOrNull(1)?.toIntOrNull() ?: -1
+        if (camType != t || camDist < 0 || d < camDist - 5 || d > camDist + 50) clog?.line("CAMERA ${CamDb.name(t)} ${if (d >= 0) "$d m" else ""}")
+        camType = t; camDist = d; camAt = SystemClock.elapsedRealtime(); camLat = lat; camLon = lon
+        if (gpsAt > 0 && d >= 0) camDb?.add(t, lat, lon, bearing, d)
+    }
+
     /** Gan vao Snap: bien toc do (giu 15 phut neu khong gap bien moi), bien vua qua 8 s, keu khi vuot > 3 km/h. */
     private fun signSnap(s: Snap, v: Float) {
         val now = SystemClock.elapsedRealtime()
         if (limit != null && now - limitAt > 15 * 60_000L) limit = null
         s.limit = limit
         if (now - objsAt < 1500) s.objs = objs
+        val ct = camType
+        if (ct != null && now - camAt < 30_000) {
+            // dem lui theo quang duong da di tu luc HUD bao (duong thang, du dung cho vai tram met)
+            val gone = if (camDist >= 0 && gpsAt > 0) run { val dy = (lat - camLat) * 110_540.0; val dx = (lon - camLon) * 111_320.0 * kotlin.math.cos(Math.toRadians(lat)); kotlin.math.sqrt(dx * dx + dy * dy).toInt() } else 0
+            val left = if (camDist >= 0) camDist - gone else -1
+            if (camDist < 0 || left > -30) { s.camType = ct; s.camM = if (left >= 0) left else if (camDist < 0) null else 0 }
+        }
         if (limit == null && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
         val lim = s.limit
