@@ -58,14 +58,16 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease
-          SHORT=$(git rev-parse --short HEAD)
-          cp app/build/outputs/apk/release/app-release.apk "../evcarhud-lan-$SHORT.apk"
+          # ten de nho (yeu cau 19/11): lan-<phien ban>-<ngay>.apk, vd lan-0.1.49-20261119.apk (phien ban hien trong Cai dat > Thong tin)
+          SHORT="0.1.${GITHUB_RUN_NUMBER}-$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)"
+          cp app/build/outputs/apk/release/app-release.apk "../lan-$SHORT.apk"
           echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+          echo "SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: evcarhud-lan-${{ env.SHORT }}
-          path: evcarhud-lan-${{ env.SHORT }}.apk
+          name: lan-${{ env.SHORT }}
+          path: lan-${{ env.SHORT }}.apk
 
       - name: Cap nhat ban phat hanh "app-lan-thu"
         working-directory: .
@@ -75,6 +77,6 @@ jobs:
           # moi nhanh 1 ban phat hanh rieng: ugakxl -> app-lan-thu, a7qrzx (dan duong PiP) -> app-lan-pip-thu
           if [ "$GITHUB_REF_NAME" = "claude/project-thread-ugakxl" ]; then TAG=app-lan-thu; else TAG=app-lan-pip-thu; fi
           gh release delete $TAG --yes --cleanup-tag || true
-          gh release create $TAG "evcarhud-lan-$SHORT.apk" --target "$GITHUB_SHA" \
-            --title "App EVCarHUD Làn + dẫn đường PiP ($SHORT)" \
-            --notes "APK thử, build tự động từ commit $SHORT (nhánh ${GITHUB_REF_NAME}). Mô hình openpilot v0.10.3 (MIT, comma.ai)." --prerelease
+          gh release create $TAG "lan-$SHORT.apk" --target "$GITHUB_SHA" \
+            --title "App EVCarHUD Làn $SHORT" \
+            --notes "APK thử, build tự động từ commit $SHA (nhánh ${GITHUB_REF_NAME}). Mô hình openpilot v0.10.3 (MIT, comma.ai)." --prerelease

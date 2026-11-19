@@ -75,6 +75,7 @@ class Snap(
     var objs: List<SignDet.Obj>? = null   // xe/nguoi YOLOX (de ghi loai xe truoc)
     var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
     var camM: Int? = null
+    var limitSrc: String? = null   // bien lay tu app dan duong: "Waze" / "GOFA"
     var limitWhy: String? = null   // null = bien that; khac = toc do mac dinh (theo luat / ban do)
     var sign: SignDet.Hit? = null
     var over = false
@@ -903,7 +904,7 @@ class AdasService : Service() {
         }
         // uu tien: bien moi nhat giua bien camera doc va bien Waze/GOFA (HUD chuyen sang); khong co thi toc do mac dinh theo luat
         val nl = if (prefs.navLimit && (hudOk || waze?.ok == true)) navLim else null
-        if (nl != null && (limit == null || navLimAt > limitAt)) s.limit = nl
+        if (nl != null && (limit == null || navLimAt > limitAt)) { s.limit = nl; s.limitSrc = if (waze?.ok == true) "Waze" else "GOFA" }
         if (s.limit == null && prefs.defLimit && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
         val lim = s.limit

@@ -329,7 +329,7 @@ class Overlay(ctx: Context) : View(ctx) {
             txt.textAlign = Paint.Align.CENTER; txt.textSize = 1.05f * q; txt.color = if (sn.over) Color.rgb(255, 84, 104) else Color.WHITE
             val why = sn.limitWhy
             if (why != null && !sn.over) { txt.textSize = 0.85f * q; txt.color = Color.rgb(170, 205, 255) }
-            val cap = if (sn.over) "VƯỢT TỐC ĐỘ" else if (why != null) "giới hạn tốc độ" else "tốc độ tối đa"
+            val cap = if (sn.over) "VƯỢT TỐC ĐỘ" else if (why != null) "giới hạn tốc độ" else if (sn.limitSrc != null) "tối đa · ${sn.limitSrc}" else "tốc độ tối đa"
             cv.drawText(cap, cx, y + h - 0.45f * q, txt)
             y += h + 0.5f * q
         }
