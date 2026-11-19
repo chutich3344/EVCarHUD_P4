@@ -65,7 +65,7 @@ class CloudLog(private val ctx: Context, private val ver: String) {
                 val st = post(m, part)
                 if (st in 200..299) { okMac = m; seq++; sent = true; lastStatus = "đã gửi lúc ${fmt.format(Date())}"; short = "✓"; break }
                 if (st == 413) { sent = true; lastStatus = "bỏ 1 gói quá dài"; break }
-                if (st != 403) { lastStatus = "lỗi gửi $st $lastErr lúc ${fmt.format(Date())}"; short = "✗ " + (if (st < 0) lastErr.substringBefore(':') else "$st"); return }
+                if (st != 403) { lastStatus = "lỗi gửi $st $lastErr lúc ${fmt.format(Date())}"; short = "✗ " + (if (st < 0) lastErr else "$st"); return }
                 lastStatus = "máy chủ chưa nhận MAC $m"; short = "✗ 403"
             }
             if (!sent) return
@@ -81,23 +81,42 @@ class CloudLog(private val ctx: Context, private val ver: String) {
         return listOf(0, -2, -1, -3).map { d -> "$head:%02X".format((last + d) and 0xff) }
     }
 
-    private fun post(mac: String, body: String): Int = try {
+    /** Thu lan luot: mang mac dinh (giong ban do), roi tung mang co Internet (4G/Wi-Fi), roi 4G xin rieng. */
+    private fun post(mac: String, body: String): Int {
         val u = URL("https://evcarhud.com/api/log?model=p4&mac=$mac&v=app-lan-$ver&boot=$boot&seq=$seq")
-        // noi Wi-Fi cam guong (khong Internet): gui qua mang co Internet (4G/5G)
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-        @Suppress("DEPRECATION")
-        val net = cm.allNetworks.firstOrNull { n -> cm.getNetworkCapabilities(n)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true }
-            ?: cellNet.also { if (it == null) wantCell() }
-        ((net?.openConnection(u) ?: u.openConnection()) as HttpURLConnection).run {
-            requestMethod = "POST"; doOutput = true; connectTimeout = 10_000; readTimeout = 10_000
-            setRequestProperty("Content-Type", "text/plain; charset=utf-8")
-            setRequestProperty("User-Agent", "EVCarHUD-Lan/$ver")
-            outputStream.use { it.write(("[app-lan]\n" + body).toByteArray()) }
-            val c = responseCode
-            try { (if (c < 400) inputStream else errorStream)?.close() } catch (_: Exception) {}
-            disconnect(); c
+        val routes = ArrayList<android.net.Network?>()
+        routes += null
+        try {
+            @Suppress("DEPRECATION")
+            val all = cm.allNetworks.filter { n -> cm.getNetworkCapabilities(n)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true }
+            routes += all.sortedByDescending { n -> if (cm.getNetworkCapabilities(n)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true) 1 else 0 }
+        } catch (e: Exception) { lastErr = "mạng: ${e.javaClass.simpleName}" }
+        val cn = cellNet
+        if (cn == null) wantCell() else if (cn !in routes) routes.add(cn)
+        val errs = ArrayList<String>()
+        for ((i, net) in routes.withIndex()) {
+            try {
+                ((net?.openConnection(u) ?: u.openConnection()) as HttpURLConnection).run {
+                    requestMethod = "POST"; doOutput = true; connectTimeout = 8_000; readTimeout = 10_000
+                    setRequestProperty("Content-Type", "text/plain; charset=utf-8")
+                    setRequestProperty("User-Agent", "EVCarHUD-Lan/$ver")
+                    outputStream.use { it.write(("[app-lan]\n" + body).toByteArray()) }
+                    val c = responseCode
+                    try { (if (c < 400) inputStream else errorStream)?.close() } catch (_: Exception) {}
+                    disconnect()
+                    if (c in 200..299 && errs.isNotEmpty()) line("log: duong $i ok, truoc do loi ${errs.joinToString("; ")}")
+                    return c
+                }
+            } catch (e: Exception) {
+                Log.w("CloudLog", "post route $i", e)
+                errs += "$i:" + e.javaClass.simpleName.removeSuffix("Exception")
+            }
         }
-    } catch (e: Exception) { Log.w("CloudLog", "post", e); lastErr = e.javaClass.simpleName + (e.message?.let { ": " + it.take(60) } ?: ""); -1 }
+        lastErr = errs.joinToString(" ")
+        return -1
+    }
+
     /** Ma ngan hien tren dong trang thai: "✓" hoac ly do loi. */
     @Volatile var short = "chờ"
     @Volatile var lastErr = ""
