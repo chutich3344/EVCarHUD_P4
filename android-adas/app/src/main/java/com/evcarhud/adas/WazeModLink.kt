@@ -66,10 +66,18 @@ class WazeModLink(private val ctx: Context, private val log: (String) -> Unit, p
     fun start() {
         stopped = false
         if (bound) return
+        // phan biet: chua cai Waze / Waze cai khong phai ban Mod co cong / he thong (ColorOS...) chan mo lien ket
+        val ver = try { ctx.packageManager.getPackageInfo(PKG, 0).versionName ?: "?" } catch (_: Exception) { null }
+        val has = try { ctx.packageManager.queryIntentServices(Intent(ACTION_BIND).setPackage(PKG), 0).isNotEmpty() } catch (_: Exception) { false }
+        var err = ""
         bound = try {
             ctx.bindService(Intent(ACTION_BIND).setPackage(PKG), conn, Context.BIND_AUTO_CREATE)
-        } catch (e: Exception) { false }
-        if (!bound) set("không thấy Waze Mod có cổng dữ liệu", false)
+        } catch (e: Exception) { err = e.javaClass.simpleName; false }
+        if (!bound) set(when {
+            ver == null -> "chưa cài Waze"
+            !has -> "Waze $ver đang cài không có cổng dữ liệu (cần Waze Mod 10)"
+            else -> "máy chặn mở Waze $ver từ app khác${if (err.isNotEmpty()) " ($err)" else ""} · mở Waze trước rồi thử lại"
+        }, false)
     }
 
     /** Sau khi nguoi dung cho phep: dang ky lai. */

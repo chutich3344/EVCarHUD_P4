@@ -282,13 +282,13 @@ class MainActivity : Activity() {
     /** Xin quyen doc du lieu Waze Mod (bang Cho phep / Tu choi cua Waze Mod). */
     private fun wazeAccess() {
         try { startActivityForResult(Intent(WazeModLink.ACTION_REQUEST).setPackage(WazeModLink.PKG), 7) }
-        catch (_: Exception) { toast("Chưa cài Waze Mod (hoặc bản này chưa có cổng dữ liệu)") }
+        catch (e: Exception) { svc?.logLine("WAZEMOD xin quyen loi ${e.javaClass.simpleName} ${e.message}"); toast(svc?.wazeStatus() ?: "Không mở được Waze Mod (${e.javaClass.simpleName})") }
     }
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
         @Suppress("DEPRECATION") super.onActivityResult(req, res, data)
-        if (req == 7) { toast(if (res == RESULT_OK) "Đã nối Waze Mod" else "Waze Mod chưa cho phép"); svc?.wazeRetry(); refreshSettings() }
+        if (req == 7) { svc?.logLine("WAZEMOD xin quyen ket qua $res"); toast(if (res == RESULT_OK) "Đã nối Waze Mod" else "Waze Mod chưa cho phép (bị đóng ngay hoặc bấm Từ chối)"); svc?.wazeRetry(); refreshSettings() }
     }
 
     private fun hereKeyDialog() {
