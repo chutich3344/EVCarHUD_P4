@@ -70,6 +70,9 @@ object Nav {
 
     val active get() = dest != null
 
+    /** Vi tri GPS gan nhat (de tim dia diem theo ten gan xe). */
+    fun here(): Pair<Double, Double>? = if (hasFix) lastLat to lastLon else null
+
     fun start(ctx: Context, d: Dest, key: String) {
         appCtx = ctx.applicationContext
         hereKey = key.trim()

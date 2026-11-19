@@ -884,6 +884,7 @@ class AdasService : Service() {
         setCam(t, d)
     }
 
+    fun logLine(m: String) { clog?.line(m) }
     fun wazeStatus() = waze?.status ?: "chưa chạy"
     fun wazeRetry() { waze?.retry() }
     fun hudConnected() = hudOk

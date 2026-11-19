@@ -87,8 +87,8 @@ class MainActivity : Activity() {
         if (i == null || !ShareLink.isShare(i)) return
         toast("Đang đọc link địa điểm…")
         Thread {
-            val d = try { ShareLink.resolve(this, i) } catch (e: Exception) { null }
-            runOnUiThread { if (d != null) goNav(d) else toast("Link này không có toạ độ, thử chia sẻ lại từ HERE WeGo / Google Maps") }
+            val d = try { ShareLink.resolve(this, i, Nav.here(), prefs.hereKey) { m -> svc?.logLine(m) } } catch (e: Exception) { svc?.logLine("LINK loi ${e.javaClass.simpleName} ${e.message}"); null }
+            runOnUiThread { if (d != null) goNav(d) else toast("Không tìm được địa điểm trong link này, thử chia sẻ lại từ HERE WeGo / Google Maps") }
         }.start()
     }
 
