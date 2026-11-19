@@ -16,9 +16,9 @@ import java.net.URL
  * Wi-Fi cua cam khong co Internet nen Android hay dua ket noi qua 4G: phai dung dung Network Wi-Fi.
  */
 object Probe {
-    private val PORTS = intArrayOf(554, 8554, 80, 8080, 8081, 81, 7070, 6035, 3333, 5000, 8000, 8888, 9000, 10080, 34567, 2222, 21, 23)
+    private val PORTS = intArrayOf(554, 8554, 80, 8080, 8081, 81, 7070, 6035, 3333, 5000, 8000, 8888, 8192, 9000, 10080, 34567, 2222, 21, 23)
     private val RTSP_PATHS = listOf("", "/live", "/live/main", "/live/ch0", "/livestream/0", "/stream", "/stream0", "/h264",
-        "/av0_0", "/11", "/1", "/ch0", "/ch1", "/cam1/h264", "/front", "/video", "/main", "/tcp/av0_0")
+        "/av0_0", "/livestream/12", "/xxx.mov", "/11", "/1", "/ch0", "/ch1", "/cam1/h264", "/front", "/video", "/main", "/tcp/av0_0")
     private val HTTP_PATHS = listOf("/", "/?custom=1&cmd=3014", "/cgi-bin/hisnet/getdeviceattr.cgi", "/app/getdeviceattr", "/livestream", "/video.mjpg")
 
     fun run(ctx: Context, log: (String) -> Unit) {
@@ -33,7 +33,7 @@ object Probe {
         val hosts = linkedSetOf<String>()
         gw?.let { hosts += it }
         val pre = me.substringBeforeLast('.', "192.168.5")
-        hosts += "$pre.1"; hosts += "$pre.254"; hosts += "192.168.1.254"; hosts += "192.168.0.1"
+        hosts += "$pre.1"; hosts += "$pre.254"; hosts += "192.168.1.254"; hosts += "192.168.0.1"; hosts += "192.168.1.1"; hosts += "192.168.10.1"; hosts += "192.168.169.1"
         val sf = net.socketFactory
         // cam guong Sinjet (app rearview_wifi): API http://IP:8000/app/..., vao xem truc tiep (enterrecorder) thi mo RTSP :554
         gw?.let { g ->
@@ -59,7 +59,7 @@ object Probe {
             log("$h: cổng mở ${open.joinToString()}")
             for (p in open) {
                 if (p == 554 || p == 8554) rtsp(sf, h, p, log)
-                else if (p in intArrayOf(80, 8080, 8081, 81, 8000, 8888, 9000, 10080, 5000, 7070)) http(net, h, p, log)
+                else if (p in intArrayOf(80, 8080, 8081, 81, 8000, 8888, 8192, 9000, 10080, 5000, 7070)) http(net, h, p, log)
                 else banner(sf, h, p, log)
             }
         }

@@ -10,14 +10,26 @@ import android.os.SystemClock
  * muc 3 (PHANH) tit nhanh lien tuc; lech lan (>= 50 km/h) 1 tieng khi bat dau, nghi 2 s.
  */
 class Beeper {
-    private var tg: ToneGenerator? = try { ToneGenerator(AudioManager.STREAM_MUSIC, 90) } catch (_: Exception) { null }
+    private var tg: ToneGenerator? = mk(1)
+    private var vol = 1
+
+    private fun mk(v: Int) = try { ToneGenerator(AudioManager.STREAM_MUSIC, when (v) { 0 -> 45; 2 -> 100; else -> 80 }) } catch (_: Exception) { null }
+
+    /** 0 nho, 1 vua, 2 to. */
+    fun setVolume(v: Int) {
+        if (v == vol) return
+        vol = v
+        try { tg?.release() } catch (_: Exception) {}
+        tg = mk(v)
+    }
     private var lastL2 = 0L
     private var lastL3 = 0L
     private var lastLdw = 0L
     private var prevLdw = '-'
     private var prevLevel = 0
 
-    fun update(level: Int, ldw: Char, on: Boolean) {
+    fun update(level: Int, ldw0: Char, on: Boolean, ldwOn: Boolean = true) {
+        val ldw = if (ldwOn) ldw0 else '-'
         val t = SystemClock.elapsedRealtime()
         if (!on) { prevLevel = level; prevLdw = ldw; return }
         when {

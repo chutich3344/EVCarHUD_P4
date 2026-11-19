@@ -46,6 +46,7 @@ lv_obj_t *ui_partner_tile(lv_obj_t *parent, int source, int size);   /* o logo W
 /* --- toc do / dong ho --- */
 void ui_set_speed(int kmh);
 void ui_set_speed_limit(int kmh);                 /* 0 = chua biet: an bien, khong canh bao */
+void ui_set_phone_limit(int kmh);                 /* bien doc tu camera app Lan (goi S1), dung khi Waze/GOFA khong co */
 void ui_set_time(int hour, int minute, int wday); /* wday: 0 = Chu nhat ... 6 = Thu bay, -1 = chua biet */
 int ui_get_speed(void);
 bool ui_is_night(void);                          /* giao dien dang Dem (canh bao vat can lay mau theo) */

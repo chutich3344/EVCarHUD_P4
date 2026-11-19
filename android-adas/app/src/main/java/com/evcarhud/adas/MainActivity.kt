@@ -15,6 +15,10 @@ import android.os.IBinder
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import com.evcarhud.adas.SettingsView.Item.Action as A
+import com.evcarhud.adas.SettingsView.Item.Header as H
+import com.evcarhud.adas.SettingsView.Item.Seg as S
+import com.evcarhud.adas.SettingsView.Item.Toggle as T
 
 /**
  * Man hinh chinh kieu C: camera toan man + lop ve + o nhiet va ban do keo duoc.
@@ -169,77 +173,119 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle(title).setItems(items.map { it.first }.toTypedArray()) { _, k -> items[k].second() }.show()
     }
 
+    private var setView: SettingsView? = null
+
+    /** Man cai dat kinh mo 2 cot (19/11): danh muc trai, noi dung phai. */
     private fun settings() {
-        val mirror = prefs.camSrc == "mirror"
-        val calSt = if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "tự động, đã xong" else "tự động, đang học"
-        menu("Cài đặt", listOf<Pair<String, () -> Unit>>(
-            ("Camera: " + (if (mirror) "CAM GƯƠNG Wi-Fi" else "điện thoại") + " — bấm để đổi") to {
-                prefs.camSrc = if (mirror) "phone" else "mirror"
-                svc?.switchCam()
-                toast(if (prefs.camSrc == "mirror") "Dùng cam gương: điện thoại phải đang nối Wi-Fi mirror_wifi…" else "Dùng camera điện thoại")
-            },
-            "Hiệu chỉnh camera ($calSt)…" to { calibMenu() },
-            (if (Nav.active) "Dẫn đường: đang tới ${Nav.dest?.name}…" else "Dẫn đường…") to { navMenu() },
-            ("Tiếng ting cảnh báo: " + (if (prefs.beep) "BẬT" else "TẮT") + " — bấm để đổi") to {
-                prefs.beep = !prefs.beep
-                if (prefs.beep) svc?.beeper?.test()
-                toast(if (prefs.beep) "Đã bật tiếng cảnh báo (nghe thử)" else "Đã tắt tiếng cảnh báo")
-            },
-            ("Đọc biển giao thông: " + (if (prefs.signs) "BẬT" else "TẮT") + " — bấm để đổi") to {
-                prefs.signs = !prefs.signs
-                toast(if (prefs.signs) "Đã bật đọc biển (2 lần/giây khi xe chạy)" else "Đã tắt đọc biển")
-            },
-            "Hiển thị…" to { viewMenu() },
-            "Tìm lại HUD" to { svc?.findHudAgain(); toast("Đang tìm HUD…") },
-            "Chẩn đoán (cho kỹ thuật)…" to { diagMenu() },
-            "Giới thiệu & giấy phép" to { AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show() },
-            "Thoát hẳn (tắt chạy nền)" to {
-                startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
-                finish()
-            },
-        ))
+        if (setView != null) return
+        val v = SettingsView(this, settingCats()) { closeSettings() }
+        setView = v
+        root.addView(v, FrameLayout.LayoutParams(-1, -1))
+        if (Build.VERSION.SDK_INT >= 31) {
+            val blur = android.graphics.RenderEffect.createBlurEffect(28f, 28f, android.graphics.Shader.TileMode.CLAMP)
+            overlay.setRenderEffect(blur); temp.setRenderEffect(blur); map.setRenderEffect(blur)
+        }
     }
 
-    private fun calibMenu() = menu("Hiệu chỉnh camera\n" + (svc?.calibInfo()?.lineSequence()?.take(2)?.joinToString("\n") ?: ""), listOf<Pair<String, () -> Unit>>(
-        "Học lại từ đầu (sau khi gắn lại camera)" to { svc?.resetCalib(); toast("Chạy thẳng 1–2 phút trên đường có vạch để app tự học") },
-        ("Tự hiệu chỉnh: " + (if (prefs.autoCalib) "BẬT" else "TẮT") + " — bấm để đổi") to { svc?.setAuto(!prefs.autoCalib) },
-        "Chỉnh tay (kéo điểm tụ)" to { startCalib() },
-        "Chiều cao camera: ${"%.1f".format(prefs.camH)} m" to {
-            val hs = arrayOf(0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.7f, 1.9f)
-            AlertDialog.Builder(this).setTitle("Camera cách mặt đường")
-                .setItems(hs.map { "%.1f m".format(it) }.toTypedArray()) { _, k -> prefs.camH = hs[k]; svc?.reloadSettings(false) }.show()
-        },
-    ))
+    private fun closeSettings() {
+        val v = setView ?: return
+        root.removeView(v); setView = null
+        if (Build.VERSION.SDK_INT >= 31) { overlay.setRenderEffect(null); temp.setRenderEffect(null); map.setRenderEffect(null) }
+    }
 
-    private fun navMenu() = menu("Dẫn đường", listOf<Pair<String, () -> Unit>>(
-        (if (Nav.active) "Kết thúc dẫn đường tới ${Nav.dest?.name}" else "Cách dùng: mở trạm từ app EVCarHUD Charge hoặc chia sẻ link HERE WeGo / Google Maps vào app này") to {
-            if (Nav.active) Nav.stop()
-        },
-        ("Khoá HERE (tính đường): " + (if (prefs.hereKey.isEmpty()) "chưa có, đang dùng OSRM" else "đã lưu …" + prefs.hereKey.takeLast(4))) to { hereKeyDialog() },
-    ))
+    private fun refreshSettings() = setView?.refresh()
 
-    private fun viewMenu() = menu("Hiển thị", listOf<Pair<String, () -> Unit>>(
-        ((if (prefs.showMap) "Ẩn" else "Hiện") + " bản đồ góc") to { prefs.showMap = !prefs.showMap; showPips() },
-        ("Nguồn bản đồ: " + mapName(prefs.mapSrc)) to {
-            val ks = arrayOf("google", "osm")
-            AlertDialog.Builder(this).setTitle("Nguồn bản đồ").setItems(ks.map { mapName(it) }.toTypedArray()) { _, k ->
-                prefs.mapSrc = ks[k]; map.source = ks[k]
-            }.show()
-        },
-        ((if (prefs.showTemp) "Ẩn" else "Hiện") + " ô nhiệt độ") to { prefs.showTemp = !prefs.showTemp; showPips() },
-        ("Vùng xanh/vạch: " + (if (prefs.overHood) "kéo xuống đáy màn" else "cắt ở mép taplo")) to {
-            prefs.overHood = !prefs.overHood; overlay.overHood = prefs.overHood; overlay.invalidate()
-        },
-    ))
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (setView != null) closeSettings() else @Suppress("DEPRECATION") super.onBackPressed()
+    }
 
-    private fun diagMenu() = menu("Chẩn đoán", listOf<Pair<String, () -> Unit>>(
-        ("Bộ xử lý AI: " + (if (prefs.accel == "npu") "NPU" else "CPU") + " — bấm để đổi") to {
-            prefs.accel = if (prefs.accel == "npu") "cpu" else "npu"; svc?.reloadSettings(true)
-        },
-        "Số liệu AI + ghi 1 khung" to { diag() },
-        "Xem ảnh mô hình AI đang thấy" to { showModelView() },
-        "Dò cam gương Wi-Fi" to { probeCam() },
-    ))
+    private fun onOff(b: Boolean) = if (b) "bật" else "tắt"
+
+    private fun settingCats(): List<SettingsView.Cat> {
+        return listOf(
+            SettingsView.Cat("canh", "Cảnh báo", { if (prefs.beep) "ting · ${if (prefs.signs) "biển" else "tắt biển"}" else "im lặng" }) { listOf(
+                T("Tiếng ting cảnh báo", "lệch làn, xe trước quá gần, vượt tốc độ", { prefs.beep }, { b -> prefs.beep = b; if (b) svc?.beeper?.test() }, false),
+                S("Âm lượng", null, listOf("Nhỏ", "Vừa", "To"), { prefs.vol }, { k -> prefs.vol = k; svc?.beeper?.setVolume(k); svc?.beeper?.test() }, true),
+                T("Cảnh báo lệch làn", "trên 50 km/h · tắt khi đi phố đông", { prefs.ldwOn }, { b -> prefs.ldwOn = b }, true),
+                S("Độ nhạy xe trước", "sớm = báo sớm hơn, dễ kêu hơn", listOf("Sớm", "Vừa", "Muộn"), { prefs.fcwSens }, { k -> prefs.fcwSens = k }, true),
+                H("Biển & tốc độ"),
+                T("Đọc biển giao thông", "camera đọc biển khi xe chạy", { prefs.signs }, { b -> prefs.signs = b }, false),
+                S("Kêu khi vượt tốc độ", "chỉ theo biển thật / Waze / GOFA", listOf("Tắt", "+0", "+5", "+10"),
+                    { when (prefs.overKmh) { -1 -> 0; 0 -> 1; 10 -> 3; else -> 2 } }, { k -> prefs.overKmh = intArrayOf(-1, 0, 5, 10)[k] }, true),
+                T("Biển tốc độ từ Waze / GOFA", "bong bóng tốc độ của app dẫn đường", { prefs.navLimit }, { b -> prefs.navLimit = b }, true),
+                T("Tốc độ mặc định theo luật", "50 / 60 khi chưa thấy biển (bản đồ OSM)", { prefs.defLimit }, { b -> prefs.defLimit = b }, false),
+                T("Camera phạt nguội", "lấy từ Waze / GOFA", { prefs.camAlert }, { b -> prefs.camAlert = b }, false),
+            ) },
+            SettingsView.Cat("cam", "Camera", { (if (prefs.camSrc == "mirror") "cam gương" else "ĐT") + " · " + (if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "đã hiệu chỉnh" else "đang học") }) { listOf(
+                S("Nguồn camera", null, listOf("Điện thoại", "Cam gương Wi-Fi"), { if (prefs.camSrc == "mirror") 1 else 0 }, { k ->
+                    val m = if (k == 1) "mirror" else "phone"
+                    if (m != prefs.camSrc) { prefs.camSrc = m; svc?.switchCam(); toast(if (k == 1) "Dùng cam gương: điện thoại phải đang nối Wi-Fi của cam" else "Dùng camera điện thoại") }
+                }, false),
+                H("Hiệu chỉnh"),
+                T("Tự hiệu chỉnh", svc?.calibInfo()?.lineSequence()?.firstOrNull(), { prefs.autoCalib }, { b -> svc?.setAuto(b) }, false),
+                A("Học lại từ đầu", "sau khi gắn lại điện thoại", null) { svc?.resetCalib(); toast("Chạy thẳng 1–2 phút trên đường có vạch để app tự học"); refreshSettings() },
+                A("Chỉnh tay (kéo điểm tụ)", null, null) { closeSettings(); startCalib() },
+                A("Chiều cao camera", "từ camera xuống mặt đường", "%.1f m".format(prefs.camH)) {
+                    val hs = arrayOf(0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.7f, 1.9f)
+                    AlertDialog.Builder(this).setTitle("Camera cách mặt đường")
+                        .setItems(hs.map { "%.1f m".format(it) }.toTypedArray()) { _, k -> prefs.camH = hs[k]; svc?.reloadSettings(false); refreshSettings() }.show()
+                },
+            ) },
+            SettingsView.Cat("hien", "Hiển thị", { listOfNotNull(if (prefs.showMap) "bản đồ" else null, if (prefs.showTemp) "nhiệt" else null).joinToString(" · ").ifEmpty { "gọn" } }) { listOf(
+                T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),
+                S("Nguồn bản đồ", null, listOf("Google tối", "OpenStreetMap"), { if (prefs.mapSrc == "osm") 1 else 0 }, { k -> prefs.mapSrc = if (k == 1) "osm" else "google"; map.source = prefs.mapSrc }, false),
+                T("Ô nhiệt độ máy", null, { prefs.showTemp }, { b -> prefs.showTemp = b; showPips() }, false),
+                T("Vạch làn kéo xuống đáy màn", "tắt = cắt ở mép taplo", { prefs.overHood }, { b -> prefs.overHood = b; overlay.overHood = b; overlay.invalidate() }, false),
+            ) },
+            SettingsView.Cat("hud", "HUD & kết nối", { if (svc?.hudConnected() == true) "đã nối" else "chưa nối" }) { listOf(
+                A("Trạng thái HUD", svc?.hudStatus() ?: "dịch vụ chưa chạy", null) { },
+                A("Tìm lại HUD", "quên HUD cũ, dò lại", null) { svc?.findHudAgain(); toast("Đang tìm HUD…"); refreshSettings() },
+                T("Gửi biển tốc độ lên HUD", "biển camera đọc được (cần firmware 1.0.57)", { prefs.hudSign }, { b -> prefs.hudSign = b }, true),
+                H("Waze Mod"),
+                A("Nối thẳng Waze Mod", svc?.wazeStatus() ?: "", null) { wazeAccess() },
+            ) },
+            SettingsView.Cat("dan", "Dẫn đường", { if (Nav.active) "đang dẫn" else if (prefs.hereKey.isEmpty()) "OSRM" else "HERE" }) { listOfNotNull(
+                if (Nav.active) A("Kết thúc dẫn đường", Nav.dest?.name, null) { Nav.stop(); refreshSettings() } else null,
+                A("Cách dùng", "mở trạm từ app EVCarHUD Charge, hoặc chia sẻ link HERE WeGo / Google Maps vào app này", null) { },
+                A("Khoá HERE (tính đường)", if (prefs.hereKey.isEmpty()) "chưa có, đang dùng OSRM" else "đã lưu …" + prefs.hereKey.takeLast(4), null) { hereKeyDialog() },
+            ) },
+            SettingsView.Cat("nang", "Hiệu năng & nhiệt", { arrayOf("tiết kiệm", "cân bằng", "tối đa")[prefs.perf.coerceIn(0, 2)] }) { listOf(
+                S("Chế độ", "tiết kiệm: AI 3 lần/giây, đọc biển thưa hơn · tối đa: chỉ giảm khi pin ≥ 43°", listOf("Tiết kiệm", "Cân bằng", "Tối đa"), { prefs.perf }, { k -> prefs.perf = k }, true),
+                S("Bộ xử lý AI", null, listOf("NPU", "CPU"), { if (prefs.accel == "npu") 0 else 1 }, { k -> val a = if (k == 0) "npu" else "cpu"; if (a != prefs.accel) { prefs.accel = a; svc?.reloadSettings(true) } }, false),
+                A("Nhiệt độ hiện tại", svc?.heatInfo() ?: "", null) { },
+            ) },
+            SettingsView.Cat("kt", "Kỹ thuật", { "chẩn đoán" }) { listOf(
+                A("Số liệu AI + ghi 1 khung", null, null) { diag() },
+                A("Xem ảnh mô hình AI đang thấy", null, null) { showModelView() },
+                T("Hiện số liệu trên màn", null, { prefs.showDbg }, { b -> prefs.showDbg = b }, false),
+                A("Dò camera Wi-Fi", "cam gương, Xiaomi M310P… (nối Wi-Fi của cam trước)", null) { probeCam() },
+            ) },
+            SettingsView.Cat("tt", "Thông tin", { appVer() }) { listOf(
+                A("Phiên bản app", null, appVer()) { },
+                A("Mã HUD", null, prefs.hudMac.ifEmpty { "chưa có" }) { },
+                A("Giới thiệu & giấy phép", null, null) { AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show() },
+                A("Thoát hẳn (tắt chạy nền)", null, null) {
+                    startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
+                    finish()
+                },
+            ) },
+        )
+    }
+
+    private fun appVer() = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "-" } catch (_: Exception) { "-" }
+
+    /** Xin quyen doc du lieu Waze Mod (bang Cho phep / Tu choi cua Waze Mod). */
+    private fun wazeAccess() {
+        try { startActivityForResult(Intent(WazeModLink.ACTION_REQUEST).setPackage(WazeModLink.PKG), 7) }
+        catch (_: Exception) { toast("Chưa cài Waze Mod (hoặc bản này chưa có cổng dữ liệu)") }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(req: Int, res: Int, data: Intent?) {
+        @Suppress("DEPRECATION") super.onActivityResult(req, res, data)
+        if (req == 7) { toast(if (res == RESULT_OK) "Đã nối Waze Mod" else "Waze Mod chưa cho phép"); svc?.wazeRetry(); refreshSettings() }
+    }
 
     private fun hereKeyDialog() {
         val e = android.widget.EditText(this).apply {

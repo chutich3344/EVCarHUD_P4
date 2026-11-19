@@ -72,4 +72,39 @@ class Prefs(ctx: Context) {
     var hereKey: String
         get() = p.getString("here", "") ?: ""
         set(v) = p.edit().putString("here", v.trim()).apply()
+    /** Am luong tieng canh bao: 0 nho, 1 vua, 2 to. */
+    var vol: Int
+        get() = p.getInt("vol", 1)
+        set(v) = p.edit().putInt("vol", v).apply()
+    /** Canh bao lech lan (tat khi di pho dong). */
+    var ldwOn: Boolean
+        get() = p.getBoolean("ldw", true)
+        set(v) = p.edit().putBoolean("ldw", v).apply()
+    /** Do nhay canh bao xe truoc: 0 som, 1 vua, 2 muon. */
+    var fcwSens: Int
+        get() = p.getInt("fcw", 1)
+        set(v) = p.edit().putInt("fcw", v).apply()
+    /** Keu khi vuot toc do: -1 tat, 0 / 5 / 10 km/h qua bien. */
+    var overKmh: Int
+        get() = p.getInt("over", 5)
+        set(v) = p.edit().putInt("over", v).apply()
+    var camAlert: Boolean
+        get() = p.getBoolean("camal", true)
+        set(v) = p.edit().putBoolean("camal", v).apply()
+    /** Toc do mac dinh theo luat (50/60) khi chua thay bien. */
+    var defLimit: Boolean
+        get() = p.getBoolean("deflim", true)
+        set(v) = p.edit().putBoolean("deflim", v).apply()
+    /** Dung bien toc do (bong bong) Waze/GOFA ma HUD chuyen sang. */
+    var navLimit: Boolean
+        get() = p.getBoolean("navlim", true)
+        set(v) = p.edit().putBoolean("navlim", v).apply()
+    /** Gui bien toc do doc tu camera len HUD (goi S1). */
+    var hudSign: Boolean
+        get() = p.getBoolean("hudsign", true)
+        set(v) = p.edit().putBoolean("hudsign", v).apply()
+    /** Che do: 0 tiet kiem, 1 can bang, 2 toi da. */
+    var perf: Int
+        get() = p.getInt("perf", 1)
+        set(v) = p.edit().putInt("perf", v).apply()
 }

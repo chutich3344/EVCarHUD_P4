@@ -190,9 +190,10 @@ static int lan_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
 
 /* 4556d006 (doc + thong bao): camera gan nhat HUD nhan tu Waze Mod / GOFA, chuyen cho app EVCarHUD Lan (cung dien thoai,
  * chung 1 ket noi BLE): "C1|loai|met" (loai: S bat toc do, R den do, A camera AI, G camera giao thong; met -1 = khong ro),
- * "C1|" = het camera. Chi thong bao khi doi loai hoac lech >= 10 m. */
+ * "C1||-1|lim" = het camera; truong 4 = bien toc do Waze/GOFA (0 = khong co). Chi thong bao khi doi loai, lech >= 10 m
+ * hoac doi bien. */
 static uint16_t s_cam_handle;
-static char s_cam[32] = "C1|";
+static char s_cam[32] = "C1||-1|0";
 
 static int cam_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt *ctxt, void *arg)
 {
@@ -201,15 +202,30 @@ static int cam_access(uint16_t conn, uint16_t attr, struct ble_gatt_access_ctxt 
     return os_mbuf_append(ctxt->om, s_cam, strlen(s_cam)) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static int s_cam_code, s_cam_dist = -1, s_nav_lim;
+
+static void cam_update(void)
+{
+    char t = s_cam_code == 2 ? 'S' : s_cam_code == 3 ? 'R' : s_cam_code == 41 ? 'A' : 'G';
+    if (s_cam_code) snprintf(s_cam, sizeof s_cam, "C1|%c|%d|%d", t, s_cam_dist, s_nav_lim);
+    else snprintf(s_cam, sizeof s_cam, "C1||-1|%d", s_nav_lim);
+    if (s_cam_handle) ble_gatts_chr_updated(s_cam_handle);       /* NimBLE tu gui toi cac ket noi da bat thong bao */
+}
+
 void ui_cam_hook(int code, int dist)
 {
     static int last_code = -1, last_dist = -100;
     if (code == last_code && (code == 0 || abs(dist - last_dist) < 10)) return;
     last_code = code; last_dist = dist;
-    char t = code == 2 ? 'S' : code == 3 ? 'R' : code == 41 ? 'A' : 'G';
-    if (code) snprintf(s_cam, sizeof s_cam, "C1|%c|%d", t, dist);
-    else snprintf(s_cam, sizeof s_cam, "C1|");
-    if (s_cam_handle) ble_gatts_chr_updated(s_cam_handle);       /* NimBLE tu gui toi cac ket noi da bat thong bao */
+    s_cam_code = code; s_cam_dist = dist;
+    cam_update();
+}
+
+/* Bien toc do Waze/GOFA (bong bong toc do) -> truong thu 4 cua goi C1 cho app Lan. */
+void ui_lim_hook(int kmh)
+{
+    s_nav_lim = kmh > 0 ? kmh : 0;
+    cam_update();
 }
 
 /* ===== xADAS HUD Link v1 (xadas.h): app xADAS ghi khung 10 byte khoang cach xe truoc. Dang ky o ca hai che do, UUID dich

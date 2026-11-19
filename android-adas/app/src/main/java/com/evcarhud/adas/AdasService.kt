@@ -24,6 +24,7 @@ import android.media.Image
 import android.os.BatteryManager
 import android.os.Binder
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
@@ -172,6 +173,11 @@ class AdasService : Service() {
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
+    private var waze: WazeModLink? = null
+    private var wazeTry = 0L
+    private var navLim: Int? = null     // bien toc do Waze/GOFA tu HUD
+    private var navLimAt = 0L
+    private var sigSent = -1; private var sigAt = 0L
     @Volatile private var spdAt = 0L   // luc vua thay bien toc do -> doc day hon 2,5 s de du phieu chot so
     private var lastSign: SignDet.Hit? = null
     private var lastSignAt = 0L
@@ -226,6 +232,7 @@ class AdasService : Service() {
             it.line("bat dau · ${android.os.Build.MODEL} · AI ${prefs.accel} · tu hieu chinh ${prefs.autoCalib}/${prefs.calibrated} · camH ${prefs.camH}")
         }
         signDb = SignDb(this); camDb = CamDb(this); road = RoadInfo { m -> clog?.line(m) }
+        waze = WazeModLink(this, { m -> clog?.line(m) }) { b -> onWaze(b) }.also { it.start() }
         signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
@@ -266,7 +273,7 @@ class AdasService : Service() {
         Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
-        signDet?.release(); road?.release(); signDb?.flush(); camDb?.flush()
+        waze?.stop(); signDet?.release(); road?.release(); signDb?.flush(); camDb?.flush()
         clog?.line("dung app"); clog?.close()
         super.onDestroy()
     }
@@ -509,7 +516,7 @@ class AdasService : Service() {
         if (prefs.signs && hot < 3 && (if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh) > 3) signDet?.let { sd ->
             // pin nong: doc bien thua hon, bo nhan loai xe (19/11: pin 43 do khi chay pho)
             sd.objsOn = true   // nhan loai xe gio chi tren vung quanh xe truoc (192x192), du nhe de luon bat
-            sd.offer(im, cam?.flip == true, when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
+            sd.offer(im, cam?.flip == true, (if (prefs.perf == 0) 2 else 1) * when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
         }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
@@ -693,7 +700,7 @@ class AdasService : Service() {
             else -> '-'
         }
         if (side != '-') { ldwSide = side; ldwHoldUntil = wall + 1200 }
-        val ldw = if (wall < ldwHoldUntil) ldwSide else '-'
+        val ldw = if (wall < ldwHoldUntil && prefs.ldwOn) ldwSide else '-'
         var leadM: Float? = null; var ttc: Float? = null; var level = 0
         if (o.leadProb > 0.5f && o.leadX > 0) {
             leadM = o.leadX
@@ -705,8 +712,11 @@ class AdasService : Service() {
             val vrel = vrelF
             if (vrel < -1f) ttc = o.leadX / -vrel
             if (v > 5 && o.leadX < Op.safeDist(v)) level = 1
-            if (v > 15 && ttc != null && ttc < 2.5f && vrel < -2f) level = 2
-            if (v > 15 && ttc != null && ttc < 1.5f && vrel < -3f && o.leadX < 2f * Op.safeDist(v)) level = 3
+            // do nhay (cai dat): som / vua / muon
+            val t2 = when (prefs.fcwSens) { 0 -> 3.0f; 2 -> 2.0f; else -> 2.5f }
+            val t3 = when (prefs.fcwSens) { 0 -> 1.8f; 2 -> 1.2f; else -> 1.5f }
+            if (v > 15 && ttc != null && ttc < t2 && vrel < -2f) level = 2
+            if (v > 15 && ttc != null && ttc < t3 && vrel < -3f && o.leadX < 2f * Op.safeDist(v)) level = 3
         } else vrelF = Float.NaN
         // PHANH chi bat khi muc 3 keo dai >= 0,4 s; da bat thi giu 2 s (khong chop tat lien tuc)
         if (level >= 3) { if (l3Since == 0L) l3Since = wall } else l3Since = 0L
@@ -763,6 +773,7 @@ class AdasService : Service() {
         if (prefs.showDbg) s.dbg = calibInfo()
         onSnap?.invoke(s)
         logTick(o, v, leadM)
+        beeper.setVolume(prefs.vol)
         beeper.update(level, ldw, prefs.beep)
         if (level >= 2 && level != lastLvLog) clog?.line("CANH BAO muc $level xe ${leadM?.roundToInt()} m ttc ${ttc?.let { "%.1f".format(it) }} v ${v.roundToInt()}")
         lastLvLog = level
@@ -836,12 +847,46 @@ class AdasService : Service() {
         if (!m.startsWith("C1|")) return
         val f = m.substring(3).split('|')
         val t = f.getOrNull(0)?.firstOrNull()
-        if (t == null) { camType = null; camDb?.flush(); return }
+        // truong 4 (firmware 1.0.57+): bien toc do Waze/GOFA (bong bong toc do), 0 = khong co
+        // Waze Mod noi thang thi bo qua ban HUD chuyen (tranh 2 nguon gianh nhau); GOFA van di qua HUD
+        val direct = waze?.ok == true
+        if (!direct) f.getOrNull(2)?.toIntOrNull()?.let { k -> setNavLim(k, "HUD") }
+        if (direct) return
         val d = f.getOrNull(1)?.toIntOrNull() ?: -1
+        setCam(t, d)
+    }
+
+    private fun setNavLim(k: Int, src: String) {
+        val nl = if (k in 5..150) k else null
+        if (nl != navLim) { clog?.line("BIEN $src ${nl ?: "-"}"); navLim = nl; navLimAt = SystemClock.elapsedRealtime() }
+    }
+
+    private fun setCam(t: Char?, d: Int) {
+        if (t == null) { if (camType != null) camDb?.flush(); camType = null; return }
         if (camType != t || camDist < 0 || d > camDist + 50) clog?.line("CAMERA ${CamDb.name(t)} ${if (d >= 0) "$d m" else ""}")
         camType = t; camDist = d; camAt = SystemClock.elapsedRealtime(); camLat = lat; camLon = lon
         if (gpsAt > 0 && d >= 0) camDb?.add(t, lat, lon, bearing, d)
     }
+
+    /** Du lieu Waze Mod (Data API): bien toc do (bong bong) + camera gan nhat. null = mat ket noi. */
+    private fun onWaze(b: Bundle?) {
+        if (b == null) { setNavLim(0, "WAZE"); setCam(null, -1); return }
+        setNavLim(b.getInt("speed_limit", 0), "WAZE")
+        @Suppress("DEPRECATION") val al = b.getParcelableArray("alerts")
+        var t: Char? = null; var d = -1
+        if (al != null) for (x in al) {
+            val a = x as? Bundle ?: continue
+            val c = a.getInt("type", 0)
+            if (c == 2 || c == 3 || c in 40..46) { t = when (c) { 2 -> 'S'; 3 -> 'R'; 41 -> 'A'; else -> 'G' }; d = a.getInt("distance_m", -1); break }
+        }
+        setCam(t, d)
+    }
+
+    fun wazeStatus() = waze?.status ?: "chưa chạy"
+    fun wazeRetry() { waze?.retry() }
+    fun hudConnected() = hudOk
+    fun hudStatus() = hudMsg + (if (prefs.hudMac.isNotEmpty()) " · ${prefs.hudMac}" else "")
+    fun heatInfo() = "pin ${batt.roundToInt()}° · " + when (hot) { 0 -> "bình thường"; 1 -> "ấm, giảm nhẹ"; 2 -> "nóng, giảm còn 3 lần/giây"; else -> "quá nóng, đã dừng AI" }
 
     /** Gan vao Snap: bien toc do (giu 15 phut neu khong gap bien moi), bien vua qua 8 s, keu khi vuot > 3 km/h. */
     private fun signSnap(s: Snap, v: Float) {
@@ -850,18 +895,22 @@ class AdasService : Service() {
         s.limit = limit
         if (now - objsAt < 1500) s.objs = objs
         val ct = camType
-        if (ct != null && now - camAt < 30_000) {
+        if (ct != null && prefs.camAlert && now - camAt < 30_000) {
             // dem lui theo quang duong da di tu luc HUD bao (duong thang, du dung cho vai tram met)
             val gone = if (camDist >= 0 && gpsAt > 0) run { val dy = (lat - camLat) * 110_540.0; val dx = (lon - camLon) * 111_320.0 * kotlin.math.cos(Math.toRadians(lat)); kotlin.math.sqrt(dx * dx + dy * dy).toInt() } else 0
             val left = if (camDist >= 0) camDist - gone else -1
             if (camDist < 0 || left > -30) { s.camType = ct; s.camM = if (left >= 0) left else if (camDist < 0) null else 0 }
         }
-        if (limit == null && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
+        // uu tien: bien moi nhat giua bien camera doc va bien Waze/GOFA (HUD chuyen sang); khong co thi toc do mac dinh theo luat
+        val nl = if (prefs.navLimit && (hudOk || waze?.ok == true)) navLim else null
+        if (nl != null && (limit == null || navLimAt > limitAt)) s.limit = nl
+        if (s.limit == null && prefs.defLimit && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
         val lim = s.limit
         s.over = lim != null && v > lim + 3
         // chi keu khi vuot bien that; toc do mac dinh chi hien chu (tranh keu sai tren duong ngoai do thi 80-90)
-        if (s.over && s.limitWhy == null && prefs.beep && now - overBeepAt > 10_000) { overBeepAt = now; beeper.test() }
+        val ok = prefs.overKmh
+        if (ok >= 0 && lim != null && v > lim + ok + 0.5f && s.limitWhy == null && prefs.beep && now - overBeepAt > 10_000) { overBeepAt = now; beeper.test() }
     }
 
     private fun publishIdle() {
@@ -880,7 +929,9 @@ class AdasService : Service() {
             v < 5 -> 4
             else -> 5
         }
-        hz = when (hot) { 1 -> if (v > 80) minOf(hz, 6) else minOf(hz, 4); 2 -> minOf(hz, 3); 3 -> 0; else -> hz }
+        // che do (cai dat): tiet kiem toi da 3 lan/giay (5 khi > 80 km/h / xe gan); toi da bo gioi han muc nong 1
+        if (prefs.perf == 0) hz = if (v > 80 || lastNear) 5 else 3
+        hz = when (hot) { 1 -> if (prefs.perf == 2) hz else if (v > 80) minOf(hz, 6) else minOf(hz, 4); 2 -> minOf(hz, 3); 3 -> 0; else -> hz }
         if (parked || model == null) hz = 0
         targetHz = hz
         val c = cam ?: return
@@ -905,9 +956,21 @@ class AdasService : Service() {
                 hud?.send("A1|-|0|0|0|0|0|0|0|${if (fresh) gpsKmh.roundToInt() else 0}|${stateCode()}".toByteArray())
             }
             pushNav()
+            pushSign(now)
+            if (now - wazeTry > 30_000 && waze?.ok != true) { wazeTry = now; waze?.start() }
             if (now - lastNotif > 10_000) { lastNotif = now; goForeground(notifText()) }
             main.postDelayed(this, 1000)
         }
+    }
+
+    /** Bien toc do doc tu camera -> HUD ("S1|km/h", 0 = het): khi doi so hoac 5 s 1 lan (HUD tu bo sau 20 s). */
+    private fun pushSign(now: Long) {
+        val h = hud ?: return
+        if (!hudOk) { sigSent = -1; return }
+        val v = if (prefs.hudSign) (limit?.takeIf { now - limitAt <= 15 * 60_000L } ?: 0) else 0
+        if (v == sigSent && (v == 0 || now - sigAt < 5000)) return
+        sigSent = v; sigAt = now
+        h.sendSign("S1|$v".toByteArray())
     }
 
     private var thermalAt = 0L

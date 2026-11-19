@@ -2740,11 +2740,41 @@ void ui_below_settings(lv_obj_t *o)
     if (o && set_scr && lv_obj_get_parent(o) == scr) lv_obj_move_to_index(o, lv_obj_get_index(set_scr));
 }
 
+/* Bien toc do: nguon Waze/GOFA (ui_set_speed_limit) uu tien; khong co thi dung bien app EVCarHUD Lan doc tu camera
+ * (ui_set_phone_limit, het han 20 s neu app ngung gui). Bien Waze/GOFA chuyen tiep cho app qua ui_lim_hook (ble_link.c). */
+static int nav_limit, phone_limit;
+static lv_timer_t *plim_tmr;
+void ui_lim_hook(int kmh) __attribute__((weak));
+
+static void apply_limit(void)
+{
+    int k = nav_limit > 0 ? nav_limit : phone_limit;
+    if (k == limit) return;
+    limit = k;
+    update_level();
+}
+
 void ui_set_speed_limit(int kmh)
 {
-    if (kmh == limit) return;
-    limit = kmh;
-    update_level();
+    if (ui_lim_hook && kmh != nav_limit) ui_lim_hook(kmh);
+    nav_limit = kmh;
+    apply_limit();
+}
+
+static void plim_tmr_cb(lv_timer_t *t)
+{
+    (void)t;
+    plim_tmr = NULL;                                             /* lan chay cuoi: LVGL tu xoa timer */
+    phone_limit = 0;
+    apply_limit();
+}
+
+void ui_set_phone_limit(int kmh)
+{
+    phone_limit = kmh > 0 && kmh <= 150 ? kmh : 0;
+    if (plim_tmr) lv_timer_reset(plim_tmr);
+    else if (phone_limit) { plim_tmr = lv_timer_create(plim_tmr_cb, 20000, NULL); lv_timer_set_repeat_count(plim_tmr, 1); }
+    apply_limit();
 }
 
 void ui_set_time(int hour, int minute, int wd)

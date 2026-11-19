@@ -97,6 +97,18 @@ void phone_adas_on_write(const char *s, size_t n)
         board_ui_unlock();
         return;
     }
+    if (n >= 3 && n < 16 && strncmp(s, "S1|", 3) == 0) {          /* "S1|km/h": bien toc do app doc tu camera, 0 = het */
+        char b[16];
+        memcpy(b, s, n);
+        b[n] = 0;
+        static int s_last = -1;
+        int k = atoi(b + 3);
+        if (k != s_last) { s_last = k; ESP_LOGI(TAG, "bien tu app %d km/h", k); }
+        board_ui_lock();
+        ui_set_phone_limit(k);
+        board_ui_unlock();
+        return;
+    }
     phone_adas_t p;
     if (!phone_adas_parse(s, n, &p)) return;
     if ((s_cnt++ % 50) == 0 || p.level >= 2 || p.ldw != '-') ESP_LOGI(TAG, "%.*s", (int)n, s);
