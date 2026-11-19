@@ -214,7 +214,6 @@ class Overlay(ctx: Context) : View(ctx) {
         val now = SystemClock.elapsedRealtime()
         var best: SignDet.Obj? = null; var bd = Float.MAX_VALUE
         for (o in sn.objs ?: emptyList()) {
-            if (o.cls == 0 && sn.vKmh > 40) continue
             val x1 = ox + o.x1 * imgW * s; val x2 = ox + o.x2 * imgW * s; val y2 = oy + o.y2 * imgH * s; val bh = (o.y2 - o.y1) * imgH * s
             val m = max(0.15f * (x2 - x1), 0.2f * laneW)
             if (cx < x1 - m || cx > x2 + m || abs(y2 - yb) > max(0.35f * bh, 0.25f * laneW + 6f)) continue
@@ -224,7 +223,8 @@ class Overlay(ctx: Context) : View(ctx) {
         val b = best ?: return
         // kiem tra kich thuoc that: laneW = 1,8 m o khoang cach xe truoc -> xe buyt/tai phai cao >= 2,3 m
         val hM = (b.y2 - b.y1) * imgH * s / max(1f, laneW / 1.8f)
-        val cls = if ((b.cls == 5 || b.cls == 7) && hM < 2.3f) 2 else b.cls
+        // nguoi lam xe truoc (openpilot chi bat vat dang di tren lan) = nguoi ngoi xe may
+        val cls = if ((b.cls == 5 || b.cls == 7) && hM < 2.3f) 2 else if (b.cls == 0) 3 else b.cls
         kindTxt = SignDet.kind(cls); kindAt = now
     }
 
