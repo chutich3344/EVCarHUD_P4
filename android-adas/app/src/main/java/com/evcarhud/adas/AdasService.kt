@@ -169,7 +169,6 @@ class AdasService : Service() {
     private var camLat = 0.0
     private var camLon = 0.0
     private var objsAt = 0L
-    private var objTick = 0
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
@@ -314,6 +313,8 @@ class AdasService : Service() {
     }
 
     /** Hieu chinh tay (keo diem tu): tat tu hieu chinh. */
+    fun leadHint(x: Float, y: Float, w: Float) { signDet?.leadHint(x, y, w) }
+
     fun setManualVp(vpX: Float, vpY: Float) {
         val c = cam ?: return
         val w = c.size.width; val h = c.size.height; val f = c.focalPx
@@ -507,7 +508,7 @@ class AdasService : Service() {
         // doc bien: 2 lan/giay khi xe chay, 1 lan/giay khi may am, dung khi nong
         if (prefs.signs && hot < 3 && (if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh) > 3) signDet?.let { sd ->
             // pin nong: doc bien thua hon, bo nhan loai xe (19/11: pin 43 do khi chay pho)
-            sd.objsOn = hot == 0 || (hot == 1 && (++objTick % 2 == 0))
+            sd.objsOn = true   // nhan loai xe gio chi tren vung quanh xe truoc (192x192), du nhe de luon bat
             sd.offer(im, cam?.flip == true, when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
         }
         val hz = targetHz

@@ -31,9 +31,13 @@ class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, privat
     private var sess: OrtSession? = null
     private var vsess: OrtSession? = null
     private val vin = FloatBuffer.allocate(3 * VS * VS)
+    @Volatile private var hx = 0f; @Volatile private var hy = 0f; @Volatile private var hw = 0f; @Volatile private var hAt = 0L
+    /** Vi tri xe truoc tren anh (chuan hoa 0..1: giua day xe, be ngang 1,8 m) do Overlay tinh tu openpilot. */
+    fun leadHint(x: Float, y: Float, w: Float) { hx = x; hy = y; hw = w; hAt = SystemClock.elapsedRealtime() }
     @Volatile private var busy = false
     /** false: lan nay bo nhan loai xe (may nong). */
     @Volatile var objsOn = true
+    private var xnn = false
     private var lastAt = 0L
     @Volatile var lastMs = 0L
     @Volatile var info = "đang nạp"
@@ -45,7 +49,12 @@ class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, privat
         h.post {
             try {
                 NumRead.load(ctx.assets.open("digits.dat").use { it.readBytes() })
-                val o = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2); setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT) }
+                // XNNPACK (nhan ARM toi uu, ket qua fp32 nhu CPU thuong): luong cua ORT de 1, XNNPACK tu dung 2
+                fun opts(xnn: Boolean) = OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    if (xnn) { setIntraOpNumThreads(1); addXnnpack(mapOf("intra_op_num_threads" to "2")) } else setIntraOpNumThreads(2)
+                }
+                val o = try { opts(true).also { xnn = true } } catch (e: Throwable) { Log.w(TAG, "xnnpack", e); opts(false) }
                 sess = env.createSession(ctx.assets.open("bien-vn.onnx").use { it.readBytes() }, o)
                 try { vsess = env.createSession(ctx.assets.open("xe-coco.onnx").use { it.readBytes() }, o) } catch (e: Throwable) { Log.e(TAG, "xe", e) }
                 info = "sẵn sàng"
@@ -131,21 +140,23 @@ class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, privat
         }
         val nObj = if (!objsOn) 0 else try { objs() } catch (e: Throwable) { Log.w(TAG, "xe", e); 0 }
         lastMs = SystemClock.elapsedRealtime() - t0
-        info = "${lastMs} ms · ${hits.size} biển · $nObj xe"
+        info = "${lastMs} ms${if (xnn) " xnn" else ""} · ${hits.size} biển · $nObj xe"
         if (hits.isNotEmpty()) onHits(hits)
     }
 
-    /** Nhan loai xe: vung giua 70% ngang tu 20% chieu cao, dua vao 416x416 (BGR 0..255, dem 114 ben duoi). */
+    /** Nhan loai xe CHI quanh xe truoc (goi y tu openpilot): o vuong ~4 lan be ngang xe, dua vao 192x192 (nhe ~5 lan so voi ca khung). */
     private fun objs(): Int {
         val s = vsess ?: return 0
-        val x0 = 0.15f * w; val cw = 0.7f * w; val y0 = 0.2f * hh; val sc = cw / VS
+        if (SystemClock.elapsedRealtime() - hAt > 600 || hw <= 0f) return 0
+        val side = (4.2f * hw * w).coerceIn(96f, 0.7f * w)
+        val x0 = hx * w - side / 2; val y0 = hy * hh - side * 0.62f; val sc = side / VS
         val arr = vin.array(); val pl = VS * VS
         for (iy in 0 until VS) {
             val sy = (y0 + (iy + 0.5f) * sc).toInt()
             for (ix in 0 until VS) {
-                val o = iy * VS + ix
-                if (sy >= hh) { arr[o] = 114f; arr[pl + o] = 114f; arr[2 * pl + o] = 114f; continue }
-                val c = rgb((x0 + (ix + 0.5f) * sc).toInt(), sy)
+                val o = iy * VS + ix; val sx = (x0 + (ix + 0.5f) * sc).toInt()
+                if (sy < 0 || sy >= hh || sx < 0 || sx >= w) { arr[o] = 114f; arr[pl + o] = 114f; arr[2 * pl + o] = 114f; continue }
+                val c = rgb(sx, sy)
                 arr[o] = (c and 255).toFloat(); arr[pl + o] = ((c shr 8) and 255).toFloat(); arr[2 * pl + o] = ((c shr 16) and 255).toFloat()
             }
         }
@@ -215,7 +226,7 @@ class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, privat
         private const val IH = 352
         private const val NC = 56
         private const val CONF = 0.4f
-        private const val VS = 416
+        private const val VS = 192
         private const val VCONF = 0.3f
         private val VCLS = intArrayOf(0, 1, 2, 3, 5, 7)
         /** Ten ngan loai xe (chi so COCO). */

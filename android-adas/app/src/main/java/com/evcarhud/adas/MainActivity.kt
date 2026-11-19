@@ -60,6 +60,7 @@ class MainActivity : Activity() {
             if (r - l != orr - ol || btm - t != ob - ot) sizePips(r - l)
         }
         overlay.onGear = { settings() }
+        overlay.onLead = { x, y, w -> svc?.leadHint(x, y, w) }
         overlay.avoid = { if (map.visibility == View.VISIBLE && map.width > 1) RectF(map.x, map.y, map.x + map.width, map.y + map.height) else null }
         overlay.onCalibDone = { ok ->
             if (ok) svc?.setManualVp(overlay.vpX, overlay.vpY)

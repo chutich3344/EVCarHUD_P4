@@ -54,6 +54,8 @@ class Overlay(ctx: Context) : View(ctx) {
     private var kindTxt: String? = null
     /** Vung bi o noi che (ban do goc) de cot bien khong ve de len; MainActivity gan. */
     var avoid: () -> RectF? = { null }
+    /** Bao vi tri xe truoc (chuan hoa theo anh) cho bo nhan loai xe. */
+    var onLead: (Float, Float, Float) -> Unit = { _, _, _ -> }
     private var kindAt = 0L
     private val path = Path()
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
@@ -162,6 +164,7 @@ class Overlay(ctx: Context) : View(ctx) {
                 val cx = (pt[0] + pt[2]) / 2; val yb = (pt[1] + pt[3]) / 2
                 val w = max(10f, abs(pt[2] - pt[0]) * 0.45f)
                 matchKind(sn, cx, yb, abs(pt[2] - pt[0]))
+                if (imgW > 0 && s > 0) onLead((cx - ox) / (imgW * s), (yb - oy) / (imgH * s), abs(pt[2] - pt[0]) / (imgW * s))
                 path.reset(); path.moveTo(cx, yb - w * 0.9f); path.lineTo(cx - w, yb + 2); path.lineTo(cx + w, yb + 2); path.close()
                 fill.color = when { sn.level >= 2 -> Color.rgb(240, 60, 60); sn.level == 1 -> Color.rgb(255, 210, 40); else -> Color.rgb(235, 235, 235) }
                 cv.drawPath(path, fill)
