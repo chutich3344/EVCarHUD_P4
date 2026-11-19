@@ -837,7 +837,7 @@ class AdasService : Service() {
             .filter { it.third >= 0.55f || it.second >= 2 }
             .maxWithOrNull(compareBy<Triple<Int, Int, Float>> { it.second }.thenBy { it.third })
         if (best != null) {
-            if (limit != best.first) clog?.line("BIEN TOC DO ${best.first} km/h")
+            if (limit != best.first) clog?.line("BIEN TOC DO ${best.first} km/h" + (navLim?.let { if (it != best.first) " · LECH ${if (waze?.ok == true) "Waze" else "GOFA"} $it -> theo camera" else " · trung ${if (waze?.ok == true) "Waze" else "GOFA"}" } ?: ""))
             limit = best.first; limitAt = now
         }
         if ((signDb?.size ?: 0) % 5 == 0) signDb?.flush()
@@ -904,7 +904,9 @@ class AdasService : Service() {
         }
         // uu tien: bien moi nhat giua bien camera doc va bien Waze/GOFA (HUD chuyen sang); khong co thi toc do mac dinh theo luat
         val nl = if (prefs.navLimit && (hudOk || waze?.ok == true)) navLim else null
-        if (nl != null && (limit == null || navLimAt > limitAt)) { s.limit = nl; s.limitSrc = if (waze?.ok == true) "Waze" else "GOFA" }
+        // luat 19/11: camera doc bien that la uu tien nhat. Doc xong so voi Waze/GOFA: trung so -> giu nguyen (van ghi nguon app);
+        // khac so -> lay camera. Sau do Waze/GOFA doi so (sang duong khac) thi theo Waze/GOFA cho toi khi camera gap bien moi.
+        if (nl != null && (limit == null || limit == nl || navLimAt > limitAt)) { s.limit = nl; s.limitSrc = if (waze?.ok == true) "Waze" else "GOFA" }
         if (s.limit == null && prefs.defLimit && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
         val lim = s.limit
