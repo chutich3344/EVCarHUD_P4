@@ -214,6 +214,8 @@ class Overlay(ctx: Context) : View(ctx) {
         cv.drawText(if (lead != null && !calib) "${lead.roundToInt()}" else "--", x, top + 5.6f * u, txt)
         txt.textSize = 1.5f * u; txt.color = Color.WHITE
         val sub = when {
+            sn != null && sn.state == 1 && lead == null -> "m · xe đỗ, AI tạm nghỉ"
+            sn != null && sn.state == 3 && lead == null -> "m · máy nóng, AI tạm nghỉ"
             lead == null || calib -> "m · chưa thấy xe trước"
             sn.level >= 1 -> "m · tối thiểu ${Op.safeDist(sn.vKmh).roundToInt()} m" + (sn.ttc?.let { " · %.1f s".format(it) } ?: "")
             else -> "m · xe trước"
