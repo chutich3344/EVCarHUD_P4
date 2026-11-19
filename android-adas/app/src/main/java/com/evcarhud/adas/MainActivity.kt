@@ -177,6 +177,11 @@ class MainActivity : Activity() {
             },
             "Hiệu chỉnh camera ($calSt)…" to { calibMenu() },
             (if (Nav.active) "Dẫn đường: đang tới ${Nav.dest?.name}…" else "Dẫn đường…") to { navMenu() },
+            ("Tiếng ting cảnh báo: " + (if (prefs.beep) "BẬT" else "TẮT") + " — bấm để đổi") to {
+                prefs.beep = !prefs.beep
+                if (prefs.beep) svc?.beeper?.test()
+                toast(if (prefs.beep) "Đã bật tiếng cảnh báo (nghe thử)" else "Đã tắt tiếng cảnh báo")
+            },
             "Hiển thị…" to { viewMenu() },
             "Tìm lại HUD" to { svc?.findHudAgain(); toast("Đang tìm HUD…") },
             "Chẩn đoán (cho kỹ thuật)…" to { diagMenu() },

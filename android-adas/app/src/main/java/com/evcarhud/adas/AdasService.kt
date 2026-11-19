@@ -149,6 +149,8 @@ class AdasService : Service() {
     private val feat = FloatArray(Op.FEAT_N * Op.HID_N)
     private var poseKmh = 0f
     private var ldwHoldUntil = 0L
+    val beeper = Beeper()
+    private var lastLvLog = 0
     private var vrelF = Float.NaN
     private var vrelT = 0L
     private var l3Since = 0L
@@ -228,6 +230,7 @@ class AdasService : Service() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         hud?.stop()
+        beeper.release()
         cam?.release()
         try { (getSystemService(SENSOR_SERVICE) as SensorManager).unregisterListener(gravL) } catch (_: Exception) {}
         Nav.listeners -= navL
@@ -719,6 +722,9 @@ class AdasService : Service() {
         if (prefs.showDbg) s.dbg = calibInfo()
         onSnap?.invoke(s)
         logTick(o, v, leadM)
+        beeper.update(level, ldw, prefs.beep)
+        if (level >= 2 && level != lastLvLog) clog?.line("CANH BAO muc $level xe ${leadM?.roundToInt()} m ttc ${ttc?.let { "%.1f".format(it) }} v ${v.roundToInt()}")
+        lastLvLog = level
         val now = SystemClock.elapsedRealtime()
         if (now - lastSend >= 95) {
             lastSend = now
