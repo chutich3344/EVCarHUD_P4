@@ -32,6 +32,8 @@ class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, privat
     private var vsess: OrtSession? = null
     private val vin = FloatBuffer.allocate(3 * VS * VS)
     @Volatile private var busy = false
+    /** false: lan nay bo nhan loai xe (may nong). */
+    @Volatile var objsOn = true
     private var lastAt = 0L
     @Volatile var lastMs = 0L
     @Volatile var info = "đang nạp"
@@ -127,7 +129,7 @@ class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, privat
             val crop = bitmap(x1 - mg, y1 - mg, x2 + mg, y2 + mg)
             hits += Hit(cls, k[4], value, score, crop, aux(x1, y1, x2, y2))
         }
-        val nObj = try { objs() } catch (e: Throwable) { Log.w(TAG, "xe", e); 0 }
+        val nObj = if (!objsOn) 0 else try { objs() } catch (e: Throwable) { Log.w(TAG, "xe", e); 0 }
         lastMs = SystemClock.elapsedRealtime() - t0
         info = "${lastMs} ms · ${hits.size} biển · $nObj xe"
         if (hits.isNotEmpty()) onHits(hits)
@@ -179,10 +181,11 @@ class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, privat
         val ax1 = x1 - bw / 4; val ax2 = x2 + bw / 4; val ay1 = y2 + 2; val ay2 = y2 + (bh * 0.9f).toInt()
         if (ay2 >= hh || ay2 - ay1 < 8) return null
         val px = sample(ax1, ay1, ax2, ay2, 32, 16)
-        var white = 0
+        var white = 0; var color = 0
         for (c in px) { val r = (c shr 16) and 255; val g = (c shr 8) and 255; val b = c and 255; val mx = max(r, max(g, b)); val mn = min(r, min(g, b))
-            if (mx > 150 && (mx - mn) * 255 < 60 * mx) white++ }
-        return if (white > 0.45f * px.size) bitmap(ax1, ay1, ax2, ay2) else null
+            if (mx > 150 && (mx - mn) * 255 < 60 * mx) white++
+            if (mx > 90 && (mx - mn) * 255 > 120 * mx) color++ }   // do / xanh dam: la bien khac treo ben duoi, khong phai bien phu chu
+        return if (white > 0.45f * px.size && color < 0.06f * px.size) bitmap(ax1, ay1, ax2, ay2) else null
     }
 
     /** Lay mau song tuyen vung [x1,x2)x[y1,y2) ve ow x oh. */

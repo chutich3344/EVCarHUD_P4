@@ -169,6 +169,7 @@ class AdasService : Service() {
     private var camLat = 0.0
     private var camLon = 0.0
     private var objsAt = 0L
+    private var objTick = 0
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
@@ -504,7 +505,11 @@ class AdasService : Service() {
         else if (now - lastPrev >= 1000) { lastPrev = now; try { bright = meanY(im) } catch (_: Exception) {} }
         if (now - hoodAt >= 300) { hoodAt = now; try { hoodSample(im) } catch (_: Exception) {} }
         // doc bien: 2 lan/giay khi xe chay, 1 lan/giay khi may am, dung khi nong
-        if (prefs.signs && hot < 3 && (if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh) > 3) signDet?.offer(im, cam?.flip == true, if (hot >= 2) 1000 else if (now - spdAt < 2500) 200 else if (hot >= 1) 1000 else 500)
+        if (prefs.signs && hot < 3 && (if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh) > 3) signDet?.let { sd ->
+            // pin nong: doc bien thua hon, bo nhan loai xe (19/11: pin 43 do khi chay pho)
+            sd.objsOn = hot == 0 || (hot == 1 && (++objTick % 2 == 0))
+            sd.offer(im, cam?.flip == true, when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
+        }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
         lastAccept = now
@@ -787,7 +792,7 @@ class AdasService : Service() {
         bright in 0..12 -> "Ảnh camera quá tối hoặc bị che"
         hot >= 3 -> "Máy nóng: đã dừng AI, chạy lại khi mát"
         parked -> "Xe đỗ: tạm dừng AI cho mát máy"
-        hot == 2 -> "Máy nóng: giảm còn 4 lần/giây"
+        hot == 2 -> "Máy nóng: giảm còn 3 lần/giây"
         prefs.autoCalib && !prefs.calibrated && targetHz > 0 -> "Đang tự hiệu chỉnh camera (chạy thẳng trên 20 km/h)…"
         else -> ""
     }
@@ -870,7 +875,7 @@ class AdasService : Service() {
             v < 5 -> 4
             else -> 5
         }
-        hz = when (hot) { 1 -> minOf(hz, 6); 2 -> minOf(hz, 4); 3 -> 0; else -> hz }
+        hz = when (hot) { 1 -> if (v > 80) minOf(hz, 6) else minOf(hz, 4); 2 -> minOf(hz, 3); 3 -> 0; else -> hz }
         if (parked || model == null) hz = 0
         targetHz = hz
         val c = cam ?: return

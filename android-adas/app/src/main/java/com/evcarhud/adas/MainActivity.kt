@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Build
+import android.graphics.RectF
 import android.os.Bundle
 import android.os.IBinder
 import android.view.View
@@ -59,6 +60,7 @@ class MainActivity : Activity() {
             if (r - l != orr - ol || btm - t != ob - ot) sizePips(r - l)
         }
         overlay.onGear = { settings() }
+        overlay.avoid = { if (map.visibility == View.VISIBLE && map.width > 1) RectF(map.x, map.y, map.x + map.width, map.y + map.height) else null }
         overlay.onCalibDone = { ok ->
             if (ok) svc?.setManualVp(overlay.vpX, overlay.vpY)
             showPips()

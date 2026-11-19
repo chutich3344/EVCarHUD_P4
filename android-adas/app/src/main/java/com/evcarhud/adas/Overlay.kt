@@ -52,6 +52,8 @@ class Overlay(ctx: Context) : View(ctx) {
     private val fSemi = try { Typeface.createFromAsset(ctx.assets, "fonts/BeVietnamPro-SemiBold.ttf") } catch (_: Exception) { fBold }
     private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = fSemi }
     private var kindTxt: String? = null
+    /** Vung bi o noi che (ban do goc) de cot bien khong ve de len; MainActivity gan. */
+    var avoid: () -> RectF? = { null }
     private var kindAt = 0L
     private val path = Path()
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
@@ -240,7 +242,7 @@ class Overlay(ctx: Context) : View(ctx) {
         txt.color = leadCol; txt.textSize = 6.6f * u; txt.typeface = fBold
         cv.drawText(if (lead != null && !calib) "${lead.roundToInt()}" else "--", x, top + 5.6f * u, txt)
         txt.typeface = fSemi; txt.textSize = 1.5f * u; txt.color = Color.WHITE
-        val kind = if (lead != null && SystemClock.elapsedRealtime() - kindAt < 2000) kindTxt else null
+        val kind = if (lead != null && SystemClock.elapsedRealtime() - kindAt < 4000) kindTxt else null
         val sub = when {
             sn != null && sn.state == 1 && lead == null -> "m · xe đỗ, AI tạm nghỉ"
             sn != null && sn.state == 3 && lead == null -> "m · máy nóng, AI tạm nghỉ"
@@ -301,24 +303,35 @@ class Overlay(ctx: Context) : View(ctx) {
 
     /** Cot bien ben phai (kieu PiP VietMap): bien toc do / bien vua qua (hinh mau) + bien phu (anh that). */
     private fun drawSigns(cv: Canvas, sn: Snap, u: Float) {
-        val cw = 8f * u; val x1 = width - 2f * u; val x0 = x1 - cw
-        var y = 2.2f * u + 3.4f * u
+        // cot doc ben phai, to hon ban dau (11u ngang); thieu cho (ban do goc che) thi thu nho dan, toi thieu bo the camera roi the bien
+        val x1 = width - 2f * u; val top = 2.2f * u + 3.4f * u
         val lim = sn.limit
+        val sg0 = sn.sign?.takeIf { !(it.cls == SignDet.SPEED && it.value == lim) }
+        val av = avoid()
+        val bottom = if (av != null && av.left < x1 && av.right > x1 - 11f * u && av.top > top) av.top - 0.6f * u else height - 2f * u
+        fun need(sg: SignDet.Hit?, cam: Boolean): Float = (if (lim != null) 7.5f else 0f) +
+            (if (sg != null) 7.8f + (if (sg.aux != null) 2.8f else 0f) + 0.5f else 0f) + (if (cam) 3.6f else 0f)
+        var sg = sg0; var cam = sn.camType != null
+        var q = minOf(1.4f * u, (bottom - top) / maxOf(1f, need(sg, cam)))
+        if (q < 0.85f * u && cam) { cam = false; q = minOf(1.4f * u, (bottom - top) / maxOf(1f, need(sg, cam))) }
+        if (q < 0.85f * u && sg != null) { sg = null; q = minOf(1.4f * u, (bottom - top) / maxOf(1f, need(sg, cam))) }
+        if (q < 0.7f * u) return
+        val cw = 8f * q; val x0 = x1 - cw
+        var y = top
         if (lim != null) {
-            val h = 7f * u
-            fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * u, 1.2f * u, fill)
+            val h = 7f * q
+            fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * q, 1.2f * q, fill)
             val cx = (x0 + x1) / 2
-            drawSpeed(cv, lim, cx, y + 3.3f * u, 5.6f * u)
-            txt.textAlign = Paint.Align.CENTER; txt.textSize = 1.05f * u; txt.color = if (sn.over) Color.rgb(255, 84, 104) else Color.WHITE
+            drawSpeed(cv, lim, cx, y + 3.3f * q, 5.6f * q)
+            txt.textAlign = Paint.Align.CENTER; txt.textSize = 1.05f * q; txt.color = if (sn.over) Color.rgb(255, 84, 104) else Color.WHITE
             val why = sn.limitWhy
-            if (why != null && !sn.over) { txt.textSize = 0.85f * u; txt.color = Color.rgb(170, 205, 255) }
+            if (why != null && !sn.over) { txt.textSize = 0.85f * q; txt.color = Color.rgb(170, 205, 255) }
             val cap = if (sn.over) "VƯỢT TỐC ĐỘ" else if (why != null) "giới hạn tốc độ" else "tốc độ tối đa"
-            cv.drawText(if (txt.measureText(cap) > cw - 0.4f * u) cap.substringAfter("· ") else cap, cx, y + h - 0.45f * u, txt)
-            y += h + 0.5f * u
+            cv.drawText(cap, cx, y + h - 0.45f * q, txt)
+            y += h + 0.5f * q
         }
-        val sg0 = sn.sign
-        if (sg0 != null && !(sg0.cls == SignDet.SPEED && sg0.value == lim)) y = drawSignCard(cv, sg0, x0, x1, y, u) + 0.5f * u
-        drawCam(cv, sn, x0, x1, y, u)
+        if (sg != null) y = drawSignCard(cv, sg, x0, x1, y, q) + 0.5f * q
+        if (cam) drawCam(cv, sn, x0, x1, y, q)
     }
 
     /** The camera (tu HUD: Waze/GOFA): cham cam + ten + met con lai. */
