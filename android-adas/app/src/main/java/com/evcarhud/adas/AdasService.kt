@@ -516,7 +516,7 @@ class AdasService : Service() {
         if (prefs.signs && hot < 3 && (if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh) > 3) signDet?.let { sd ->
             // pin nong: doc bien thua hon, bo nhan loai xe (19/11: pin 43 do khi chay pho)
             sd.objsOn = true   // nhan loai xe gio chi tren vung quanh xe truoc (192x192), du nhe de luon bat
-            sd.offer(im, cam?.flip == true, (if (prefs.perf == 0) 2 else 1) * when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
+            sd.offer(im, cam?.flip == true, (if (prefs.perf == 0) 2L else 1L) * when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
         }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
