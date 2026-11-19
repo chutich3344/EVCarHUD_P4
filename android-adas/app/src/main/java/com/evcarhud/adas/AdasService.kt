@@ -71,6 +71,7 @@ class Snap(
     var stat = ""
     /** Bien toc do dang ap dung (camera doc), bien vua qua (anh that + bien phu), dang vuot toc do. */
     var limit: Int? = null
+    var objs: List<SignDet.Obj>? = null   // xe/nguoi YOLOX (de ghi loai xe truoc)
     var limitWhy: String? = null   // null = bien that; khac = toc do mac dinh (theo luat / ban do)
     var sign: SignDet.Hit? = null
     var over = false
@@ -158,6 +159,8 @@ class AdasService : Service() {
     private var signDet: SignDet? = null
     private var signDb: SignDb? = null
     private var road: RoadInfo? = null
+    private var objs: List<SignDet.Obj>? = null
+    private var objsAt = 0L
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
@@ -215,7 +218,7 @@ class AdasService : Service() {
             it.line("bat dau · ${android.os.Build.MODEL} · AI ${prefs.accel} · tu hieu chinh ${prefs.autoCalib}/${prefs.calibrated} · camH ${prefs.camH}")
         }
         signDb = SignDb(this); road = RoadInfo { m -> clog?.line(m) }
-        signDet = SignDet(this) { hits -> main.post { onSigns(hits) } }
+        signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
             if (hasPerm(Manifest.permission.BLUETOOTH_CONNECT)) it.start(prefs.hudMac) else hudMsg = "Chưa cho quyền Bluetooth"
@@ -814,6 +817,7 @@ class AdasService : Service() {
         val now = SystemClock.elapsedRealtime()
         if (limit != null && now - limitAt > 15 * 60_000L) limit = null
         s.limit = limit
+        if (now - objsAt < 1500) s.objs = objs
         if (limit == null && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
         val lim = s.limit

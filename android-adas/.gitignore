@@ -5,3 +5,4 @@ local.properties
 .idea/
 app/src/main/assets/*.onnx
 !app/src/main/assets/bien-vn.onnx
+!app/src/main/assets/xe-coco.onnx

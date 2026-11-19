@@ -295,7 +295,7 @@ class MainActivity : Activity() {
     companion object {
         private const val ABOUT = "Nhận diện làn đường, mép đường, xe phía trước và đường đi dùng mô hình openpilot " +
             "(driving_vision, driving_policy v0.10.3) của comma.ai, giấy phép MIT.\n\n" +
-            "Đọc biển giao thông: mô hình YOLO11n 56 loại biển Việt Nam (github.com/Namvipcf/vietnamese-traffic-sign-yolo11, giấy phép MIT).\nHình biển mẫu: gói @road-signs/vn (github.com/karlnorling/road-signs, giấy phép MIT).\n\n" +
+            "Đọc biển giao thông: mô hình YOLO11n 56 loại biển Việt Nam (github.com/Namvipcf/vietnamese-traffic-sign-yolo11, giấy phép MIT).\nHình biển mẫu: gói @road-signs/vn (github.com/karlnorling/road-signs, giấy phép MIT).\nNhận loại xe: YOLOX-Nano (Megvii, giấy phép Apache-2.0). Font Be Vietnam Pro (SIL OFL 1.1).\n\n" +
             "Chỉ hỗ trợ cảnh báo, không thay người lái. Bản đồ © OpenStreetMap contributors.\n\n" +
             "Chống nóng máy: AI chạy 5–20 lần/giây theo tốc độ, dừng khi xe đỗ hoặc máy quá nóng. " +
             "Nên gắn điện thoại chỗ cửa gió điều hoà, sạc 18–20 W."

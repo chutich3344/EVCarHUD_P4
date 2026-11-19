@@ -20,13 +20,17 @@ import kotlin.math.min
  * chay 2 lan/giay tren luong rieng, vung anh 85% ben phai x 70% tren (bien thuong o day), dau vao 768x352.
  * Bien toc do (lop 17) doc so bang NumRead tren anh do phan giai goc. Kem anh cat bien + bien phu (nen trang ngay duoi).
  */
-class SignDet(ctx: Context, private val onHits: (List<Hit>) -> Unit) {
+class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, private val onHits: (List<Hit>) -> Unit) {
     class Hit(val cls: Int, val conf: Float, val value: Int?, val score: Float, val crop: Bitmap, val aux: Bitmap?)
+    /** Xe/nguoi phia truoc (YOLOX-nano COCO, Apache-2.0); toa do chuan hoa 0..1 theo anh hien thi. */
+    class Obj(val cls: Int, val conf: Float, val x1: Float, val y1: Float, val x2: Float, val y2: Float)
 
     private val th = HandlerThread("sign").apply { start() }
     private val h = Handler(th.looper)
     private val env = OrtEnvironment.getEnvironment()
     private var sess: OrtSession? = null
+    private var vsess: OrtSession? = null
+    private val vin = FloatBuffer.allocate(3 * VS * VS)
     @Volatile private var busy = false
     private var lastAt = 0L
     @Volatile var lastMs = 0L
@@ -41,6 +45,7 @@ class SignDet(ctx: Context, private val onHits: (List<Hit>) -> Unit) {
                 NumRead.load(ctx.assets.open("digits.dat").use { it.readBytes() })
                 val o = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2); setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT) }
                 sess = env.createSession(ctx.assets.open("bien-vn.onnx").use { it.readBytes() }, o)
+                try { vsess = env.createSession(ctx.assets.open("xe-coco.onnx").use { it.readBytes() }, o) } catch (e: Throwable) { Log.e(TAG, "xe", e) }
                 info = "sẵn sàng"
             } catch (e: Throwable) { info = "lỗi nạp: ${e.message}"; Log.e(TAG, "load", e) }
         }
@@ -122,9 +127,50 @@ class SignDet(ctx: Context, private val onHits: (List<Hit>) -> Unit) {
             val crop = bitmap(x1 - mg, y1 - mg, x2 + mg, y2 + mg)
             hits += Hit(cls, k[4], value, score, crop, aux(x1, y1, x2, y2))
         }
+        val nObj = try { objs() } catch (e: Throwable) { Log.w(TAG, "xe", e); 0 }
         lastMs = SystemClock.elapsedRealtime() - t0
-        info = "${lastMs} ms · ${hits.size} biển"
+        info = "${lastMs} ms · ${hits.size} biển · $nObj xe"
         if (hits.isNotEmpty()) onHits(hits)
+    }
+
+    /** Nhan loai xe: vung giua 70% ngang tu 20% chieu cao, dua vao 416x416 (BGR 0..255, dem 114 ben duoi). */
+    private fun objs(): Int {
+        val s = vsess ?: return 0
+        val x0 = 0.15f * w; val cw = 0.7f * w; val y0 = 0.2f * hh; val sc = cw / VS
+        val arr = vin.array(); val pl = VS * VS
+        for (iy in 0 until VS) {
+            val sy = (y0 + (iy + 0.5f) * sc).toInt()
+            for (ix in 0 until VS) {
+                val o = iy * VS + ix
+                if (sy >= hh) { arr[o] = 114f; arr[pl + o] = 114f; arr[2 * pl + o] = 114f; continue }
+                val c = rgb((x0 + (ix + 0.5f) * sc).toInt(), sy)
+                arr[o] = (c and 255).toFloat(); arr[pl + o] = ((c shr 8) and 255).toFloat(); arr[2 * pl + o] = ((c shr 16) and 255).toFloat()
+            }
+        }
+        vin.clear()
+        val out = OnnxTensor.createTensor(env, vin, longArrayOf(1, 3, VS.toLong(), VS.toLong())).use { t ->
+            s.run(mapOf("images" to t)).use { r -> (r.get(0) as OnnxTensor).floatBuffer.let { fb -> FloatArray(fb.remaining()).also { fb.get(it) } } }
+        }
+        // out [1, 3549, 85]: dx, dy, log w, log h, obj, 80 lop; luoi stride 8/16/32
+        val cand = ArrayList<FloatArray>()
+        var a = 0
+        for (st in intArrayOf(8, 16, 32)) { val n = VS / st
+            for (gy in 0 until n) for (gx in 0 until n) {
+                val b = a * 85; a++
+                val obj = out[b + 4]; if (obj < VCONF) continue
+                var best = -1; var bs = 0f
+                for (c in VCLS) { val v = obj * out[b + 5 + c]; if (v > bs) { bs = v; best = c } }
+                if (best < 0 || bs < VCONF) continue
+                val cx = (out[b] + gx) * st; val cy = (out[b + 1] + gy) * st
+                val bw = kotlin.math.exp(out[b + 2]) * st; val bh = kotlin.math.exp(out[b + 3]) * st
+                cand += floatArrayOf((x0 + (cx - bw / 2) * sc) / w, (y0 + (cy - bh / 2) * sc) / hh, (x0 + (cx + bw / 2) * sc) / w, (y0 + (cy + bh / 2) * sc) / hh, bs, best.toFloat())
+            }
+        }
+        cand.sortByDescending { it[4] }
+        val keep = ArrayList<FloatArray>()
+        for (c in cand) if (keep.none { iou(it, c) > 0.5f }) keep += c
+        onObjs(keep.take(12).map { Obj(it[5].toInt(), it[4], it[0], it[1], it[2], it[3]) })
+        return keep.size
     }
 
     /** Bien phu: vung ngay duoi bien chinh, nen trang it mau chiem phan lon. */
@@ -158,7 +204,7 @@ class SignDet(ctx: Context, private val onHits: (List<Hit>) -> Unit) {
         return if (u > 0) i / u else 0f
     }
 
-    fun release() { h.post { try { sess?.close() } catch (_: Exception) {}; sess = null; th.quitSafely() } }
+    fun release() { h.post { try { sess?.close(); vsess?.close() } catch (_: Exception) {}; sess = null; vsess = null; th.quitSafely() } }
 
     companion object {
         private const val TAG = "SignDet"
@@ -166,6 +212,11 @@ class SignDet(ctx: Context, private val onHits: (List<Hit>) -> Unit) {
         private const val IH = 352
         private const val NC = 56
         private const val CONF = 0.4f
+        private const val VS = 416
+        private const val VCONF = 0.3f
+        private val VCLS = intArrayOf(0, 1, 2, 3, 5, 7)
+        /** Ten ngan loai xe (chi so COCO). */
+        fun kind(c: Int) = when (c) { 0 -> "người đi bộ"; 1 -> "xe đạp"; 2 -> "xe con"; 3 -> "xe máy"; 5 -> "xe buýt"; 7 -> "xe tải"; else -> "xe" }
         const val SPEED = 17
         /** Lop canh bao/cam dang hien len cot bien (bo qua bien chi dan it gia tri khi lai). */
         val WARN = setOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22, 28, 29, 31, 32, 34, 35, 36, 37, 38, 39,

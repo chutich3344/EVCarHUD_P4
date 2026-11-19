@@ -47,7 +47,12 @@ class Overlay(ctx: Context) : View(ctx) {
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+    /** Font Be Vietnam Pro (OFL, thiet ke cho tieng Viet) thay font he thong. */
+    private val fBold = try { Typeface.createFromAsset(ctx.assets, "fonts/BeVietnamPro-Bold.ttf") } catch (_: Exception) { Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+    private val fSemi = try { Typeface.createFromAsset(ctx.assets, "fonts/BeVietnamPro-SemiBold.ttf") } catch (_: Exception) { fBold }
+    private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = fSemi }
+    private var kindTxt: String? = null
+    private var kindAt = 0L
     private val path = Path()
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pt = FloatArray(4)
@@ -154,6 +159,7 @@ class Overlay(ctx: Context) : View(ctx) {
             if (proj(c, lx, o.leadY - 0.9f, zg, 0) && proj(c, lx, o.leadY + 0.9f, zg, 2)) {
                 val cx = (pt[0] + pt[2]) / 2; val yb = (pt[1] + pt[3]) / 2
                 val w = max(10f, abs(pt[2] - pt[0]) * 0.45f)
+                matchKind(sn, cx, yb, abs(pt[2] - pt[0]))
                 path.reset(); path.moveTo(cx, yb - w * 0.9f); path.lineTo(cx - w, yb + 2); path.lineTo(cx + w, yb + 2); path.close()
                 fill.color = when { sn.level >= 2 -> Color.rgb(240, 60, 60); sn.level == 1 -> Color.rgb(255, 210, 40); else -> Color.rgb(235, 235, 235) }
                 cv.drawPath(path, fill)
@@ -203,6 +209,25 @@ class Overlay(ctx: Context) : View(ctx) {
         return w
     }
 
+    /** Loai xe truoc: hop YOLOX co day gan diem xe truoc (openpilot) nhat; giu 2 s cho khoi nhay. */
+    private fun matchKind(sn: Snap, cx: Float, yb: Float, laneW: Float) {
+        val now = SystemClock.elapsedRealtime()
+        var best: SignDet.Obj? = null; var bd = Float.MAX_VALUE
+        for (o in sn.objs ?: emptyList()) {
+            if (o.cls == 0 && sn.vKmh > 40) continue
+            val x1 = ox + o.x1 * imgW * s; val x2 = ox + o.x2 * imgW * s; val y2 = oy + o.y2 * imgH * s; val bh = (o.y2 - o.y1) * imgH * s
+            val m = max(0.15f * (x2 - x1), 0.2f * laneW)
+            if (cx < x1 - m || cx > x2 + m || abs(y2 - yb) > max(0.35f * bh, 0.25f * laneW + 6f)) continue
+            val d = abs((x1 + x2) / 2 - cx) + abs(y2 - yb) + (if (o.cls == 0) 10_000f else 0f)   // uu tien xe hon nguoi (nguoi ngoi tren xe may)
+            if (d < bd) { bd = d; best = o }
+        }
+        val b = best ?: return
+        // kiem tra kich thuoc that: laneW = 1,8 m o khoang cach xe truoc -> xe buyt/tai phai cao >= 2,3 m
+        val hM = (b.y2 - b.y1) * imgH * s / max(1f, laneW / 1.8f)
+        val cls = if ((b.cls == 5 || b.cls == 7) && hM < 2.3f) 2 else b.cls
+        kindTxt = SignDet.kind(cls); kindAt = now
+    }
+
     private fun drawTop(cv: Canvas, sn: Snap?, u: Float) {
         val top = 2.2f * u
         // goc trai kieu clip demo: so lon = khoang cach xe truoc, duoi la toc do/lech lan va dong trang thai
@@ -212,15 +237,16 @@ class Overlay(ctx: Context) : View(ctx) {
         val leadCol = when { sn == null || lead == null -> Color.WHITE; sn.level >= 2 -> red; sn.level == 1 -> yel; else -> Color.rgb(71, 224, 138) }
         txt.textAlign = Paint.Align.LEFT
         txt.setShadowLayer(0.8f * u, 0f, 0.2f * u, Color.argb(170, 0, 0, 0))
-        txt.color = leadCol; txt.textSize = 6.6f * u
+        txt.color = leadCol; txt.textSize = 6.6f * u; txt.typeface = fBold
         cv.drawText(if (lead != null && !calib) "${lead.roundToInt()}" else "--", x, top + 5.6f * u, txt)
-        txt.textSize = 1.5f * u; txt.color = Color.WHITE
+        txt.typeface = fSemi; txt.textSize = 1.5f * u; txt.color = Color.WHITE
+        val kind = if (lead != null && SystemClock.elapsedRealtime() - kindAt < 2000) kindTxt else null
         val sub = when {
             sn != null && sn.state == 1 && lead == null -> "m · xe đỗ, AI tạm nghỉ"
             sn != null && sn.state == 3 && lead == null -> "m · máy nóng, AI tạm nghỉ"
             lead == null || calib -> "m · chưa thấy xe trước"
-            sn.level >= 1 -> "m · tối thiểu ${Op.safeDist(sn.vKmh).roundToInt()} m" + (sn.ttc?.let { " · %.1f s".format(it) } ?: "")
-            else -> "m · xe trước"
+            sn.level >= 1 -> "m · ${kind ?: "tối thiểu"} ${if (kind != null) "· tối thiểu " else ""}${Op.safeDist(sn.vKmh).roundToInt()} m" + (sn.ttc?.let { " · %.1f s".format(it) } ?: "")
+            else -> "m · ${kind ?: "xe trước"}"
         }
         cv.drawText(sub, x, top + 7.6f * u, txt)
         val off = sn?.offCm
@@ -267,10 +293,10 @@ class Overlay(ctx: Context) : View(ctx) {
         else { fill.color = Color.WHITE; cv.drawCircle(cx, cy, d / 2, fill)
             line.color = Color.rgb(240, 10, 10); line.strokeWidth = d * 0.14f; cv.drawCircle(cx, cy, d * 0.43f, line) }
         val t = "$v"
-        txt.textAlign = Paint.Align.CENTER; txt.color = Color.BLACK; txt.textSize = d * 0.52f
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.BLACK; txt.textSize = d * 0.52f; txt.typeface = fBold
         txt.textScaleX = 1f; val w = txt.measureText(t); val maxW = d * (if (t.length >= 3) 0.6f else 0.5f)
         if (w > maxW) txt.textScaleX = maxW / w
-        cv.drawText(t, cx, cy + d * 0.185f, txt); txt.textScaleX = 1f
+        cv.drawText(t, cx, cy + d * 0.185f, txt); txt.textScaleX = 1f; txt.typeface = fSemi
     }
 
     /** Cot bien ben phai (kieu PiP VietMap): bien toc do / bien vua qua (hinh mau) + bien phu (anh that). */
@@ -286,7 +312,7 @@ class Overlay(ctx: Context) : View(ctx) {
             txt.textAlign = Paint.Align.CENTER; txt.textSize = 1.05f * u; txt.color = if (sn.over) Color.rgb(255, 84, 104) else Color.WHITE
             val why = sn.limitWhy
             if (why != null && !sn.over) { txt.textSize = 0.85f * u; txt.color = Color.rgb(170, 205, 255) }
-            val cap = if (sn.over) "VƯỢT TỐC ĐỘ" else why ?: "tốc độ tối đa"
+            val cap = if (sn.over) "VƯỢT TỐC ĐỘ" else if (why != null) "giới hạn tốc độ" else "tốc độ tối đa"
             cv.drawText(if (txt.measureText(cap) > cw - 0.4f * u) cap.substringAfter("· ") else cap, cx, y + h - 0.45f * u, txt)
             y += h + 0.5f * u
         }
