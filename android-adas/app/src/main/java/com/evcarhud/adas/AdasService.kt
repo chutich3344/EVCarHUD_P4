@@ -69,6 +69,10 @@ class Snap(
     var dbg: String? = null
     /** 1 dong thong so ngan luon hien (AI, xe, vach, hieu chinh, log, camera). */
     var stat = ""
+    /** Bien toc do dang ap dung (camera doc), bien vua qua (anh that + bien phu), dang vuot toc do. */
+    var limit: Int? = null
+    var sign: SignDet.Hit? = null
+    var over = false
 }
 
 /**
@@ -149,6 +153,15 @@ class AdasService : Service() {
     private val feat = FloatArray(Op.FEAT_N * Op.HID_N)
     private var poseKmh = 0f
     private var ldwHoldUntil = 0L
+    // ---- doc bien giao thong ----
+    private var signDet: SignDet? = null
+    private var signDb: SignDb? = null
+    private var limit: Int? = null
+    private var limitAt = 0L
+    private val votes = ArrayList<Triple<Long, Int, Float>>()
+    private var lastSign: SignDet.Hit? = null
+    private var lastSignAt = 0L
+    private var overBeepAt = 0L
     val beeper = Beeper()
     private var lastLvLog = 0
     private var vrelF = Float.NaN
@@ -198,6 +211,8 @@ class AdasService : Service() {
             it.hudMac = prefs.hudMac
             it.line("bat dau · ${android.os.Build.MODEL} · AI ${prefs.accel} · tu hieu chinh ${prefs.autoCalib}/${prefs.calibrated} · camH ${prefs.camH}")
         }
+        signDb = SignDb(this)
+        signDet = SignDet(this) { hits -> main.post { onSigns(hits) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
             if (hasPerm(Manifest.permission.BLUETOOTH_CONNECT)) it.start(prefs.hudMac) else hudMsg = "Chưa cho quyền Bluetooth"
@@ -236,6 +251,7 @@ class AdasService : Service() {
         Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
+        signDet?.release(); signDb?.flush()
         clog?.line("dung app"); clog?.close()
         super.onDestroy()
     }
@@ -472,6 +488,8 @@ class AdasService : Service() {
         if (uiVisible && cb != null && now - lastPrev >= (if (hot >= 1) 200 else 100)) { lastPrev = now; try { drawPreview(im, cb) } catch (e: Exception) { Log.w(TAG, "prev", e) } }
         else if (now - lastPrev >= 1000) { lastPrev = now; try { bright = meanY(im) } catch (_: Exception) {} }
         if (now - hoodAt >= 300) { hoodAt = now; try { hoodSample(im) } catch (_: Exception) {} }
+        // doc bien: 2 lan/giay khi xe chay, 1 lan/giay khi may am, dung khi nong
+        if (prefs.signs && hot < 3 && (if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh) > 3) signDet?.offer(im, cam?.flip == true, if (hot >= 1) 1000 else 500)
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
         lastAccept = now
@@ -690,7 +708,8 @@ class AdasService : Service() {
         val cal = if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "HC xong" else "đang HC"
         val src = if (prefs.camSrc == "mirror") "cam gương" else "cam ĐT"
         val lg = clog?.let { "log ${it.short}" } ?: ""
-        return "$ai$det · $cal · $src · $lg"
+        val sg = if (prefs.signs) " · biển ${signDet?.info ?: "-"}" else ""
+        return "$ai$det · $cal · $src · $lg$sg"
     }
     private var clog: CloudLog? = null
     private var logAt = 0L
@@ -719,6 +738,7 @@ class AdasService : Service() {
             batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
         s.hood = prefs.hood
         s.stat = statLine(o)
+        signSnap(s, v)
         if (prefs.showDbg) s.dbg = calibInfo()
         onSnap?.invoke(s)
         logTick(o, v, leadM)
@@ -764,11 +784,43 @@ class AdasService : Service() {
     }
 
     /** Khong co ket qua AI (dung/nong/dang nap): van cap nhat giao dien + giu HUD biet trang thai. */
+    /** Ket qua doc bien (luong chinh): chot bien toc do (1 lan doc chac >= 0,6 hoac 2 lan cung so trong 3 s), giu bien canh bao 8 s, ghi CSDL. */
+    private fun onSigns(hits: List<SignDet.Hit>) {
+        val now = SystemClock.elapsedRealtime()
+        for (h in hits) {
+            if (h.cls == SignDet.SPEED) {
+                val v = h.value ?: continue
+                if (h.score >= 0.5f) votes += Triple(now, v, h.score)
+            } else if (h.cls in SignDet.WARN && (lastSign == null || now - lastSignAt > 1500 || h.conf >= lastSign!!.conf)) {
+                if (lastSign?.cls != h.cls || now - lastSignAt > 8000) clog?.line("BIEN ${SignDet.NAME[h.cls]} ${(h.conf * 100).roundToInt()}%${if (h.aux != null) " + bien phu" else ""}")
+                lastSign = h; lastSignAt = now
+            }
+            if (h.cls != SignDet.SPEED || h.value != null) signDb?.add(h.cls, h.value, lat, lon, bearing, h.crop, h.aux)
+        }
+        votes.removeAll { now - it.first > 3000 }
+        for ((_, v, sc) in votes) if (sc >= 0.6f || votes.count { it.second == v } >= 2) {
+            if (limit != v) clog?.line("BIEN TOC DO $v km/h")
+            limit = v; limitAt = now
+        }
+        if ((signDb?.size ?: 0) % 5 == 0) signDb?.flush()
+    }
+
+    /** Gan vao Snap: bien toc do (giu 15 phut neu khong gap bien moi), bien vua qua 8 s, keu khi vuot > 3 km/h. */
+    private fun signSnap(s: Snap, v: Float) {
+        val now = SystemClock.elapsedRealtime()
+        if (limit != null && now - limitAt > 15 * 60_000L) limit = null
+        s.limit = limit
+        if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
+        val lim = limit
+        s.over = lim != null && v > lim + 3
+        if (s.over && prefs.beep && now - overBeepAt > 10_000) { overBeepAt = now; beeper.test() }
+    }
+
     private fun publishIdle() {
         logTick(null, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, null)
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
             if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
-            .also { it.hood = prefs.hood; it.stat = statLine(null); if (prefs.showDbg) it.dbg = calibInfo() })
+            .also { it.hood = prefs.hood; it.stat = statLine(null); signSnap(it, it.vKmh); if (prefs.showDbg) it.dbg = calibInfo() })
     }
 
     // ---------------- tan suat + nhiet ----------------

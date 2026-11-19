@@ -182,6 +182,10 @@ class MainActivity : Activity() {
                 if (prefs.beep) svc?.beeper?.test()
                 toast(if (prefs.beep) "Đã bật tiếng cảnh báo (nghe thử)" else "Đã tắt tiếng cảnh báo")
             },
+            ("Đọc biển giao thông: " + (if (prefs.signs) "BẬT" else "TẮT") + " — bấm để đổi") to {
+                prefs.signs = !prefs.signs
+                toast(if (prefs.signs) "Đã bật đọc biển (2 lần/giây khi xe chạy)" else "Đã tắt đọc biển")
+            },
             "Hiển thị…" to { viewMenu() },
             "Tìm lại HUD" to { svc?.findHudAgain(); toast("Đang tìm HUD…") },
             "Chẩn đoán (cho kỹ thuật)…" to { diagMenu() },
@@ -291,6 +295,7 @@ class MainActivity : Activity() {
     companion object {
         private const val ABOUT = "Nhận diện làn đường, mép đường, xe phía trước và đường đi dùng mô hình openpilot " +
             "(driving_vision, driving_policy v0.10.3) của comma.ai, giấy phép MIT.\n\n" +
+            "Đọc biển giao thông: mô hình YOLO11n 56 loại biển Việt Nam (github.com/Namvipcf/vietnamese-traffic-sign-yolo11, giấy phép MIT).\n\n" +
             "Chỉ hỗ trợ cảnh báo, không thay người lái. Bản đồ © OpenStreetMap contributors.\n\n" +
             "Chống nóng máy: AI chạy 5–20 lần/giây theo tốc độ, dừng khi xe đỗ hoặc máy quá nóng. " +
             "Nên gắn điện thoại chỗ cửa gió điều hoà, sạc 18–20 W."

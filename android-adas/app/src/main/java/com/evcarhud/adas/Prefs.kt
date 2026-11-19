@@ -52,6 +52,9 @@ class Prefs(ctx: Context) {
     var showDbg: Boolean
         get() = p.getBoolean("dbg", false)
         set(v) = p.edit().putBoolean("dbg", v).apply()
+    var signs: Boolean
+        get() = p.getBoolean("signs", true)
+        set(v) = p.edit().putBoolean("signs", v).apply()
     var beep: Boolean
         get() = p.getBoolean("beep", true)
         set(v) = p.edit().putBoolean("beep", v).apply()

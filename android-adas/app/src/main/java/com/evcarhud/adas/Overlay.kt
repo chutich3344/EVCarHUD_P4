@@ -47,6 +47,7 @@ class Overlay(ctx: Context) : View(ctx) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
+    private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val path = Path()
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pt = FloatArray(4)
@@ -99,6 +100,7 @@ class Overlay(ctx: Context) : View(ctx) {
             cv.drawText("PHANH!", width / 2f, height / 2f + 5 * u, txt)
         }
         drawTop(cv, sn, u)
+        if (sn != null && !calib) drawSigns(cv, sn, u)
         sn?.dbg?.let { drawDbg(cv, it, u) }
         if (sn != null && !calib) drawWarn(cv, sn, u)
         if (calib) { drawCalib(cv, u); if (sn != null && sn.msg.isNotEmpty()) pill(cv, sn.msg, width / 2f, 17.5f * u, u) }
@@ -252,6 +254,39 @@ class Overlay(ctx: Context) : View(ctx) {
         chip(cv, xr, top, u, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32))
     }
 
+    /** Cot bien ben phai (kieu PiP VietMap): bien toc do (ve lai) / bien vua qua (anh that) + bien phu. */
+    private fun drawSigns(cv: Canvas, sn: Snap, u: Float) {
+        val cw = 8f * u; val x1 = width - 2f * u; val x0 = x1 - cw
+        var y = 2.2f * u + 3.4f * u
+        val lim = sn.limit
+        if (lim != null) {
+            val h = 7f * u
+            fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * u, 1.2f * u, fill)
+            val cx = (x0 + x1) / 2; val cy = y + 3.3f * u; val r = 2.8f * u
+            fill.color = Color.WHITE; cv.drawCircle(cx, cy, r, fill)
+            line.color = Color.rgb(220, 30, 40); line.strokeWidth = 0.55f * u; cv.drawCircle(cx, cy, r - 0.27f * u, line)
+            txt.textAlign = Paint.Align.CENTER; txt.color = Color.rgb(15, 15, 15); txt.textSize = (if (lim >= 100) 2.0f else 2.6f) * u
+            cv.drawText("$lim", cx, cy + 0.95f * u, txt)
+            txt.textSize = 1.05f * u; txt.color = if (sn.over) Color.rgb(255, 84, 104) else Color.WHITE
+            cv.drawText(if (sn.over) "VƯỢT TỐC ĐỘ" else "tốc độ tối đa", cx, y + h - 0.45f * u, txt)
+            y += h + 0.5f * u
+        }
+        val sg = sn.sign ?: return
+        val img = 5.4f * u
+        val auxH = sg.aux?.let { minOf(2.6f * u, (cw - 1f * u) * it.height / it.width) } ?: 0f
+        val h = img + auxH + 2.4f * u
+        fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * u, 1.2f * u, fill)
+        val b = sg.crop; val k = minOf(img / b.height, (cw - 1f * u) / b.width)
+        val bw = b.width * k; val bh = b.height * k; val cx = (x0 + x1) / 2
+        cv.drawBitmap(b, null, RectF(cx - bw / 2, y + 0.5f * u, cx + bw / 2, y + 0.5f * u + bh), bmpPaint)
+        var yy = y + 0.5f * u + bh + 0.3f * u
+        sg.aux?.let { a -> val ak = minOf(auxH / a.height, (cw - 1f * u) / a.width); val aw = a.width * ak; val ah = a.height * ak
+            cv.drawBitmap(a, null, RectF(cx - aw / 2, yy, cx + aw / 2, yy + ah), bmpPaint); yy += ah + 0.2f * u }
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.rgb(255, 210, 63); txt.textSize = 0.95f * u
+        val name = SignDet.NAME[sg.cls]
+        cv.drawText(if (txt.measureText(name) > cw - 0.6f * u) name.take(16) + "…" else name, cx, minOf(yy + 1.2f * u, y + h - 0.4f * u), txt)
+    }
+
     /** Bang so lieu chan doan trong suot o mep trai (de chup man hinh khi chay thu). */
     private fun drawDbg(cv: Canvas, s: String, u: Float) {
         txt.textAlign = Paint.Align.LEFT; txt.textSize = 1.15f * u
@@ -290,6 +325,7 @@ class Overlay(ctx: Context) : View(ctx) {
             cv.drawRect(0f, 0f, width.toFloat(), height.toFloat(), line)
         }
         if (sn.msg.isNotEmpty()) pill(cv, sn.msg, width / 2f, height - 4f * u, u)
+        else if (sn.over) pill(cv, "Vượt tốc độ ${sn.limit} km/h", width / 2f, height - 4f * u, u)
     }
 
     private fun pill(cv: Canvas, m: String, cx: Float, cy: Float, u: Float) {
