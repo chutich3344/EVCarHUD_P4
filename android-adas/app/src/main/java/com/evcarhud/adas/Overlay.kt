@@ -2,6 +2,7 @@ package com.evcarhud.adas
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -253,7 +254,26 @@ class Overlay(ctx: Context) : View(ctx) {
         chip(cv, xr, top, u, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32))
     }
 
-    /** Cot bien ben phai (kieu PiP VietMap): bien toc do (ve lai) / bien vua qua (anh that) + bien phu. */
+    /** Hinh bien mau (assets/bien/<lop>.png, ve tu SVG MIT @road-signs/vn); 17 = khung bien toc do trong. */
+    private val icons = HashMap<Int, Bitmap?>()
+    private fun icon(cls: Int): Bitmap? = icons.getOrPut(cls) {
+        try { context.assets.open("bien/$cls.png").use { android.graphics.BitmapFactory.decodeStream(it) } } catch (_: Exception) { null }
+    }
+
+    /** Ve bien toc do: khung mau + so (chu dam, hep nhu bien that). */
+    private fun drawSpeed(cv: Canvas, v: Int, cx: Float, cy: Float, d: Float) {
+        val b = icon(SignDet.SPEED)
+        if (b != null) cv.drawBitmap(b, null, RectF(cx - d / 2, cy - d / 2, cx + d / 2, cy + d / 2), bmpPaint)
+        else { fill.color = Color.WHITE; cv.drawCircle(cx, cy, d / 2, fill)
+            line.color = Color.rgb(240, 10, 10); line.strokeWidth = d * 0.14f; cv.drawCircle(cx, cy, d * 0.43f, line) }
+        val t = "$v"
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.BLACK; txt.textSize = d * 0.52f
+        txt.textScaleX = 1f; val w = txt.measureText(t); val maxW = d * (if (t.length >= 3) 0.6f else 0.5f)
+        if (w > maxW) txt.textScaleX = maxW / w
+        cv.drawText(t, cx, cy + d * 0.185f, txt); txt.textScaleX = 1f
+    }
+
+    /** Cot bien ben phai (kieu PiP VietMap): bien toc do / bien vua qua (hinh mau) + bien phu (anh that). */
     private fun drawSigns(cv: Canvas, sn: Snap, u: Float) {
         val cw = 8f * u; val x1 = width - 2f * u; val x0 = x1 - cw
         var y = 2.2f * u + 3.4f * u
@@ -261,23 +281,25 @@ class Overlay(ctx: Context) : View(ctx) {
         if (lim != null) {
             val h = 7f * u
             fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * u, 1.2f * u, fill)
-            val cx = (x0 + x1) / 2; val cy = y + 3.3f * u; val r = 2.8f * u
-            fill.color = Color.WHITE; cv.drawCircle(cx, cy, r, fill)
-            line.color = Color.rgb(220, 30, 40); line.strokeWidth = 0.55f * u; cv.drawCircle(cx, cy, r - 0.27f * u, line)
-            txt.textAlign = Paint.Align.CENTER; txt.color = Color.rgb(15, 15, 15); txt.textSize = (if (lim >= 100) 2.0f else 2.6f) * u
-            cv.drawText("$lim", cx, cy + 0.95f * u, txt)
-            txt.textSize = 1.05f * u; txt.color = if (sn.over) Color.rgb(255, 84, 104) else Color.WHITE
+            val cx = (x0 + x1) / 2
+            drawSpeed(cv, lim, cx, y + 3.3f * u, 5.6f * u)
+            txt.textAlign = Paint.Align.CENTER; txt.textSize = 1.05f * u; txt.color = if (sn.over) Color.rgb(255, 84, 104) else Color.WHITE
             cv.drawText(if (sn.over) "VƯỢT TỐC ĐỘ" else "tốc độ tối đa", cx, y + h - 0.45f * u, txt)
             y += h + 0.5f * u
         }
         val sg = sn.sign ?: return
+        if (sg.cls == SignDet.SPEED && sg.value == lim) return   // trung voi o tren
         val img = 5.4f * u
         val auxH = sg.aux?.let { minOf(2.6f * u, (cw - 1f * u) * it.height / it.width) } ?: 0f
         val h = img + auxH + 2.4f * u
         fill.color = Color.argb(170, 10, 14, 22); cv.drawRoundRect(RectF(x0, y, x1, y + h), 1.2f * u, 1.2f * u, fill)
-        val b = sg.crop; val k = minOf(img / b.height, (cw - 1f * u) / b.width)
-        val bw = b.width * k; val bh = b.height * k; val cx = (x0 + x1) / 2
-        cv.drawBitmap(b, null, RectF(cx - bw / 2, y + 0.5f * u, cx + bw / 2, y + 0.5f * u + bh), bmpPaint)
+        val cx = (x0 + x1) / 2
+        val ic = if (sg.cls == SignDet.SPEED) null else icon(sg.cls)
+        val bh: Float
+        if (sg.cls == SignDet.SPEED && sg.value != null) { drawSpeed(cv, sg.value, cx, y + 0.5f * u + img / 2, img); bh = img }
+        else { val b = ic ?: sg.crop; val k = minOf(img / b.height, (cw - 1f * u) / b.width)
+            val bw = b.width * k; bh = b.height * k
+            cv.drawBitmap(b, null, RectF(cx - bw / 2, y + 0.5f * u, cx + bw / 2, y + 0.5f * u + bh), bmpPaint) }
         var yy = y + 0.5f * u + bh + 0.3f * u
         sg.aux?.let { a -> val ak = minOf(auxH / a.height, (cw - 1f * u) / a.width); val aw = a.width * ak; val ah = a.height * ak
             cv.drawBitmap(a, null, RectF(cx - aw / 2, yy, cx + aw / 2, yy + ah), bmpPaint); yy += ah + 0.2f * u }

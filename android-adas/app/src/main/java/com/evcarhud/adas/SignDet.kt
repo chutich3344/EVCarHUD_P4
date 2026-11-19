@@ -178,6 +178,6 @@ class SignDet(ctx: Context, private val onHits: (List<Hit>) -> Unit) {
             "Chỗ ngoặt phải", "Nhiều chỗ ngoặt", "Nhiều chỗ ngoặt", "Đường hẹp bên trái", "Đường hẹp bên phải", "Ngã tư", "Ngã ba phải",
             "Ngã ba trái", "Giao đường không ưu tiên", "Giao đường không ưu tiên", "Giao đường không ưu tiên", "Giao đường ưu tiên",
             "Giao nhau có đèn", "Giao đường sắt", "Dốc xuống nguy hiểm", "Người đi bộ cắt ngang", "Trẻ em", "Công trường", "Nguy hiểm khác",
-            "Đường đôi", "Chướng ngại vật")
+            "Đường đôi", "Đi chậm")
     }
 }
