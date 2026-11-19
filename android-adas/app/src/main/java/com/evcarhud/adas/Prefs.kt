@@ -104,6 +104,9 @@ class Prefs(ctx: Context) {
         get() = p.getBoolean("hudsign", true)
         set(v) = p.edit().putBoolean("hudsign", v).apply()
     /** Che do: 0 tiet kiem, 1 can bang, 2 toi da. */
+    var signSize: Int
+        get() = p.getInt("signSize", 1)
+        set(v) = p.edit().putInt("signSize", v).apply()
     var perf: Int
         get() = p.getInt("perf", 1)
         set(v) = p.edit().putInt("perf", v).apply()

@@ -53,7 +53,7 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         root = FrameLayout(this).apply { setBackgroundColor(0xff0b0e13.toInt()) }
-        overlay = Overlay(this).also { it.overHood = prefs.overHood }
+        overlay = Overlay(this).also { it.overHood = prefs.overHood; it.signScale = SIGN_SCALE[prefs.signSize.coerceIn(0, 3)] }
         temp = TempPip(this)
         map = TileMap(this).apply { source = prefs.mapSrc }
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
@@ -238,6 +238,7 @@ class MainActivity : Activity() {
             SettingsView.Cat("hien", "Hiển thị", { listOfNotNull(if (prefs.showMap) "bản đồ" else null, if (prefs.showTemp) "nhiệt" else null).joinToString(" · ").ifEmpty { "gọn" } }) { listOf(
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),
                 S("Nguồn bản đồ", null, listOf("Google tối", "OpenStreetMap"), { if (prefs.mapSrc == "osm") 1 else 0 }, { k -> prefs.mapSrc = if (k == 1) "osm" else "google"; map.source = prefs.mapSrc }, false),
+                S("Cỡ số khoảng cách + biển", "biển tốc độ, biển báo, camera", listOf("Nhỏ", "Vừa", "To", "Rất to"), { prefs.signSize }, { k -> prefs.signSize = k; overlay.signScale = SIGN_SCALE[k]; overlay.invalidate() }, true),
                 T("Ô nhiệt độ máy", null, { prefs.showTemp }, { b -> prefs.showTemp = b; showPips() }, false),
                 T("Vạch làn kéo xuống đáy màn", "tắt = cắt ở mép taplo", { prefs.overHood }, { b -> prefs.overHood = b; overlay.overHood = b; overlay.invalidate() }, false),
             ) },

@@ -26,6 +26,9 @@ import kotlin.math.roundToInt
  *  - lan lan: vach do doc chop o mep bi lan; nguy hiem: vien do; PHANH: phu do toan man
  *  - che do hieu chinh: keo dau + ve diem tu
  */
+/** Cai dat "Co so khoang cach + bien": Nho / Vua / To / Rat to. */
+val SIGN_SCALE = floatArrayOf(1f, 1.25f, 1.5f, 1.8f)
+
 class Overlay(ctx: Context) : View(ctx) {
     var snap: Snap? = null
         set(v) { field = v; invalidate() }
@@ -40,6 +43,8 @@ class Overlay(ctx: Context) : View(ctx) {
 
     // hieu chinh
     var calib = false
+    /** Co so khoang cach + bien (Cai dat > Hien thi): 1,0 / 1,25 / 1,5 / 1,8. */
+    var signScale = 1.25f
     /** Ve duong di/vach de len taplo (keo xuong day man). */
     var overHood = true
         set(v) { field = v; invalidate() }
@@ -234,17 +239,18 @@ class Overlay(ctx: Context) : View(ctx) {
         kindTxt = SignDet.kind(cls); kindAt = now
     }
 
-    private fun drawTop(cv: Canvas, sn: Snap?, u: Float) {
-        val top = 2.2f * u
+    private fun drawTop(cv: Canvas, sn: Snap?, u0: Float) {
+        val top = 2.2f * u0
+        val u = u0 * signScale   // ca khoi trai (so, bien, chu) phong theo cai dat
         // goc trai kieu clip demo: so lon = khoang cach xe truoc, duoi la toc do/lech lan va dong trang thai
-        val x = 2f * u
+        val x = 2f * u0
         val lead = sn?.leadM
         val red = Color.rgb(255, 84, 104); val yel = Color.rgb(255, 210, 63)
         val leadCol = when { sn == null || lead == null -> Color.WHITE; sn.level >= 2 -> red; sn.level == 1 -> yel; else -> Color.rgb(71, 224, 138) }
         txt.textAlign = Paint.Align.LEFT
         txt.setShadowLayer(0.8f * u, 0f, 0.2f * u, Color.argb(170, 0, 0, 0))
         txt.color = leadCol; txt.textSize = 6.6f * u; txt.typeface = fBold
-        val numT = if (lead != null && !calib) "${lead.roundToInt()}" else "--"
+        val numT = if (lead != null && !calib) "%02d".format(lead.roundToInt()) else "--"
         cv.drawText(numT, x, top + 5.6f * u, txt)
         // bien toc do (19/11, nguoi dung chot): canh ngang so khoang cach, cao bang chu so, chu nguon ben canh cung co chu dong duoi
         val numB = Rect(); txt.getTextBounds("0", 0, 1, numB)
@@ -288,19 +294,19 @@ class Overlay(ctx: Context) : View(ctx) {
         }
 
         // chip ben phai: [cai dat] [LAN] [HUD]
-        var xr = width - 2f * u
-        txt.textSize = 1.25f * u
-        val gw = 2.6f * u
-        gearRect.set(xr - gw, top, xr, top + 2.6f * u)
-        fill.color = Color.argb(140, 18, 24, 32); cv.drawRoundRect(gearRect, 1.3f * u, 1.3f * u, fill)
-        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 1.6f * u
-        cv.drawText("⚙", gearRect.centerX(), gearRect.centerY() + 0.55f * u, txt)
-        xr -= gw + 0.6f * u
+        var xr = width - 2f * u0
+        txt.textSize = 1.25f * u0
+        val gw = 2.6f * u0
+        gearRect.set(xr - gw, top, xr, top + 2.6f * u0)
+        fill.color = Color.argb(140, 18, 24, 32); cv.drawRoundRect(gearRect, 1.3f * u0, 1.3f * u0, fill)
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 1.6f * u0
+        cv.drawText("⚙", gearRect.centerX(), gearRect.centerY() + 0.55f * u0, txt)
+        xr -= gw + 0.6f * u0
         val bothLanes = sn?.out?.let { it.laneProb[1] > 0.5f && it.laneProb[2] > 0.5f } ?: false
         val lanBg = when { sn != null && sn.ldw != '-' -> Color.argb(220, 220, 50, 60); bothLanes -> Color.argb(200, 30, 158, 90); else -> Color.argb(140, 90, 96, 104) }
-        xr -= chip(cv, xr, top, u, "LÀN", null, lanBg) + 0.6f * u
+        xr -= chip(cv, xr, top, u0, "LÀN", null, lanBg) + 0.6f * u0
         val hudOk = sn?.hudOk == true
-        chip(cv, xr, top, u, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32))
+        chip(cv, xr, top, u0, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32))
     }
 
     /** Hinh bien mau (assets/bien/<lop>.png, ve tu SVG MIT @road-signs/vn); 17 = khung bien toc do trong. */
@@ -329,13 +335,13 @@ class Overlay(ctx: Context) : View(ctx) {
         val lim: Int? = null   // bien toc do da dua len goc trai (drawTop)
         val sg0 = sn.sign?.takeIf { !(it.cls == SignDet.SPEED && it.value == sn.limit) }
         val av = avoid()
-        val bottom = if (av != null && av.left < x1 && av.right > x1 - 11f * u && av.top > top) av.top - 0.6f * u else height - 2f * u
+        val bottom = if (av != null && av.left < x1 && av.right > x1 - 11f * u * signScale && av.top > top) av.top - 0.6f * u else height - 2f * u
         fun need(sg: SignDet.Hit?, cam: Boolean): Float = (if (lim != null) 7.5f else 0f) +
             (if (sg != null) 7.8f + (if (sg.aux != null) 2.8f else 0f) + 0.5f else 0f) + (if (cam) 3.6f else 0f)
         var sg = sg0; var cam = sn.camType != null
-        var q = minOf(1.4f * u, (bottom - top) / maxOf(1f, need(sg, cam)))
-        if (q < 0.85f * u && cam) { cam = false; q = minOf(1.4f * u, (bottom - top) / maxOf(1f, need(sg, cam))) }
-        if (q < 0.85f * u && sg != null) { sg = null; q = minOf(1.4f * u, (bottom - top) / maxOf(1f, need(sg, cam))) }
+        var q = minOf(1.4f * u * signScale, (bottom - top) / maxOf(1f, need(sg, cam)))
+        if (q < 0.85f * u && cam) { cam = false; q = minOf(1.4f * u * signScale, (bottom - top) / maxOf(1f, need(sg, cam))) }
+        if (q < 0.85f * u && sg != null) { sg = null; q = minOf(1.4f * u * signScale, (bottom - top) / maxOf(1f, need(sg, cam))) }
         if (q < 0.7f * u) return
         val cw = 8f * q; val x0 = x1 - cw
         var y = top
