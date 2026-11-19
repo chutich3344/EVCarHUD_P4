@@ -47,7 +47,6 @@ class Overlay(ctx: Context) : View(ctx) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD) }
-    private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val path = Path()
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pt = FloatArray(4)
