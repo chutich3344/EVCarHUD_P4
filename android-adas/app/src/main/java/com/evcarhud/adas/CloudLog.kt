@@ -87,6 +87,7 @@ class CloudLog(private val ctx: Context, private val ver: String) {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
         @Suppress("DEPRECATION")
         val net = cm.allNetworks.firstOrNull { n -> cm.getNetworkCapabilities(n)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true }
+            ?: cellNet.also { if (it == null) wantCell() }
         ((net?.openConnection(u) ?: u.openConnection()) as HttpURLConnection).run {
             requestMethod = "POST"; doOutput = true; connectTimeout = 10_000; readTimeout = 10_000
             setRequestProperty("Content-Type", "text/plain; charset=utf-8")
@@ -100,6 +101,24 @@ class CloudLog(private val ctx: Context, private val ver: String) {
     /** Ma ngan hien tren dong trang thai: "✓" hoac ly do loi. */
     @Volatile var short = "chờ"
     @Volatile var lastErr = ""
+
+    /** Wi-Fi cam guong khong co Internet nen Android co the tat 4G: xin giu 4G de gui log. */
+    @Volatile private var cellNet: android.net.Network? = null
+    private var cellAsked = false
+    private fun wantCell() {
+        if (cellAsked) return
+        cellAsked = true
+        try {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val req = android.net.NetworkRequest.Builder()
+                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+            cm.requestNetwork(req, object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(n: android.net.Network) { cellNet = n; flushSoon() }
+                override fun onLost(n: android.net.Network) { if (cellNet == n) cellNet = null }
+            })
+        } catch (e: Exception) { lastErr = "xin 4G: ${e.javaClass.simpleName}"; cellAsked = false }
+    }
 
     companion object { private const val FALLBACK_MAC = "E8:F6:0A:E5:50:ED" }
 

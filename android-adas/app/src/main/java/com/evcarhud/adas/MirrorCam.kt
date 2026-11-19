@@ -33,6 +33,7 @@ class MirrorCam(
     private val onFrame: (Image) -> Unit,
     private val onErr: (String) -> Unit,
     private val onSize: () -> Unit,
+    private val log: (String) -> Unit = {},
 ) : FrameSource {
     private val th = HandlerThread("mirror").apply { start() }
     private val h = Handler(th.looper)
@@ -70,11 +71,16 @@ class MirrorCam(
             val net = wifi()
             if (net == null) { status = "chưa nối Wi-Fi cam gương"; onErr("Chưa nối Wi-Fi cam gương (mirror_wifi…)"); retryLater(); return@post }
             val r = api(net, "enterrecorder")
-            status = "enterrecorder: $r"
-            Log.i(TAG, status)
+            // cam can thoi gian bat may chu RTSP sau enterrecorder; xen ke UDP (mac dinh cua app hang/ffmpeg) va TCP
+            val tcp = retry % 2 == 1
+            status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
+            Log.i(TAG, status); log(status)
+            if (retry == 0) log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function"))
+            try { Thread.sleep(1500) } catch (_: InterruptedException) {}
+            if (!want || player != null) return@post
             val p = ExoPlayer.Builder(ctx).setLooper(th.looper).build()
             val src = RtspMediaSource.Factory()
-                .setForceUseRtpTcp(true)
+                .setForceUseRtpTcp(tcp)
                 .setSocketFactory(net.socketFactory)      // Wi-Fi cam khong co Internet: ep di qua Wi-Fi
                 .setTimeoutMs(4000)
                 .createMediaSource(MediaItem.fromUri(Uri.parse("rtsp://$HOST:554")))
@@ -87,12 +93,14 @@ class MirrorCam(
                     onSize()
                 }
                 override fun onPlaybackStateChanged(s: Int) {
-                    if (s == Player.STATE_READY) { status = "đang nhận hình ${sz.width}x${sz.height}"; retry = 0; onErr("") }
+                    if (s == Player.STATE_READY) { status = "đang nhận hình ${sz.width}x${sz.height} ${if (tcp) "TCP" else "UDP"}"; log(status); onErr("") }
                 }
                 override fun onPlayerError(e: PlaybackException) {
-                    status = "lỗi RTSP: ${e.errorCodeName}"
-                    Log.w(TAG, "rtsp", e)
-                    onErr("Cam gương: ${e.errorCodeName}")
+                    var c: Throwable? = e.cause; var why = ""
+                    while (c != null && why.length < 90) { why += " ← " + c.javaClass.simpleName + (c.message?.let { ": " + it.take(50) } ?: ""); c = c.cause }
+                    status = "lỗi RTSP ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why"
+                    Log.w(TAG, "rtsp", e); log(status)
+                    onErr("Cam gương ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why")
                     stopPlayer(); retryLater()
                 }
             })

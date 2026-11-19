@@ -248,7 +248,7 @@ class AdasService : Service() {
         // bo bao loi cua nguon cu (vd. cam guong da tat sau khi doi ve camera dien thoai)
         val err: (String) -> Unit = { e -> main.post { if (me == null || cam === me) { loadMsg = e; publishIdle() } } }
         try {
-            me = if (prefs.camSrc == "mirror") MirrorCam(this, ::onFrame, err) { main.post { rebuildGeom() } }
+            me = if (prefs.camSrc == "mirror") MirrorCam(this, ::onFrame, err, { main.post { rebuildGeom() } }, { clog?.line("cam guong: $it") })
             else CamSource(this, ::onFrame, err)
             cam = me
         } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
