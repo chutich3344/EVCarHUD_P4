@@ -71,6 +71,7 @@ class Snap(
     var stat = ""
     /** Bien toc do dang ap dung (camera doc), bien vua qua (anh that + bien phu), dang vuot toc do. */
     var limit: Int? = null
+    var limitWhy: String? = null   // null = bien that; khac = toc do mac dinh (theo luat / ban do)
     var sign: SignDet.Hit? = null
     var over = false
 }
@@ -156,6 +157,7 @@ class AdasService : Service() {
     // ---- doc bien giao thong ----
     private var signDet: SignDet? = null
     private var signDb: SignDb? = null
+    private var road: RoadInfo? = null
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
@@ -212,7 +214,7 @@ class AdasService : Service() {
             it.hudMac = prefs.hudMac
             it.line("bat dau · ${android.os.Build.MODEL} · AI ${prefs.accel} · tu hieu chinh ${prefs.autoCalib}/${prefs.calibrated} · camH ${prefs.camH}")
         }
-        signDb = SignDb(this)
+        signDb = SignDb(this); road = RoadInfo { m -> clog?.line(m) }
         signDet = SignDet(this) { hits -> main.post { onSigns(hits) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
@@ -252,7 +254,7 @@ class AdasService : Service() {
         Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
-        signDet?.release(); signDb?.flush()
+        signDet?.release(); road?.release(); signDb?.flush()
         clog?.line("dung app"); clog?.close()
         super.onDestroy()
     }
@@ -812,10 +814,12 @@ class AdasService : Service() {
         val now = SystemClock.elapsedRealtime()
         if (limit != null && now - limitAt > 15 * 60_000L) limit = null
         s.limit = limit
+        if (limit == null && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
-        val lim = limit
+        val lim = s.limit
         s.over = lim != null && v > lim + 3
-        if (s.over && prefs.beep && now - overBeepAt > 10_000) { overBeepAt = now; beeper.test() }
+        // chi keu khi vuot bien that; toc do mac dinh chi hien chu (tranh keu sai tren duong ngoai do thi 80-90)
+        if (s.over && s.limitWhy == null && prefs.beep && now - overBeepAt > 10_000) { overBeepAt = now; beeper.test() }
     }
 
     private fun publishIdle() {
@@ -888,6 +892,7 @@ class AdasService : Service() {
         gpsKmh = if (l.hasSpeed()) l.speed * 3.6f else gpsKmh
         lat = l.latitude; lon = l.longitude
         if (l.hasBearing() && l.speed > 1.5f) bearing = l.bearing
+        road?.onFix(lat, lon, bearing, gpsKmh)
         Nav.onFix(l.latitude, l.longitude, l.speed, if (l.hasBearing()) l.bearing else null, if (l.hasAccuracy()) l.accuracy else 20f)
     }
 

@@ -284,7 +284,10 @@ class Overlay(ctx: Context) : View(ctx) {
             val cx = (x0 + x1) / 2
             drawSpeed(cv, lim, cx, y + 3.3f * u, 5.6f * u)
             txt.textAlign = Paint.Align.CENTER; txt.textSize = 1.05f * u; txt.color = if (sn.over) Color.rgb(255, 84, 104) else Color.WHITE
-            cv.drawText(if (sn.over) "VƯỢT TỐC ĐỘ" else "tốc độ tối đa", cx, y + h - 0.45f * u, txt)
+            val why = sn.limitWhy
+            if (why != null && !sn.over) { txt.textSize = 0.85f * u; txt.color = Color.rgb(170, 205, 255) }
+            val cap = if (sn.over) "VƯỢT TỐC ĐỘ" else why ?: "tốc độ tối đa"
+            cv.drawText(if (txt.measureText(cap) > cw - 0.4f * u) cap.substringAfter("· ") else cap, cx, y + h - 0.45f * u, txt)
             y += h + 0.5f * u
         }
         val sg = sn.sign ?: return
