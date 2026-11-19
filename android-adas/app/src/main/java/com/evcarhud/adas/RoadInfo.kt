@@ -29,6 +29,7 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
     @Volatile private var cLon = 0.0
     @Volatile private var busy = false
     @Volatile private var lastTry = 0L
+    @Volatile private var good = 0   // may chu chay duoc lan truoc -> thu truoc
     @Volatile var cur: Def? = null; private set
     private val io = Executors.newSingleThreadExecutor()
 
@@ -56,23 +57,24 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
     }
 
     private fun fetch(lat: Double, lon: Double) {
-        val q = "[out:json][timeout:15];way(around:500,%.6f,%.6f)[highway~\"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|road)(_link)?$\"];out tags geom;"
+        val q = "[out:json][timeout:12];way(around:400,%.6f,%.6f)[highway~\"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|road)(_link)?$\"];out tags geom;"
             .format(java.util.Locale.US, lat, lon)
         val body = "data=" + URLEncoder.encode(q, "UTF-8")
         var err: Exception? = null
-        for (host in HOSTS) {
+        for (k in HOSTS.indices) {
+            val hi = (good + k) % HOSTS.size; val host = HOSTS[hi]
             try {
                 val c = URL(host).openConnection() as HttpURLConnection
-                c.connectTimeout = 8000; c.readTimeout = 20000; c.requestMethod = "POST"; c.doOutput = true
+                c.connectTimeout = 6000; c.readTimeout = 15000; c.requestMethod = "POST"; c.doOutput = true
                 c.setRequestProperty("User-Agent", "EVCarHUD-Lan/0.1 (Android)")
                 c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 c.outputStream.use { it.write(body.toByteArray()) }
                 if (c.responseCode != 200) { c.disconnect(); throw RuntimeException("HTTP ${c.responseCode}") }
                 val txt = c.inputStream.bufferedReader().use { it.readText() }
-                ways = parse(txt); cLat = lat; cLon = lon
-                log("ROAD ${ways.size} duong quanh xe")
+                ways = parse(txt); cLat = lat; cLon = lon; good = hi
+                log("ROAD ${ways.size} duong quanh xe · ${URL(host).host}")
                 return
-            } catch (e: Exception) { err = e }
+            } catch (e: Exception) { err = e; log("ROAD ${URL(host).host} loi ${e.javaClass.simpleName}") }
         }
         throw err ?: RuntimeException("?")
     }
@@ -135,6 +137,10 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
     fun release() = io.shutdownNow()
 
     companion object {
-        private val HOSTS = listOf("https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter")
+        private val HOSTS = listOf(
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter")
     }
 }

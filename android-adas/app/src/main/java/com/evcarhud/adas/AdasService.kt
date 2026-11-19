@@ -820,9 +820,13 @@ class AdasService : Service() {
             if (h.cls != SignDet.SPEED || h.value != null) signDb?.add(h.cls, h.value, lat, lon, bearing, h.crop, h.aux)
         }
         votes.removeAll { now - it.first > 3000 }
-        for ((_, v, sc) in votes) if (sc >= 0.55f || votes.count { it.second == v } >= 2) {
-            if (limit != v) clog?.line("BIEN TOC DO $v km/h")
-            limit = v; limitAt = now
+        // chon 1 so duy nhat: nhieu phieu nhat, hoa thi diem cao nhat (truoc day lap qua tung phieu -> nhay 80/60)
+        val best = votes.groupBy { it.second }.map { (v, l) -> Triple(v, l.size, l.maxOf { it.third }) }
+            .filter { it.third >= 0.55f || it.second >= 2 }
+            .maxWithOrNull(compareBy<Triple<Int, Int, Float>> { it.second }.thenBy { it.third })
+        if (best != null) {
+            if (limit != best.first) clog?.line("BIEN TOC DO ${best.first} km/h")
+            limit = best.first; limitAt = now
         }
         if ((signDb?.size ?: 0) % 5 == 0) signDb?.flush()
     }
@@ -834,7 +838,7 @@ class AdasService : Service() {
         val t = f.getOrNull(0)?.firstOrNull()
         if (t == null) { camType = null; camDb?.flush(); return }
         val d = f.getOrNull(1)?.toIntOrNull() ?: -1
-        if (camType != t || camDist < 0 || d < camDist - 5 || d > camDist + 50) clog?.line("CAMERA ${CamDb.name(t)} ${if (d >= 0) "$d m" else ""}")
+        if (camType != t || camDist < 0 || d > camDist + 50) clog?.line("CAMERA ${CamDb.name(t)} ${if (d >= 0) "$d m" else ""}")
         camType = t; camDist = d; camAt = SystemClock.elapsedRealtime(); camLat = lat; camLon = lon
         if (gpsAt > 0 && d >= 0) camDb?.add(t, lat, lon, bearing, d)
     }
