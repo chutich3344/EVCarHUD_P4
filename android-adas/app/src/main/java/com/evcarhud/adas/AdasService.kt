@@ -159,6 +159,7 @@ class AdasService : Service() {
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
+    @Volatile private var spdAt = 0L   // luc vua thay bien toc do -> doc day hon 2,5 s de du phieu chot so
     private var lastSign: SignDet.Hit? = null
     private var lastSignAt = 0L
     private var overBeepAt = 0L
@@ -489,7 +490,7 @@ class AdasService : Service() {
         else if (now - lastPrev >= 1000) { lastPrev = now; try { bright = meanY(im) } catch (_: Exception) {} }
         if (now - hoodAt >= 300) { hoodAt = now; try { hoodSample(im) } catch (_: Exception) {} }
         // doc bien: 2 lan/giay khi xe chay, 1 lan/giay khi may am, dung khi nong
-        if (prefs.signs && hot < 3 && (if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh) > 3) signDet?.offer(im, cam?.flip == true, if (hot >= 1) 1000 else 500)
+        if (prefs.signs && hot < 3 && (if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh) > 3) signDet?.offer(im, cam?.flip == true, if (hot >= 2) 1000 else if (now - spdAt < 2500) 200 else if (hot >= 1) 1000 else 500)
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
         lastAccept = now
@@ -784,11 +785,12 @@ class AdasService : Service() {
     }
 
     /** Khong co ket qua AI (dung/nong/dang nap): van cap nhat giao dien + giu HUD biet trang thai. */
-    /** Ket qua doc bien (luong chinh): chot bien toc do (1 lan doc chac >= 0,6 hoac 2 lan cung so trong 3 s), giu bien canh bao 8 s, ghi CSDL. */
+    /** Ket qua doc bien (luong chinh): chot bien toc do (1 lan doc chac >= 0,55 hoac 2 lan cung so trong 3 s), giu bien canh bao 8 s, ghi CSDL. */
     private fun onSigns(hits: List<SignDet.Hit>) {
         val now = SystemClock.elapsedRealtime()
         for (h in hits) {
             if (h.cls == SignDet.SPEED) {
+                spdAt = now
                 val v = h.value ?: continue
                 if (h.score >= 0.5f) votes += Triple(now, v, h.score)
             } else if (h.cls in SignDet.WARN && (lastSign == null || now - lastSignAt > 1500 || h.conf >= lastSign!!.conf)) {
@@ -798,7 +800,7 @@ class AdasService : Service() {
             if (h.cls != SignDet.SPEED || h.value != null) signDb?.add(h.cls, h.value, lat, lon, bearing, h.crop, h.aux)
         }
         votes.removeAll { now - it.first > 3000 }
-        for ((_, v, sc) in votes) if (sc >= 0.6f || votes.count { it.second == v } >= 2) {
+        for ((_, v, sc) in votes) if (sc >= 0.55f || votes.count { it.second == v } >= 2) {
             if (limit != v) clog?.line("BIEN TOC DO $v km/h")
             limit = v; limitAt = now
         }
