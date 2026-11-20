@@ -148,7 +148,9 @@ class MirrorCam(
             // App hang (Sinjet, mpv/ffmpeg) chi goi enterrecorder roi mo rtsp://192.168.5.1:554, KHONG path,
             // va ffmpeg mac dinh RTSP = UDP. 0.1.65 ep TCP truoc -> tat. Nay cam guong UU TIEN UDP (giong mpv),
             // xen ke sang TCP neu UDP khong duoc. 70mai van TCP truoc.
-            val tcp = if (is70) retry % 2 == 0 else retry % 2 == 1
+            // 20/11: sau khi bam mang Wi-Fi cam, TCP vao duoc buf=75% + Vout=1 (UDP chi 45%, Vout=0)
+            // -> cam guong UU TIEN TCP. Van xen ke UDP de phong.
+            val tcp = retry % 2 == 0
             status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
             Log.i(TAG, status); log(status)
             if (!is70) try { Thread.sleep(1200) } catch (_: InterruptedException) {}
@@ -213,15 +215,11 @@ class MirrorCam(
         }
     }
 
-    /** Khi VLC bao co luong hinh: lay kich thuoc that de ImageReader dung ti le, tranh meo hinh. */
+    /** Khi VLC bao co luong hinh: CHI ghi lai kich thuoc that (de log), KHONG tao lai ImageReader.
+     * Doi surface giua chung lam MediaCodec cua VLC mat khung (Vout=1 nhung khung=0, 20/11). */
     private fun fitTrack(p: MediaPlayer) {
         val t = try { p.currentVideoTrack } catch (_: Exception) { null } ?: return
-        val w = t.width; val hh = t.height
-        if (w < 64 || hh < 64 || (w == sz.width && hh == sz.height)) return
-        sz = Size(w, hh)
-        log("kich thuoc hinh ${w}x$hh")
-        attachReader(p)
-        onSize()
+        if (t.width >= 64 && t.height >= 64) log("kich thuoc that ${t.width}x${t.height} (VLC thu nho ve ${sz.width}x${sz.height})")
     }
 
     private fun attachReader(p: MediaPlayer) {
