@@ -114,17 +114,18 @@ class MirrorCam(
         return cm.getLinkProperties(net)?.linkAddresses?.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
     }
 
-    // 70mai: app hang bao "dien thoai dang noi" bang client.cgi register lap lai vai giay/lan; RTSP tra 406 khi chua dang ky
+    // Giu phien song: 70mai = client.cgi register; cam guong = goi getparamvalue lap lai (cam ngung day RTP
+    // "VLC het luong" khi khong co client hoi tham dinh ky -> app hang giu phien lien tuc).
     private var keep: Thread? = null
     private fun startKeep(net: Network) {
         if (keep?.isAlive == true) return
-        val ip = myIp(net) ?: return
         keep = Thread {
             var n = 0
             while (want) {
-                val r = hisnet(net, "client.cgi?&-operation=register&-ip=$ip")
-                if (n++ < 2 || !r.startsWith("200")) log("70mai register: $r")
-                try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
+                val r = if (is70) hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
+                        else api(net, "getparamvalue?param=rec")
+                if (n++ < 2) log("${if (is70) "70mai register" else "cam gương giữ phiên"}: $r")
+                try { Thread.sleep(if (is70) 3000 else 1500) } catch (_: InterruptedException) { break }
             }
         }.apply { isDaemon = true; start() }
     }
@@ -144,7 +145,7 @@ class MirrorCam(
                 startKeep(net)
                 try { Thread.sleep(800) } catch (_: InterruptedException) {}
                 "70mai"
-            } else api(net, "enterrecorder")
+            } else { val rr = api(net, "enterrecorder"); startKeep(net); rr }
             // App hang (Sinjet, mpv/ffmpeg) chi goi enterrecorder roi mo rtsp://192.168.5.1:554, KHONG path,
             // va ffmpeg mac dinh RTSP = UDP. 0.1.65 ep TCP truoc -> tat. Nay cam guong UU TIEN UDP (giong mpv),
             // xen ke sang TCP neu UDP khong duoc. 70mai van TCP truoc.
