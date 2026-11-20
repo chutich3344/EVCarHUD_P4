@@ -39,8 +39,15 @@ interface FrameSource {
     fun release()
 }
 
+/** Boc android.media.Image (YUV_420_888) thanh YuvFrame; close() se dong Image goc. */
+fun Image.toYuvFrame(): YuvFrame {
+    val im = this
+    val ps = im.planes.map { YuvFrame.Plane(it.buffer, it.rowStride, it.pixelStride) }.toTypedArray()
+    return YuvFrame(im.width, im.height, im.timestamp, ps) { try { im.close() } catch (_: Exception) {} }
+}
+
 @SuppressLint("MissingPermission")
-class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val onErr: (String) -> Unit) : FrameSource {
+class CamSource(ctx: Context, private val onFrame: (YuvFrame) -> Unit, private val onErr: (String) -> Unit) : FrameSource {
     private val mgr = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private val thread = HandlerThread("cam").apply { start() }
     private val h = Handler(thread.looper)
@@ -160,7 +167,7 @@ class CamSource(ctx: Context, private val onFrame: (Image) -> Unit, private val 
             reader = ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 3).apply {
                 setOnImageAvailableListener({ r ->
                     val img = try { r.acquireLatestImage() } catch (e: Exception) { null } ?: return@setOnImageAvailableListener
-                    onFrame(img)      // ben nhan phai close()
+                    onFrame(img.toYuvFrame())      // ben nhan phai close()
                 }, h)
             }
         }

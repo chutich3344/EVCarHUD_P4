@@ -20,7 +20,6 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.graphics.Bitmap
-import android.media.Image
 import android.os.BatteryManager
 import android.os.Binder
 import android.os.Build
@@ -506,7 +505,7 @@ class AdasService : Service() {
     }
 
     // ---------------- camera -> AI ----------------
-    private fun onFrame(im: Image) {
+    private fun onFrame(im: YuvFrame) {
         val now = SystemClock.elapsedRealtime()
         lastFrameAt = now
         val cb = onPreview
@@ -535,7 +534,7 @@ class AdasService : Service() {
     }
 
     /** YUV -> anh mau 640x360 (lay 1/2 diem moi chieu), tinh luon do sang trung binh. */
-    private fun drawPreview(im: Image, cb: (Bitmap) -> Unit) {
+    private fun drawPreview(im: YuvFrame, cb: (Bitmap) -> Unit) {
         val p = im.planes
         val yb = p[0].buffer; val ub = p[1].buffer; val vb = p[2].buffer
         val yRow = p[0].rowStride; val yPix = p[0].pixelStride
@@ -577,7 +576,7 @@ class AdasService : Service() {
     private val hoodAct = FloatArray(HOOD_R)
     private var hoodN = 0
 
-    private fun hoodSample(im: Image) {
+    private fun hoodSample(im: YuvFrame) {
         val v = if (SystemClock.elapsedRealtime() - gpsAt < 3000) gpsKmh else poseKmh
         if (v < 15f) return                                   // dung yen: ca duong cung khong doi, bo
         val p = im.planes[0]; val b = p.buffer; val row = p.rowStride; val n = b.limit()
@@ -609,7 +608,7 @@ class AdasService : Service() {
         if (abs(frac - prefs.hood) > 0.02f) prefs.hood = frac
     }
 
-    private fun meanY(im: Image): Int {
+    private fun meanY(im: YuvFrame): Int {
         val p = im.planes[0]; val b = p.buffer; val n = b.limit()
         var s = 0L; var c = 0
         var i = 0

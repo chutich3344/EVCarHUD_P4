@@ -36,6 +36,20 @@ android {
     }
     // Mo hinh .onnx de nguyen (khong nen) de chep ra nhanh
     androidResources { noCompress += "onnx" }
+    packaging {
+        // JavaCV/ffmpeg co nhieu .so trung ten metadata giua cac module -> gop
+        jniLibs {
+            useLegacyPackaging = true
+            pickFirsts += listOf("**/*.so")
+        }
+        resources {
+            excludes += listOf(
+                "META-INF/native-image/**",
+                "META-INF/*.kotlin_module",
+                "org/bytedeco/**/*.properties",
+            )
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -45,7 +59,12 @@ android {
 
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
-    // cam guong / 70mai Wi-Fi: RTSP -> giai ma (MirrorCam.kt). libVLC xu ly RTSP cam re tot hon ExoPlayer
-    // (cung bo giai ma mpv/VLC ma app hang dung). Chi co arm64 nen chi nang them ~15 MB.
-    implementation("org.videolan.android:libvlc-all:3.6.5")
+    // cam guong / 70mai Wi-Fi: RTSP -> giai ma (MirrorCam.kt). Dung ffmpeg (JavaCV) = DUNG engine app hang
+    // (media_kit = mpv/ffmpeg) chay UDP on dinh. VLC khong giai ma noi luong cam nay tren chip may (Vout=0
+    // ca HW lan SW du da co du lieu). Chi lay native arm64 (ffmpeg + javacpp) nen nang ~25 MB.
+    implementation("org.bytedeco:javacv:1.5.10") { isTransitive = false }   // FFmpegFrameGrabber + Frame (khong keo opencv…)
+    implementation("org.bytedeco:javacpp:1.5.10")
+    implementation("org.bytedeco:javacpp:1.5.10:android-arm64")
+    implementation("org.bytedeco:ffmpeg:6.1.1-1.5.10")
+    implementation("org.bytedeco:ffmpeg:6.1.1-1.5.10:android-arm64")
 }

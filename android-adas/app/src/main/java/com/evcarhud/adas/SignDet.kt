@@ -5,7 +5,6 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
-import android.media.Image
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
@@ -63,7 +62,7 @@ class SignDet(ctx: Context, private val onObjs: (List<Obj>) -> Unit = {}, privat
     }
 
     /** Goi tu onFrame (truoc khi dong Image). Chep anh roi chay tren luong rieng; toi da 1 lan / periodMs. */
-    fun offer(im: Image, flip: Boolean, periodMs: Long = 500) {
+    fun offer(im: YuvFrame, flip: Boolean, periodMs: Long = 500) {
         val now = SystemClock.elapsedRealtime()
         if (busy || sess == null || now - lastAt < periodMs) return
         try {

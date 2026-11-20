@@ -1,83 +1,76 @@
 package com.evcarhud.adas
 
 import android.content.Context
-import android.graphics.ImageFormat
-import android.media.Image
-import android.media.ImageReader
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.Uri
-import android.os.Handler
-import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.Surface
-import org.videolan.libvlc.LibVLC
-import org.videolan.libvlc.Media
-import org.videolan.libvlc.MediaPlayer
+import org.bytedeco.ffmpeg.global.avutil
+import org.bytedeco.javacv.FFmpegFrameGrabber
+import org.bytedeco.javacv.Frame
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
 
 /**
  * Cam guong Wi-Fi (app hang "rearview_wifi", Sinjet): API http://192.168.5.1:8000/app/...,
- * goi app/enterrecorder thi cam mo RTSP rtsp://192.168.5.1:554.
- * 70mai: RTSP thang rtsp://192.168.0.1:554/livestream/12 sau khi dang ky client.cgi.
+ * goi app/enterrecorder thi cam mo RTSP rtsp://192.168.5.1:554 (KHONG path).
+ * 70mai: rtsp://192.168.0.1:554/livestream/12 sau khi dang ky client.cgi.
  *
- * 20/11: ExoPlayer/Media3 noi duoc RTSP nhung khong keo duoc goi RTP tu may dam cam re
- * (nap mai khong co khung hinh). Chuyen sang libVLC (cung dong giai ma mpv/VLC ma app hang dung):
- * VLC keo luong -> bo giai ma phan cung ghi thang vao Surface cua ImageReader(YUV_420_888)
- * -> cung duong onFrame(Image) nhu camera dien thoai.
- * Goc nhin: 3 clip 4K 17/11 khop f ~ 520 px o ngang 1280 (~102 do).
+ * 20/11: VLC KHONG giai ma noi luong cam nay tren chip may (Vout=0 ca giai ma phan cung lan phan mem,
+ * du da co du lieu buf=45-100%). Chuyen sang **ffmpeg truc tiep (JavaCV FFmpegFrameGrabber)** — DUNG
+ * engine app hang (media_kit = mpv/ffmpeg) chay UDP on dinh. ffmpeg giai ma -> BGR24 1280x720 ->
+ * doi sang YUV (I420) -> cung duong onFrame(YuvFrame) nhu camera dien thoai.
+ * Goc nhin: 3 clip 4K 17/11 khop f ~ 520 px o ngang 1280.
  */
 class MirrorCam(
     private val ctx: Context,
-    private val onFrame: (Image) -> Unit,
+    private val onFrame: (YuvFrame) -> Unit,
     private val onErr: (String) -> Unit,
     private val onSize: () -> Unit,
     private val log: (String) -> Unit = {},
-    /** "mirror" = cam guong Sinjet (goi API :8000 truoc), "70mai" = cam hanh trinh 70mai (RTSP thang /livestream/12, cam 192.168.0.1). */
+    /** "mirror" = cam guong Sinjet (goi API :8000 truoc), "70mai" = cam 70mai (RTSP /livestream/12, 192.168.0.1). */
     private val kind: String = "mirror",
 ) : FrameSource {
     private val is70 = kind == "70mai"
     private val HOST = if (is70) "192.168.0.1" else "192.168.5.1"
-    // 70mai: duong luong cong khai cua dong M300/Pro; thu xoay vong neu cam khac tra loi
     private val paths70 = listOf("/livestream/12", "/livestream/11", "/livestream/1", "/live")
-    private val th = HandlerThread("mirror").apply { start() }
-    private val h = Handler(th.looper)
-    private var vlc: LibVLC? = null
-    private var player: MediaPlayer? = null
-    private var reader: ImageReader? = null
-    private var attached = false
-    private var want = false
+
+    private val W = 1280
+    private val H = 720
+
+    @Volatile private var want = false
+    @Volatile private var grabber: FFmpegFrameGrabber? = null
+    private var worker: Thread? = null
     private var retry = 0
-    private var frames = 0
+    @Volatile private var frames = 0
     @Volatile private var gotFrame = false
     private var frAt = 0L
 
-    @Volatile private var sz = Size(1280, 720)
-    override val size: Size get() = sz
-    // 70mai M310 goc rong ~130 do cheo -> f uoc ~450 px o ngang 1280 (tu hieu chinh se chinh lai)
-    override val focalPx: Double get() = (if (is70) 450.0 else 520.0) * sz.width / 1280.0
+    // 2 bo dem I420 luan phien (buffer chi can hop le trong luc goi onFrame dong bo)
+    private val i420 = arrayOf(
+        ByteBuffer.allocateDirect(W * H * 3 / 2),
+        ByteBuffer.allocateDirect(W * H * 3 / 2),
+    )
+    private var bufI = 0
+
+    override val size: Size get() = Size(W, H)
+    override val focalPx: Double get() = (if (is70) 450.0 else 520.0) * W / 1280.0
     override val focalSrc = if (is70) "cam 70mai Wi-Fi" else "cam gương Wi-Fi"
     override val flip = false
     override val isOpen get() = want
     @Volatile var status = "chưa mở"
-    // dau vet su kien VLC (hien len man hinh, khong can log may chu)
-    @Volatile private var evOpen = false
-    @Volatile private var evPlay = false
-    @Volatile private var evBufMax = 0
-    @Volatile private var evVout = 0
-    @Volatile private var evErr = ""
-    private fun traceStr(tcp: Boolean) =
-        "VLC[${if (tcp) "TCP" else "UDP"} O=${if (evOpen) 1 else 0} buf=$evBufMax% P=${if (evPlay) 1 else 0} Vout=$evVout khung=$frames]$evErr"
-    private fun showTrace(tcp: Boolean) { status = traceStr(tcp); onErr("Cam: ${traceStr(tcp)}") }
+
+    private fun traceStr(udp: Boolean) = "FFMPEG[${if (udp) "UDP" else "TCP"} khung=$frames ${W}x$H]"
 
     @Volatile private var bound = false
     private fun bindNet(net: Network) {
         try {
-            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            cm.bindProcessToNetwork(net); bound = true; log("bám mạng Wi-Fi cam")
+            (ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).bindProcessToNetwork(net)
+            bound = true; log("bám mạng Wi-Fi cam")
         } catch (e: Exception) { log("bind net lỗi ${e.javaClass.simpleName}") }
     }
     private fun unbindNet() {
@@ -100,7 +93,6 @@ class MirrorCam(
         c.disconnect(); "$code $b"
     } catch (e: Exception) { "lỗi ${e.javaClass.simpleName} ${e.message?.take(80) ?: ""}" }
 
-    /** 70mai (HiSilicon "hisnet", thttpd cong 80): GET /cgi-bin/hisnet/<cgi>. */
     private fun hisnet(net: Network, q: String): String = try {
         val c = net.openConnection(URL("http://$HOST/cgi-bin/hisnet/$q")) as HttpURLConnection
         c.connectTimeout = 2000; c.readTimeout = 3000
@@ -114,8 +106,6 @@ class MirrorCam(
         return cm.getLinkProperties(net)?.linkAddresses?.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
     }
 
-    // Giu phien song: 70mai = client.cgi register; cam guong = goi getparamvalue lap lai (cam ngung day RTP
-    // "VLC het luong" khi khong co client hoi tham dinh ky -> app hang giu phien lien tuc).
     private var keep: Thread? = null
     private fun startKeep(net: Network) {
         if (keep?.isAlive == true) return
@@ -131,172 +121,173 @@ class MirrorCam(
     }
 
     override fun open() {
-        h.post {
-            want = true
-            if (player != null) return@post
+        if (worker?.isAlive == true) { want = true; return }
+        want = true
+        worker = Thread { runLoop() }.apply { isDaemon = true; name = "mirror-ffmpeg"; start() }
+    }
+
+    private fun runLoop() {
+        avutil.av_log_set_level(avutil.AV_LOG_ERROR)
+        while (want) {
             val net = wifi()
-            if (net == null) { status = "chưa nối Wi-Fi cam"; onErr(if (is70) "Chưa nối Wi-Fi cam 70mai (70mai_…)" else "Chưa nối Wi-Fi cam gương (mirror_wifi…)"); retryLater(); return@post }
-            // VLC/live555 mo socket UDP tren MANG MAC DINH (4G neu Wi-Fi cam khong co mang) -> goi RTP cam gui toi
-            // IP wlan0 khong vao duoc socket do -> buf=0%. Ep ca tien trinh bam mang Wi-Fi cam khi dang xem.
+            if (net == null) {
+                status = "chưa nối Wi-Fi cam"
+                onErr(if (is70) "Chưa nối Wi-Fi cam 70mai (70mai_…)" else "Chưa nối Wi-Fi cam gương (mirror_wifi…)")
+                sleep(2000); retry++; continue
+            }
             bindNet(net)
-            val r = if (is70) {
-                if (retry == 0) log("70mai thong tin: " + hisnet(net, "getdeviceattr.cgi"))
-                log("70mai register: " + hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}"))
-                startKeep(net)
-                try { Thread.sleep(800) } catch (_: InterruptedException) {}
-                "70mai"
+            // cam guong chi 1 phien RTSP -> reset phien (exit roi enter) de lan nao cung co du lieu
+            val info = if (is70) {
+                if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
+                hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
             } else {
-                // Cam gương chỉ cho MỘT phiên RTSP. Phiên cũ chưa dọn -> lần sau buf=0% (chập chờn).
-                // Reset: exitrecorder để cam nhả phiên, chờ chút, rồi enterrecorder lại.
-                api(net, "exitrecorder"); try { Thread.sleep(500) } catch (_: InterruptedException) {}
-                val rr = api(net, "enterrecorder"); startKeep(net); rr
+                api(net, "exitrecorder"); sleep(400); api(net, "enterrecorder")
             }
-            // App hang (Sinjet, mpv/ffmpeg) chi goi enterrecorder roi mo rtsp://192.168.5.1:554, KHONG path,
-            // va ffmpeg mac dinh RTSP = UDP. 0.1.65 ep TCP truoc -> tat. Nay cam guong UU TIEN UDP (giong mpv),
-            // xen ke sang TCP neu UDP khong duoc. 70mai van TCP truoc.
-            // 20/11: sau khi bam mang Wi-Fi cam, TCP vao duoc buf=75% + Vout=1 (UDP chi 45%, Vout=0)
-            // -> cam guong UU TIEN TCP. Van xen ke UDP de phong.
-            // Cam gương: UDP luôn buf=0% (gói RTP cam rẻ không tới được), chỉ TCP mới nạp 100%.
-            // Ghim TCP cho cam gương để mỗi lần thử đều có dữ liệu (thử đúng khâu giải mã). 70mai vẫn xoay.
-            val tcp = if (is70) retry % 2 == 0 else true
-            status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
-            Log.i(TAG, status); log(status)
-            if (!is70) try { Thread.sleep(1200) } catch (_: InterruptedException) {}
-            // cam guong: URL tran nhu app hang; 70mai xoay vong duong luong
+            startKeep(net)
+            log("${if (is70) "70mai" else "cam gương"} mở: $info")
+
+            // app hang (mpv/ffmpeg) mac dinh RTSP = UDP. Cam guong thu UDP truoc (giong hang), xen ke TCP.
+            // 70mai thu TCP truoc.
+            val udp = if (is70) retry % 2 == 1 else retry % 2 == 0
             val url = "rtsp://$HOST:554" + (if (is70) paths70[(retry / 2) % paths70.size] else "")
-            log((if (is70) "70mai" else "cam gương") + " thu $url ${if (tcp) "TCP" else "UDP"} (VLC)")
-            if (!want || player != null) return@post
+            status = "mở ffmpeg ${if (udp) "UDP" else "TCP"} $url"
+            log(status); onErr("Cam: " + traceStr(udp))
 
-            // Giai ma PHAN MEM (libavcodec) nhu app hang Sinjet. HW (MediaCodec) voi cam nay luon Vout=0
-            // (profile/chroma la). Dong thoi reset phien RTSP o tren de lan nao cung co du lieu -> test
-            // DUNG khau giai ma phan mem co du lieu (truoc gio chua lan nao quan sat duoc ca hai cung luc).
-            val args = arrayListOf(
-                "--no-audio",
-                "--rtsp-timeout=8",
-                "--network-caching=300",
-                "--live-caching=300",
-                "--no-stats",
-                "--quiet",
-                "--avcodec-hw=none",          // tat giai ma phan cung -> libavcodec phan mem
-                "--codec=avcodec",
-                if (tcp) "--rtsp-tcp" else "--no-rtsp-tcp",
-            )
-            val lib = LibVLC(ctx, args)
-            val p = MediaPlayer(lib)
-            val media = Media(lib, Uri.parse(url))
-            media.setHWDecoderEnabled(false, false)  // giai ma phan mem nhu app hang
-            media.addOption(":network-caching=250")
-            media.addOption(if (tcp) ":rtsp-tcp" else ":no-rtsp-tcp")
-            p.media = media
-            media.release()
-
-            // dau vet hien thang len man hinh (khong phu thuoc log may chu, vi Wi-Fi cam khong co mang)
-            evOpen = false; evPlay = false; evBufMax = 0; evVout = 0; evErr = ""
-            p.setEventListener { e ->
-                when (e.type) {
-                    MediaPlayer.Event.Opening -> { evOpen = true; log("VLC mo luong"); showTrace(tcp) }
-                    MediaPlayer.Event.Buffering -> { val b = e.buffering.toInt(); if (b > evBufMax) { evBufMax = b; showTrace(tcp) }; if (e.buffering >= 100f) log("VLC nap xong 100%") }
-                    MediaPlayer.Event.Playing -> {
-                        evPlay = true; status = "đang phát ${if (tcp) "TCP" else "UDP"} $url"; log("VLC Playing · $status"); showTrace(tcp)
-                    }
-                    MediaPlayer.Event.Vout -> {
-                        evVout = e.voutCount; log("VLC Vout x${e.voutCount}"); showTrace(tcp)
-                        if (e.voutCount > 0) fitTrack(p)
-                    }
-                    MediaPlayer.Event.EncounteredError -> {
-                        evErr = "E"; status = "lỗi VLC ${if (tcp) "TCP" else "UDP"} $url"; log(status)
-                        onErr("Cam ${if (tcp) "TCP" else "UDP"}: VLC lỗi luồng · ${traceStr(tcp)}")
-                        stopPlayer(); retryLater()
-                    }
-                    MediaPlayer.Event.EndReached -> { log("VLC het luong"); stopPlayer(); retryLater() }
+            var g: FFmpegFrameGrabber? = null
+            try {
+                g = FFmpegFrameGrabber(url).apply {
+                    format = "rtsp"
+                    setOption("rtsp_transport", if (udp) "udp" else "tcp")
+                    setOption("rtsp_flags", "prefer_tcp".takeIf { !udp } ?: "")
+                    setOption("stimeout", "8000000")      // ffmpeg cu: timeout socket (us)
+                    setOption("timeout", "8000000")       // ffmpeg moi
+                    setOption("max_delay", "500000")
+                    setOption("reorder_queue_size", "0")
+                    setOption("buffer_size", "1048576")
+                    setOption("fflags", "nobuffer")
+                    imageMode = FFmpegFrameGrabber.ImageMode.COLOR
+                    pixelFormat = avutil.AV_PIX_FMT_BGR24
+                    imageWidth = W                        // ffmpeg tu scale ve 1280x720 (nguon co the 4K)
+                    imageHeight = H
                 }
+                g.start()
+                grabber = g
+                log("ffmpeg mở luồng OK ${g.imageWidth}x${g.imageHeight}")
+                gotFrame = false
+                var lastDeliver = 0L
+                val startAt = SystemClock.elapsedRealtime()
+                while (want) {
+                    val f: Frame? = try { g.grabImage() } catch (e: Exception) { log("grab lỗi ${e.message?.take(80)}"); null }
+                    if (f == null) {
+                        if (!gotFrame && SystemClock.elapsedRealtime() - startAt > 12_000) { log("không có khung 12 s (${if (udp) "UDP" else "TCP"})"); break }
+                        continue
+                    }
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastDeliver < 70) continue        // ~14 fps toi da, bo bot cho nhe
+                    lastDeliver = now
+                    deliver(f)
+                }
+            } catch (e: Throwable) {
+                status = "lỗi ffmpeg ${if (udp) "UDP" else "TCP"}"
+                log("ffmpeg lỗi: ${e.javaClass.simpleName} ${e.message?.take(100)}")
+                onErr("Cam ${if (udp) "UDP" else "TCP"}: ffmpeg lỗi · ${e.message?.take(60)}")
+            } finally {
+                grabber = null
+                try { g?.stop() } catch (_: Exception) {}
+                try { g?.release() } catch (_: Exception) {}
             }
-
-            vlc = lib
-            player = p
-            attachReader(p)
-            p.play()
-            gotFrame = false
-            // canh giu: 12 s khong co khung hinh nao thi bo, thu lai bang kieu truyen kia
-            h.postDelayed({
-                if (player === p && !gotFrame) {
-                    status = "không có hình sau 15 s · ${traceStr(tcp)}"; log("không có hình 15 s · $url ${traceStr(tcp)}"); onErr("Cam: $status")
-                    stopPlayer(); retryLater()
-                }
-            }, 15_000)
+            if (want) { retry++; sleep(minOf(8000L, 1500L * retry)) }
         }
+        keep?.interrupt(); keep = null
+        if (!is70) wifi()?.let { n -> try { api(n, "exitrecorder") } catch (_: Exception) {} }
+        unbindNet()
+        status = "đã tắt"
     }
 
-    @Volatile private var sized = false
-    /** Chi ghi lai kich thuoc that (de log). KHONG tao lai ImageReader/doi surface giua chung — gay van app. */
-    private fun fitTrack(p: MediaPlayer) {
-        if (sized) return
-        sized = true
-        val t = try { p.currentVideoTrack } catch (_: Exception) { null } ?: return
-        if (t.width >= 64 && t.height >= 64) log("kich thuoc that ${t.width}x${t.height}")
+    /** BGR24 (1280x720) -> I420 vao bo dem truc tiep -> YuvFrame -> onFrame. */
+    private fun deliver(f: Frame) {
+        val src = (f.image?.getOrNull(0) as? ByteBuffer) ?: return
+        val stride = f.imageStride                       // byte/hang (co the > W*3 do can le)
+        if (f.imageWidth != W || f.imageHeight != H) return
+        val buf = i420[bufI]; bufI = bufI xor 1
+        buf.clear()
+        val y = buf.duplicate()
+        val uStart = W * H
+        val vStart = W * H + W * H / 4
+        // Y
+        for (j in 0 until H) {
+            val row = j * stride
+            var oi = j * W
+            var i = row
+            var x = 0
+            while (x < W) {
+                val b = src.get(i).toInt() and 0xff
+                val gg = src.get(i + 1).toInt() and 0xff
+                val r = src.get(i + 2).toInt() and 0xff
+                val yy = (77 * r + 150 * gg + 29 * b) shr 8          // 0.299/0.587/0.114
+                y.put(oi, yy.coerceIn(0, 255).toByte())
+                i += 3; oi++; x++
+            }
+        }
+        // U, V: lay mau 2x2 (dung diem goc tren-trai moi o)
+        var ui = uStart; var vi = vStart
+        var j = 0
+        while (j < H) {
+            val row = j * stride
+            var x = 0
+            while (x < W) {
+                val i = row + x * 3
+                val b = src.get(i).toInt() and 0xff
+                val gg = src.get(i + 1).toInt() and 0xff
+                val r = src.get(i + 2).toInt() and 0xff
+                val u = ((-43 * r - 84 * gg + 127 * b) shr 8) + 128
+                val v = ((127 * r - 106 * gg - 21 * b) shr 8) + 128
+                buf.put(ui, u.coerceIn(0, 255).toByte())
+                buf.put(vi, v.coerceIn(0, 255).toByte())
+                ui++; vi++
+                x += 2
+            }
+            j += 2
+        }
+        frames++; gotFrame = true
+        if (!gotFrameLogged) { gotFrameLogged = true; log("khung hình đầu tiên ${W}x$H"); onErr("") }
+        val now = SystemClock.elapsedRealtime()
+        if (now - frAt > 10_000) { log("nhận $frames khung/10 s"); frames = 0; frAt = now }
+
+        val yPlane = sliced(buf, 0, W * H)
+        val uPlane = sliced(buf, uStart, W * H / 4)
+        val vPlane = sliced(buf, vStart, W * H / 4)
+        val fr = YuvFrame(
+            W, H, SystemClock.elapsedRealtimeNanos(),
+            arrayOf(
+                YuvFrame.Plane(yPlane, W, 1),
+                YuvFrame.Plane(uPlane, W / 2, 1),
+                YuvFrame.Plane(vPlane, W / 2, 1),
+            ),
+        ) {}
+        try { onFrame(fr) } catch (e: Throwable) { Log.w(TAG, "onFrame", e) }
     }
 
-    private fun attachReader(p: MediaPlayer) {
-        val old = reader
-        val rd = ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3)
-        rd.setOnImageAvailableListener({ ir ->
-            val im = try { ir.acquireLatestImage() } catch (_: Exception) { null } ?: return@setOnImageAvailableListener
-            frames++; gotFrame = true
-            if (!gotFrameLogged) { gotFrameLogged = true; log("khung hinh dau tien ${im.width}x${im.height}"); onErr("") }
-            val now = android.os.SystemClock.elapsedRealtime()
-            if (now - frAt > 10_000) { log("nhan $frames khung/10 s · ${im.width}x${im.height}"); frames = 0; frAt = now }
-            onFrame(im)     // onFrame tu dong close()
-        }, h)
-        reader = rd
-        val vout = p.vlcVout
-        if (attached) { try { vout.detachViews() } catch (_: Exception) {}; attached = false }
-        vout.setVideoSurface(rd.surface, null)
-        vout.setWindowSize(sz.width, sz.height)
-        vout.attachViews()
-        attached = true
-        // KHONG dong reader cu ngay: bo giai ma co the dang doi surface -> dong cham mot nhip
-        if (old != null) h.postDelayed({ try { old.close() } catch (_: Exception) {} }, 3000)
+    private fun sliced(buf: ByteBuffer, start: Int, len: Int): ByteBuffer {
+        val d = buf.duplicate(); d.position(start); d.limit(start + len); return d.slice()
     }
 
     @Volatile private var gotFrameLogged = false
 
-    private fun retryLater() {
-        if (!want) return
-        retry++
-        h.postDelayed({ if (want && player == null) open() }, minOf(15_000L, 2000L * retry))
-    }
-
-    private fun stopPlayer() {
-        gotFrameLogged = false
-        sized = false
-        try {
-            player?.let { p ->
-                p.setEventListener(null)
-                if (attached) { try { p.vlcVout.detachViews() } catch (_: Exception) {} }
-                p.stop()
-                p.release()
-            }
-        } catch (_: Exception) {}
-        attached = false
-        try { vlc?.release() } catch (_: Exception) {}
-        player = null; vlc = null
-        reader?.close(); reader = null
-    }
+    private fun sleep(ms: Long) { try { Thread.sleep(ms) } catch (_: InterruptedException) {} }
 
     override fun close() {
-        h.post {
-            want = false
-            stopPlayer()
-            if (!is70) wifi()?.let { n -> Thread { api(n, "exitrecorder") }.start() }
-            keep?.interrupt(); keep = null
-            unbindNet()           // tra mang mac dinh (4G) cho phan con lai cua app
-            status = "đã tắt"
-        }
+        want = false
+        val g = grabber
+        grabber = null
+        try { g?.stop() } catch (_: Exception) {}   // mo khoa grabImage dang cho
+        keep?.interrupt()
+        worker?.interrupt()
     }
 
     override fun setRate(hz: Int) {}
     override fun setPreview(s: Surface?) {}
-    override fun release() { close(); h.post { th.quitSafely() } }
+    override fun release() { close() }
 
     companion object {
         private const val TAG = "MirrorCam"
