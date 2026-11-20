@@ -163,9 +163,10 @@ class MirrorCam(
             if (!want || player != null) return@post
 
             // libVLC: it can keo luong RTSP cam re hon ExoPlayer.
-            // 0.1.71: buf=100% nhung Vout=0 khung=0 -> bo giai ma PHAN CUNG (MediaCodec) khong nhai duoc
-            // luong cam dam cam re (profile/chroma la). App hang dung ffmpeg giai ma PHAN MEM (libavcodec).
-            // Ep VLC giai ma phan mem (chinh libavcodec ma app hang dung) + xuat chroma mem (I420).
+            // 0.1.69 (HW decode) ĐÃ giai ma duoc: TCP cho Vout=1. Khung mat la do code cu tao LAI
+            // ImageReader MOI LAN Vout. 0.1.70 giu co dinh 1280x720 thi Vout=0 — vi VLC khong xuat
+            // duoc ra surface SAI KICH THUOC that cua luong. Nay: giai ma phan cung nhu 0.1.69, nhung
+            // khi biet kich thuoc that (Vout dau) thi doi ImageReader ve dung kich thuoc MOT LAN roi giu.
             val args = arrayListOf(
                 "--no-audio",
                 "--rtsp-timeout=5",
@@ -173,14 +174,12 @@ class MirrorCam(
                 "--live-caching=250",
                 "--no-stats",
                 "--quiet",
-                "--avcodec-hw=none",          // tat giai ma phan cung -> dung libavcodec phan mem
-                "--codec=avcodec",            // ep bo giai ma ffmpeg (giong app hang)
                 if (tcp) "--rtsp-tcp" else "--no-rtsp-tcp",
             )
             val lib = LibVLC(ctx, args)
             val p = MediaPlayer(lib)
             val media = Media(lib, Uri.parse(url))
-            media.setHWDecoderEnabled(false, false)  // giai ma phan mem (libavcodec) nhu app hang; HW tra Vout=0
+            media.setHWDecoderEnabled(true, true)   // uu tien HW, cho fallback phan mem (nhu 0.1.69 ra Vout=1)
             media.addOption(":network-caching=250")
             media.addOption(if (tcp) ":rtsp-tcp" else ":no-rtsp-tcp")
             p.media = media
@@ -223,11 +222,19 @@ class MirrorCam(
         }
     }
 
-    /** Khi VLC bao co luong hinh: CHI ghi lai kich thuoc that (de log), KHONG tao lai ImageReader.
-     * Doi surface giua chung lam MediaCodec cua VLC mat khung (Vout=1 nhung khung=0, 20/11). */
+    @Volatile private var sized = false
+    /** Lan Vout dau: doi ImageReader ve DUNG kich thuoc that cua luong MOT LAN roi giu (khong doi nua).
+     * VLC khong xuat duoc ra surface sai kich thuoc (0.1.70 Vout=0); doi dung kich thuoc -> ra khung. */
     private fun fitTrack(p: MediaPlayer) {
+        if (sized) return
         val t = try { p.currentVideoTrack } catch (_: Exception) { null } ?: return
-        if (t.width >= 64 && t.height >= 64) log("kich thuoc that ${t.width}x${t.height} (VLC thu nho ve ${sz.width}x${sz.height})")
+        if (t.width < 64 || t.height < 64) return
+        sized = true
+        if (t.width == sz.width && t.height == sz.height) { log("kich thuoc that khop ${t.width}x${t.height}"); return }
+        log("doi surface ve kich thuoc that ${t.width}x${t.height} (tu ${sz.width}x${sz.height})")
+        sz = Size(t.width, t.height)
+        onSize()                       // bao AdasService tinh lai hinh hoc theo kich thuoc moi
+        attachReader(p)                // tao lai ImageReader dung kich thuoc, re-attach MOT LAN
     }
 
     private fun attachReader(p: MediaPlayer) {
@@ -262,6 +269,7 @@ class MirrorCam(
 
     private fun stopPlayer() {
         gotFrameLogged = false
+        sized = false
         try {
             player?.let { p ->
                 p.setEventListener(null)
