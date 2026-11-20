@@ -43,6 +43,9 @@ class MirrorCam(
     private val HOST = if (is70) "192.168.0.1" else "192.168.5.1"
     // 70mai: duong luong cong khai cua dong M300/Pro; thu xoay vong neu cam khac tra loi
     private val paths70 = listOf("/livestream/12", "/livestream/11", "/livestream/1", "/live")
+    // cam guong Sinjet: app hang mo rtsp://192.168.5.1:554 (khong ro duong). RTSP bat tay xong ma khong co RTP
+    // -> co the sai duong luong: xoay vong thu vai duong pho bien cua chip cam re
+    private val pathsMirror = listOf("", "/live", "/ch0_0", "/0", "/11", "/stream0", "/livestream/0", "/live/0")
     private val th = HandlerThread("mirror").apply { start() }
     private val h = Handler(th.looper)
     private var vlc: LibVLC? = null
@@ -126,7 +129,7 @@ class MirrorCam(
             Log.i(TAG, status); log(status)
             if (!is70 && retry < 2) { log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function")); log("rtsp_url: " + api(net, "getparamvalue?param=rtsp_url")); log("stream: " + api(net, "getparamvalue?param=stream_info")) }
             if (!is70) try { Thread.sleep(1500) } catch (_: InterruptedException) {}
-            val url = if (is70) "rtsp://$HOST:554" + paths70[(retry / 2) % paths70.size] else "rtsp://$HOST:554"
+            val url = "rtsp://$HOST:554" + (if (is70) paths70[(retry / 2) % paths70.size] else pathsMirror[(retry / 2) % pathsMirror.size])
             log((if (is70) "70mai" else "cam gương") + " thu $url ${if (tcp) "TCP" else "UDP"} (VLC)")
             if (!want || player != null) return@post
 
@@ -177,10 +180,10 @@ class MirrorCam(
             // canh giu: 10 s khong co khung hinh nao thi bo, thu lai bang kieu truyen kia
             h.postDelayed({
                 if (player === p && !gotFrame) {
-                    status = "không có hình sau 10 s (${if (tcp) "TCP" else "UDP"})"; log(status); onErr("Cam: $status")
+                    status = "không có hình sau 12 s"; log("không có hình sau 12 s · $url ${if (tcp) "TCP" else "UDP"}"); onErr("Cam: $status (${if (tcp) "TCP" else "UDP"})")
                     stopPlayer(); retryLater()
                 }
-            }, 10_000)
+            }, 12_000)
         }
     }
 
