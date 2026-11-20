@@ -43,9 +43,6 @@ class MirrorCam(
     private val HOST = if (is70) "192.168.0.1" else "192.168.5.1"
     // 70mai: duong luong cong khai cua dong M300/Pro; thu xoay vong neu cam khac tra loi
     private val paths70 = listOf("/livestream/12", "/livestream/11", "/livestream/1", "/live")
-    // cam guong Sinjet: app hang mo rtsp://192.168.5.1:554 (khong ro duong). RTSP bat tay xong ma khong co RTP
-    // -> co the sai duong luong: xoay vong thu vai duong pho bien cua chip cam re
-    private val pathsMirror = listOf("", "/live", "/ch0_0", "/0", "/11", "/stream0", "/livestream/0", "/live/0")
     private val th = HandlerThread("mirror").apply { start() }
     private val h = Handler(th.looper)
     private var vlc: LibVLC? = null
@@ -123,13 +120,15 @@ class MirrorCam(
                 try { Thread.sleep(800) } catch (_: InterruptedException) {}
                 "70mai"
             } else api(net, "enterrecorder")
-            // cam can thoi gian bat may chu RTSP sau enterrecorder; xen ke TCP/UDP qua moi lan thu lai
-            val tcp = retry % 2 == 0
+            // App hang (Sinjet, mpv/ffmpeg) chi goi enterrecorder roi mo rtsp://192.168.5.1:554, KHONG path,
+            // va ffmpeg mac dinh RTSP = UDP. 0.1.65 ep TCP truoc -> tat. Nay cam guong UU TIEN UDP (giong mpv),
+            // xen ke sang TCP neu UDP khong duoc. 70mai van TCP truoc.
+            val tcp = if (is70) retry % 2 == 0 else retry % 2 == 1
             status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
             Log.i(TAG, status); log(status)
-            if (!is70 && retry < 2) { log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function")); log("rtsp_url: " + api(net, "getparamvalue?param=rtsp_url")); log("stream: " + api(net, "getparamvalue?param=stream_info")) }
-            if (!is70) try { Thread.sleep(1500) } catch (_: InterruptedException) {}
-            val url = "rtsp://$HOST:554" + (if (is70) paths70[(retry / 2) % paths70.size] else pathsMirror[(retry / 2) % pathsMirror.size])
+            if (!is70) try { Thread.sleep(1200) } catch (_: InterruptedException) {}
+            // cam guong: URL tran nhu app hang; 70mai xoay vong duong luong
+            val url = "rtsp://$HOST:554" + (if (is70) paths70[(retry / 2) % paths70.size] else "")
             log((if (is70) "70mai" else "cam gương") + " thu $url ${if (tcp) "TCP" else "UDP"} (VLC)")
             if (!want || player != null) return@post
 
