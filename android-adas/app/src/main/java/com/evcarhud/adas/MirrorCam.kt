@@ -47,6 +47,7 @@ class MirrorCam(
     private var reader: ImageReader? = null
     private var want = false
     private var retry = 0
+    private var decFail = 0
 
     @Volatile private var sz = Size(1920, 1080)
     override val size: Size get() = sz
@@ -106,9 +107,11 @@ class MirrorCam(
                 }
                 override fun onPlayerError(e: PlaybackException) {
                     var c: Throwable? = e.cause; var why = ""
-                    while (c != null && why.length < 90) { why += " ← " + c.javaClass.simpleName + (c.message?.let { ": " + it.take(50) } ?: ""); c = c.cause }
+                    while (c != null && why.length < 600) { why += " ← " + c.javaClass.simpleName + (c.message?.let { ": " + it.take(220) } ?: ""); c = c.cause }
                     status = "lỗi RTSP ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why"
+                    if (e.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) decFail++
                     Log.w(TAG, "rtsp", e); log(status)
+                    why = why.take(160)
                     onErr("${if (is70) "Cam 70mai" else "Cam gương"} ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why")
                     stopPlayer(); retryLater()
                 }
@@ -124,14 +127,20 @@ class MirrorCam(
 
     private fun attachReader(p: ExoPlayer) {
         val old = reader
-        val rd = ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3)
+        // lan 2 tro di sau loi khoi tao bo giai ma: tao ImageReader co co dung (mot so bo giai ma Qualcomm doi co nay)
+        val rd = if (decFail > 0 && android.os.Build.VERSION.SDK_INT >= 29)
+            ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3,
+                android.hardware.HardwareBuffer.USAGE_CPU_READ_OFTEN or android.hardware.HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE)
+        else ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3)
         rd.setOnImageAvailableListener({ ir ->
             val im = try { ir.acquireLatestImage() } catch (_: Exception) { null } ?: return@setOnImageAvailableListener
             onFrame(im)     // onFrame tu dong close()
         }, h)
         reader = rd
         p.setVideoSurface(rd.surface)
-        old?.close()
+        // KHONG dong reader cu ngay: setVideoSurface chay bat dong bo tren luong phat, bo giai ma co the dang cau hinh
+        // voi surface cu -> dong ngay thi MediaCodec.configure bao IllegalArgumentException (loi DECODER_INIT_FAILED 20/11)
+        if (old != null) h.postDelayed({ try { old.close() } catch (_: Exception) {} }, 3000)
     }
 
     private fun retryLater() {
