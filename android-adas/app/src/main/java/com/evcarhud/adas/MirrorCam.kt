@@ -71,7 +71,7 @@ class MirrorCam(
         val c = net.openConnection(URL("http://$HOST:8000/app/$q")) as HttpURLConnection
         c.connectTimeout = 2000; c.readTimeout = 3000
         val code = c.responseCode
-        val b = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText().take(120) } ?: ""
+        val b = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText().replace(Regex("\\s+"), " ").take(220) } ?: ""
         c.disconnect(); "$code $b"
     } catch (e: Exception) { "lỗi ${e.javaClass.simpleName} ${e.message?.take(80) ?: ""}" }
 
@@ -122,7 +122,7 @@ class MirrorCam(
             val tcp = retry % 2 == 0
             status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
             Log.i(TAG, status); log(status)
-            if (retry == 0 && !is70) log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function"))
+            if (!is70 && retry < 2) { log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function")); log("rtsp_url: " + api(net, "getparamvalue?param=rtsp_url")); log("stream: " + api(net, "getparamvalue?param=stream_info")) }
             if (!is70) try { Thread.sleep(1500) } catch (_: InterruptedException) {}
             val url = if (is70) "rtsp://$HOST:554" + paths70[(retry / 2) % paths70.size] else "rtsp://$HOST:554"
             if (is70) log("70mai thu $url ${if (tcp) "TCP" else "UDP"}")
