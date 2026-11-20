@@ -63,6 +63,15 @@ class MirrorCam(
     override val flip = false
     override val isOpen get() = want
     @Volatile var status = "chưa mở"
+    // dau vet su kien VLC (hien len man hinh, khong can log may chu)
+    @Volatile private var evOpen = false
+    @Volatile private var evPlay = false
+    @Volatile private var evBufMax = 0
+    @Volatile private var evVout = 0
+    @Volatile private var evErr = ""
+    private fun traceStr(tcp: Boolean) =
+        "VLC[${if (tcp) "TCP" else "UDP"} O=${if (evOpen) 1 else 0} buf=$evBufMax% P=${if (evPlay) 1 else 0} Vout=$evVout khung=$frames]$evErr"
+    private fun showTrace(tcp: Boolean) { status = traceStr(tcp); onErr("Cam: ${traceStr(tcp)}") }
 
     private fun wifi(): Network? {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -151,20 +160,22 @@ class MirrorCam(
             p.media = media
             media.release()
 
+            // dau vet hien thang len man hinh (khong phu thuoc log may chu, vi Wi-Fi cam khong co mang)
+            evOpen = false; evPlay = false; evBufMax = 0; evVout = 0; evErr = ""
             p.setEventListener { e ->
                 when (e.type) {
-                    MediaPlayer.Event.Opening -> log("VLC mo luong")
-                    MediaPlayer.Event.Buffering -> if (e.buffering >= 100f) log("VLC nap xong 100%")
+                    MediaPlayer.Event.Opening -> { evOpen = true; log("VLC mo luong"); showTrace(tcp) }
+                    MediaPlayer.Event.Buffering -> { val b = e.buffering.toInt(); if (b > evBufMax) { evBufMax = b; showTrace(tcp) }; if (e.buffering >= 100f) log("VLC nap xong 100%") }
                     MediaPlayer.Event.Playing -> {
-                        status = "đang phát ${if (tcp) "TCP" else "UDP"} $url"; log("VLC Playing · $status")
+                        evPlay = true; status = "đang phát ${if (tcp) "TCP" else "UDP"} $url"; log("VLC Playing · $status"); showTrace(tcp)
                     }
                     MediaPlayer.Event.Vout -> {
-                        log("VLC Vout x${e.voutCount}")
+                        evVout = e.voutCount; log("VLC Vout x${e.voutCount}"); showTrace(tcp)
                         if (e.voutCount > 0) fitTrack(p)
                     }
                     MediaPlayer.Event.EncounteredError -> {
-                        status = "lỗi VLC ${if (tcp) "TCP" else "UDP"} $url"; log(status)
-                        onErr("${if (is70) "Cam 70mai" else "Cam gương"} ${if (tcp) "TCP" else "UDP"}: VLC báo lỗi luồng")
+                        evErr = "E"; status = "lỗi VLC ${if (tcp) "TCP" else "UDP"} $url"; log(status)
+                        onErr("Cam ${if (tcp) "TCP" else "UDP"}: VLC lỗi luồng · ${traceStr(tcp)}")
                         stopPlayer(); retryLater()
                     }
                     MediaPlayer.Event.EndReached -> { log("VLC het luong"); stopPlayer(); retryLater() }
@@ -176,10 +187,10 @@ class MirrorCam(
             attachReader(p)
             p.play()
             gotFrame = false
-            // canh giu: 10 s khong co khung hinh nao thi bo, thu lai bang kieu truyen kia
+            // canh giu: 12 s khong co khung hinh nao thi bo, thu lai bang kieu truyen kia
             h.postDelayed({
                 if (player === p && !gotFrame) {
-                    status = "không có hình sau 12 s"; log("không có hình sau 12 s · $url ${if (tcp) "TCP" else "UDP"}"); onErr("Cam: $status (${if (tcp) "TCP" else "UDP"})")
+                    status = "không có hình sau 12 s · ${traceStr(tcp)}"; log("không có hình 12 s · $url ${traceStr(tcp)}"); onErr("Cam: $status")
                     stopPlayer(); retryLater()
                 }
             }, 12_000)
