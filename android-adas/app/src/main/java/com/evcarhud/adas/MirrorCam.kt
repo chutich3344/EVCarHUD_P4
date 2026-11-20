@@ -72,13 +72,48 @@ class MirrorCam(
         c.disconnect(); "$code $b"
     } catch (e: Exception) { "lỗi ${e.javaClass.simpleName} ${e.message?.take(80) ?: ""}" }
 
+    /** 70mai (HiSilicon "hisnet", thttpd cong 80): GET /cgi-bin/hisnet/<cgi>. */
+    private fun hisnet(net: Network, q: String): String = try {
+        val c = net.openConnection(URL("http://$HOST/cgi-bin/hisnet/$q")) as HttpURLConnection
+        c.connectTimeout = 2000; c.readTimeout = 3000
+        val code = c.responseCode
+        val b = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText().replace('\n', ' ').take(160) } ?: ""
+        c.disconnect(); "$code $b"
+    } catch (e: Exception) { "lỗi ${e.javaClass.simpleName} ${e.message?.take(80) ?: ""}" }
+
+    private fun myIp(net: Network): String? {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        return cm.getLinkProperties(net)?.linkAddresses?.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
+    }
+
+    // 70mai: app hang bao "dien thoai dang noi" bang client.cgi register lap lai vai giay/lan; RTSP tra 406 khi chua dang ky
+    private var keep: Thread? = null
+    private fun startKeep(net: Network) {
+        if (keep?.isAlive == true) return
+        val ip = myIp(net) ?: return
+        keep = Thread {
+            var n = 0
+            while (want) {
+                val r = hisnet(net, "client.cgi?&-operation=register&-ip=$ip")
+                if (n++ < 2 || !r.startsWith("200")) log("70mai register: $r")
+                try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
     override fun open() {
         h.post {
             want = true
             if (player != null) return@post
             val net = wifi()
             if (net == null) { status = "chưa nối Wi-Fi cam"; onErr(if (is70) "Chưa nối Wi-Fi cam 70mai (70mai_…)" else "Chưa nối Wi-Fi cam gương (mirror_wifi…)"); retryLater(); return@post }
-            val r = if (is70) "70mai" else api(net, "enterrecorder")
+            val r = if (is70) {
+                if (retry == 0) log("70mai thong tin: " + hisnet(net, "getdeviceattr.cgi"))
+                log("70mai register: " + hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}"))
+                startKeep(net)
+                try { Thread.sleep(800) } catch (_: InterruptedException) {}
+                "70mai"
+            } else api(net, "enterrecorder")
             // cam can thoi gian bat may chu RTSP sau enterrecorder; xen ke UDP (mac dinh cua app hang/ffmpeg) va TCP
             val tcp = retry % 2 == 1
             status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
@@ -160,6 +195,7 @@ class MirrorCam(
             want = false
             stopPlayer()
             if (!is70) wifi()?.let { n -> Thread { api(n, "exitrecorder") }.start() }
+            keep?.interrupt(); keep = null
             status = "đã tắt"
         }
     }
