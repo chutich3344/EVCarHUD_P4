@@ -48,6 +48,8 @@ class MirrorCam(
     private var want = false
     private var retry = 0
     private var decFail = 0
+    private var frames = 0
+    private var frAt = 0L
 
     @Volatile private var sz = Size(1920, 1080)
     override val size: Size get() = sz
@@ -133,13 +135,16 @@ class MirrorCam(
                 .createMediaSource(MediaItem.fromUri(Uri.parse(url)))
             p.addListener(object : Player.Listener {
                 override fun onVideoSizeChanged(v: VideoSize) {
+                    log("kich thuoc hinh ${v.width}x${v.height}")
                     if (v.width <= 0 || v.height <= 0 || bogus(v.width, v.height)) return
                     if (v.width == sz.width && v.height == sz.height && reader != null) return
                     sz = Size(v.width, v.height)
                     attachReader(p)
                     onSize()
                 }
+                override fun onRenderedFirstFrame() { log("khung hinh dau tien ${sz.width}x${sz.height}") }
                 override fun onPlaybackStateChanged(s: Int) {
+                    log("trang thai " + when (s) { Player.STATE_BUFFERING -> "dang nap"; Player.STATE_READY -> "san sang"; Player.STATE_ENDED -> "het"; else -> "nghi" })
                     if (s == Player.STATE_READY) { status = "đang nhận hình ${sz.width}x${sz.height} ${if (tcp) "TCP" else "UDP"} $url"; log(status); onErr("") }
                 }
                 override fun onPlayerError(e: PlaybackException) {
@@ -171,6 +176,9 @@ class MirrorCam(
         else ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3)
         rd.setOnImageAvailableListener({ ir ->
             val im = try { ir.acquireLatestImage() } catch (_: Exception) { null } ?: return@setOnImageAvailableListener
+            frames++
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - frAt > 10_000) { log("nhan $frames khung/10 s · ${im.width}x${im.height}"); frames = 0; frAt = now }
             onFrame(im)     // onFrame tu dong close()
         }, h)
         reader = rd

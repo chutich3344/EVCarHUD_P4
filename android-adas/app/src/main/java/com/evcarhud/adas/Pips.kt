@@ -254,73 +254,49 @@ class TileMap(ctx: Context) : View(ctx) {
         val parts = ArrayList<String>()
         if (rm >= 0) parts += if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')
         if (WazeNav.etaMin >= 0) parts += "${WazeNav.etaMin} phút"
-        if (WazeNav.etaClock.isNotEmpty()) parts += "đến ${WazeNav.etaClock}"
-        bannerCore(cv, w, h, trn, WazeNav.exit, big, WazeNav.street, parts.joinToString(" · "), "Waze")
+        bannerCore(cv, w, h, trn, WazeNav.exit, big, WazeNav.street, parts.joinToString(" · "), "")
     }
 
+    /** Bang re gon (nguoi dung chot 20/11): mui ten trang khong o vuong, so met, ben phai "km con lai · phut", duoi la ten duong. */
     private fun bannerCore(cv: Canvas, w: Float, h: Float, trn: Int, exit: Int, big: String, st: String, info: String, tag: String) {
-        val bh = h * 0.27f
-        p.style = Paint.Style.FILL; p.color = Color.argb(235, 8, 10, 14)
+        val bh = h * 0.24f
+        p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14)
         cv.drawRect(0f, 0f, w, bh, p)
         p.textAlign = Paint.Align.LEFT
-        val box = bh * 0.78f; val bx = h * 0.04f; val by = (bh - box) / 2
-        p.color = Color.rgb(74, 222, 128); cv.drawRoundRect(RectF(bx, by, bx + box, by + box), box * 0.22f, box * 0.22f, p)
-        drawTurn(cv, trn, bx + box / 2, by + box / 2, box * 0.36f, exit)
+        val a = bh * 0.30f; val ax = h * 0.04f + a; val ay = bh * 0.5f
+        arrowCol = Color.WHITE; drawTurn(cv, trn, ax, ay, a, exit); arrowCol = Color.rgb(6, 30, 20)
         p.style = Paint.Style.FILL; p.strokeWidth = 0f
-        val tx = bx + box + h * 0.04f
-        p.color = Color.WHITE; p.textSize = bh * 0.42f; p.typeface = bold
-        cv.drawText(big, tx, bh * 0.5f, p)
-        if (tag.isNotEmpty()) {
-            p.textSize = bh * 0.17f; p.textAlign = Paint.Align.RIGHT; p.color = Color.argb(160, 255, 255, 255)
-            cv.drawText(tag, w - h * 0.04f, bh * 0.36f, p); p.textAlign = Paint.Align.LEFT
+        val tx = ax + a + h * 0.05f
+        p.color = Color.WHITE; p.textSize = bh * 0.46f; p.typeface = bold
+        cv.drawText(big, tx, bh * 0.52f, p)
+        val bw = p.measureText(big)
+        if (info.isNotEmpty()) {
+            p.textSize = bh * 0.24f; p.color = Color.argb(235, 255, 255, 255); p.textAlign = Paint.Align.RIGHT
+            val iw = minOf(p.measureText(info), w - tx - bw - h * 0.08f)
+            if (iw > 0) cv.drawText(fit(info, iw + 1f), w - h * 0.04f, bh * 0.50f, p)
+            p.textAlign = Paint.Align.LEFT
         }
-        p.textSize = bh * 0.2f; p.color = Color.argb(235, 255, 255, 255)
-        cv.drawText(fit(st, w - tx - h * 0.03f), tx, bh * 0.82f, p)
-        if (info.isEmpty()) return
-        p.textSize = h * 0.07f
-        val iw = p.measureText(info) + h * 0.06f
-        p.color = Color.argb(200, 8, 10, 14)
-        cv.drawRoundRect(RectF(w - iw - h * 0.03f, bh + h * 0.02f, w - h * 0.03f, bh + h * 0.12f), h * 0.04f, h * 0.04f, p)
-        p.color = Color.WHITE; p.textAlign = Paint.Align.RIGHT
-        cv.drawText(info, w - h * 0.06f, bh + h * 0.095f, p)
-        p.textAlign = Paint.Align.LEFT
+        p.textSize = bh * 0.22f; p.color = Color.argb(235, 255, 255, 255)
+        cv.drawText(fit(if (tag.isNotEmpty() && st.isEmpty()) tag else st, w - tx - h * 0.03f), tx, bh * 0.86f, p)
     }
 
     /** Bang tren cung khi dan duong: mui ten re + khoang cach + ten duong; dong duoi: con lai / gio den. */
     private fun drawBanner(cv: Canvas, w: Float, h: Float) {
-        val bh = h * 0.27f
-        p.style = Paint.Style.FILL; p.color = Color.argb(235, 8, 10, 14)
-        cv.drawRect(0f, 0f, w, bh, p)
         val r = Nav.route; val s = Nav.next()
-        p.textAlign = Paint.Align.LEFT
         if (r == null && !Nav.arrived) {
-            p.color = Color.WHITE; p.textSize = h * 0.075f
+            val bh = h * 0.24f
+            p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14); cv.drawRect(0f, 0f, w, bh, p)
+            p.color = Color.WHITE; p.textSize = h * 0.075f; p.textAlign = Paint.Align.LEFT
             cv.drawText(fit(Nav.msg, w - h * 0.1f), h * 0.05f, bh * 0.58f, p)
             return
         }
         val trn = if (Nav.arrived) 17 else s?.trn ?: 1
-        val box = bh * 0.78f; val bx = h * 0.04f; val by = (bh - box) / 2
-        p.color = Color.rgb(74, 222, 128); cv.drawRoundRect(RectF(bx, by, bx + box, by + box), box * 0.22f, box * 0.22f, p)
-        drawTurn(cv, trn, bx + box / 2, by + box / 2, box * 0.36f, s?.exit ?: 0)
-        p.style = Paint.Style.FILL; p.strokeWidth = 0f        // drawTurn de lai net STROKE day -> chu bi nhoe
-        val tx = bx + box + h * 0.04f
         val dm = Nav.nextDist()
         val big = when { Nav.arrived -> "Đã đến"; dm < 0 -> ""; dm < 1000 -> "${(dm / 10) * 10} m"; else -> "%.1f km".format(dm / 1000f).replace('.', ',') }
-        p.color = Color.WHITE; p.textSize = bh * 0.42f; p.typeface = bold
-        cv.drawText(big, tx, bh * 0.5f, p)
-        val st = if (Nav.arrived || trn == 17) Nav.dest?.name ?: "" else s?.name?.ifEmpty { "" } ?: ""
-        p.textSize = bh * 0.2f; p.color = Color.argb(235, 255, 255, 255)
-        cv.drawText(fit(st, w - tx - h * 0.03f), tx, bh * 0.82f, p)
-        // dong nho ngay duoi bang: con lai + gio den
+        val st = if (Nav.arrived || trn == 17) Nav.dest?.name ?: "" else s?.name ?: ""
         val rm = Nav.remainM()
-        val info = (if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')) + " · ${(Nav.remainS() + 59) / 60} phút · đến ${Nav.eta()}"
-        p.textSize = h * 0.07f
-        val iw = p.measureText(info) + h * 0.06f
-        p.color = Color.argb(200, 8, 10, 14)
-        cv.drawRoundRect(RectF(w - iw - h * 0.03f, bh + h * 0.02f, w - h * 0.03f, bh + h * 0.12f), h * 0.04f, h * 0.04f, p)
-        p.color = Color.WHITE; p.textAlign = Paint.Align.RIGHT
-        cv.drawText(info, w - h * 0.06f, bh + h * 0.095f, p)
-        p.textAlign = Paint.Align.LEFT
+        val info = if (Nav.arrived) "" else (if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')) + " · ${(Nav.remainS() + 59) / 60} phút"
+        bannerCore(cv, w, h, trn, s?.exit ?: 0, big, st, info, "")
     }
 
     private fun fit(t: String, maxW: Float): String {
