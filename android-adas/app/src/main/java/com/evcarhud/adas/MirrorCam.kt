@@ -151,7 +151,9 @@ class MirrorCam(
             // xen ke sang TCP neu UDP khong duoc. 70mai van TCP truoc.
             // 20/11: sau khi bam mang Wi-Fi cam, TCP vao duoc buf=75% + Vout=1 (UDP chi 45%, Vout=0)
             // -> cam guong UU TIEN TCP. Van xen ke UDP de phong.
-            val tcp = retry % 2 == 0
+            // Cam gương: UDP luôn buf=0% (gói RTP cam rẻ không tới được), chỉ TCP mới nạp 100%.
+            // Ghim TCP cho cam gương để mỗi lần thử đều có dữ liệu (thử đúng khâu giải mã). 70mai vẫn xoay.
+            val tcp = if (is70) retry % 2 == 0 else true
             status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
             Log.i(TAG, status); log(status)
             if (!is70) try { Thread.sleep(1200) } catch (_: InterruptedException) {}
