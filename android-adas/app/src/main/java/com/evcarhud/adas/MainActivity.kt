@@ -220,10 +220,10 @@ class MainActivity : Activity() {
                 T("Tốc độ mặc định theo luật", "50 / 60 khi chưa thấy biển (bản đồ OSM)", { prefs.defLimit }, { b -> prefs.defLimit = b }, false),
                 T("Camera phạt nguội", "lấy từ Waze / GOFA", { prefs.camAlert }, { b -> prefs.camAlert = b }, false),
             ) },
-            SettingsView.Cat("cam", "Camera", { (if (prefs.camSrc == "mirror") "cam gương" else "ĐT") + " · " + (if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "đã hiệu chỉnh" else "đang học") }) { listOf(
-                S("Nguồn camera", null, listOf("Điện thoại", "Cam gương Wi-Fi"), { if (prefs.camSrc == "mirror") 1 else 0 }, { k ->
-                    val m = if (k == 1) "mirror" else "phone"
-                    if (m != prefs.camSrc) { prefs.camSrc = m; svc?.switchCam(); toast(if (k == 1) "Dùng cam gương: điện thoại phải đang nối Wi-Fi của cam" else "Dùng camera điện thoại") }
+            SettingsView.Cat("cam", "Camera", { (when (prefs.camSrc) { "mirror" -> "cam gương"; "70mai" -> "70mai"; else -> "ĐT" }) + " · " + (if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "đã hiệu chỉnh" else "đang học") }) { listOf(
+                S("Nguồn camera", null, listOf("Điện thoại", "Cam gương", "70mai"), { when (prefs.camSrc) { "mirror" -> 1; "70mai" -> 2; else -> 0 } }, { k ->
+                    val m = when (k) { 1 -> "mirror"; 2 -> "70mai"; else -> "phone" }
+                    if (m != prefs.camSrc) { prefs.camSrc = m; svc?.switchCam(); toast(when (k) { 1 -> "Dùng cam gương: điện thoại phải đang nối Wi-Fi của cam"; 2 -> "Dùng cam 70mai: nối Wi-Fi 70mai_… của cam"; else -> "Dùng camera điện thoại" }) }
                 }, false),
                 H("Hiệu chỉnh"),
                 T("Tự hiệu chỉnh", svc?.calibInfo()?.lineSequence()?.firstOrNull(), { prefs.autoCalib }, { b -> svc?.setAuto(b) }, false),

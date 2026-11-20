@@ -290,7 +290,7 @@ class AdasService : Service() {
         // bo bao loi cua nguon cu (vd. cam guong da tat sau khi doi ve camera dien thoai)
         val err: (String) -> Unit = { e -> main.post { if (me == null || cam === me) { loadMsg = e; publishIdle() } } }
         try {
-            me = if (prefs.camSrc == "mirror") MirrorCam(this, ::onFrame, err, { main.post { rebuildGeom() } }, { clog?.line("cam guong: $it") })
+            me = if (prefs.camSrc != "phone") MirrorCam(this, ::onFrame, err, { main.post { rebuildGeom() } }, { clog?.line("cam wifi: $it") }, prefs.camSrc)
             else CamSource(this, ::onFrame, err)
             cam = me
         } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
@@ -300,7 +300,7 @@ class AdasService : Service() {
     fun switchCam() {
         cam?.release(); cam = null; loadMsg = ""
         // cam guong: goc lap tu 3 clip 17/11 (cui -0,04, lech 0,09); tu hieu chinh yaw chay tiep. Dien thoai: lay lai tu trong luc
-        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else { calYaw = 0.0; gP = Double.NaN }
+        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = 0.0; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; gP = Double.NaN }
         prefs.calibrated = false; yawGood = 0
         saveCalib()
         makeCam(); rebuildGeom(); applyRate()
@@ -342,7 +342,7 @@ class AdasService : Service() {
 
     /** Hoc lai hieu chinh tu dau (ve goc mac dinh cua nguon camera hien tai). */
     fun resetCalib() {
-        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else { calYaw = 0.0; calRoll = 0.0; gP = Double.NaN }
+        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = 0.0; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; calRoll = 0.0; gP = Double.NaN }
         prefs.autoCalib = true; prefs.calibrated = false; yawGood = 0
         saveCalib(); rebuildGeom()
         clog?.line("hoc lai hieu chinh")
@@ -462,7 +462,7 @@ class AdasService : Service() {
     // truoc = -z may, phai = -y may, xuong = -x may. Gia toc ke do huong "len" (a).
     private val gravL = object : SensorEventListener {
         override fun onSensorChanged(e: SensorEvent) {
-            if (!prefs.autoCalib || prefs.camSrc == "mirror") return   // cam guong: trong luc cua dien thoai khong lien quan
+            if (!prefs.autoCalib || prefs.camSrc != "phone") return   // cam guong: trong luc cua dien thoai khong lien quan
             val ax = e.values[0].toDouble(); val ay = e.values[1].toDouble(); val az = e.values[2].toDouble()
             val n = sqrt(ax * ax + ay * ay + az * az)
             if (n < 8.8 || n > 10.8) return                      // dang tang/giam toc, o ga: bo
@@ -738,7 +738,7 @@ class AdasService : Service() {
         val ai = if (m == null) "AI đang nạp" else if (o == null || targetHz == 0) "AI ${m.backend} dừng" else "AI ${m.backend} ${lastMs}ms ${measHz}/s"
         val det = if (o != null) " · xe ${(o.leadProb * 100).roundToInt()}% · vạch ${(o.laneProb[1] * 100).roundToInt()}/${(o.laneProb[2] * 100).roundToInt()}%" else ""
         val cal = if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "HC xong" else "đang HC"
-        val src = if (prefs.camSrc == "mirror") "cam gương" else "cam ĐT"
+        val src = when (prefs.camSrc) { "mirror" -> "cam gương"; "70mai" -> "cam 70mai"; else -> "cam ĐT" }
         val lg = clog?.let { "log ${it.short}" } ?: ""
         val sg = if (prefs.signs) " · biển ${signDet?.info ?: "-"}" else ""
         return "$ai$det · $cal · $src · $lg$sg"

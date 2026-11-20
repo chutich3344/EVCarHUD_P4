@@ -34,7 +34,13 @@ class MirrorCam(
     private val onErr: (String) -> Unit,
     private val onSize: () -> Unit,
     private val log: (String) -> Unit = {},
+    /** "mirror" = cam guong Sinjet (goi API :8000 truoc), "70mai" = cam hanh trinh 70mai (RTSP thang /livestream/12, cam 192.168.0.1). */
+    private val kind: String = "mirror",
 ) : FrameSource {
+    private val is70 = kind == "70mai"
+    private val HOST = if (is70) "192.168.0.1" else "192.168.5.1"
+    // 70mai: duong luong cong khai cua dong M300/Pro; thu xoay vong neu cam khac tra loi
+    private val paths70 = listOf("/livestream/12", "/livestream/11", "/livestream/1", "/live")
     private val th = HandlerThread("mirror").apply { start() }
     private val h = Handler(th.looper)
     private var player: ExoPlayer? = null
@@ -44,8 +50,9 @@ class MirrorCam(
 
     @Volatile private var sz = Size(1920, 1080)
     override val size: Size get() = sz
-    override val focalPx: Double get() = 520.0 * sz.width / 1280.0
-    override val focalSrc = "cam gương Wi-Fi"
+    // 70mai M310 goc rong ~130 do cheo -> f uoc ~450 px o ngang 1280 (tu hieu chinh se chinh lai)
+    override val focalPx: Double get() = (if (is70) 450.0 else 520.0) * sz.width / 1280.0
+    override val focalSrc = if (is70) "cam 70mai Wi-Fi" else "cam gương Wi-Fi"
     override val flip = false
     override val isOpen get() = want
     @Volatile var status = "chưa mở"
@@ -69,21 +76,23 @@ class MirrorCam(
             want = true
             if (player != null) return@post
             val net = wifi()
-            if (net == null) { status = "chưa nối Wi-Fi cam gương"; onErr("Chưa nối Wi-Fi cam gương (mirror_wifi…)"); retryLater(); return@post }
-            val r = api(net, "enterrecorder")
+            if (net == null) { status = "chưa nối Wi-Fi cam"; onErr(if (is70) "Chưa nối Wi-Fi cam 70mai (70mai_…)" else "Chưa nối Wi-Fi cam gương (mirror_wifi…)"); retryLater(); return@post }
+            val r = if (is70) "70mai" else api(net, "enterrecorder")
             // cam can thoi gian bat may chu RTSP sau enterrecorder; xen ke UDP (mac dinh cua app hang/ffmpeg) va TCP
             val tcp = retry % 2 == 1
             status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
             Log.i(TAG, status); log(status)
-            if (retry == 0) log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function"))
-            try { Thread.sleep(1500) } catch (_: InterruptedException) {}
+            if (retry == 0 && !is70) log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function"))
+            if (!is70) try { Thread.sleep(1500) } catch (_: InterruptedException) {}
+            val url = if (is70) "rtsp://$HOST:554" + paths70[(retry / 2) % paths70.size] else "rtsp://$HOST:554"
+            if (is70) log("70mai thu $url ${if (tcp) "TCP" else "UDP"}")
             if (!want || player != null) return@post
             val p = ExoPlayer.Builder(ctx).setLooper(th.looper).build()
             val src = RtspMediaSource.Factory()
                 .setForceUseRtpTcp(tcp)
                 .setSocketFactory(net.socketFactory)      // Wi-Fi cam khong co Internet: ep di qua Wi-Fi
                 .setTimeoutMs(4000)
-                .createMediaSource(MediaItem.fromUri(Uri.parse("rtsp://$HOST:554")))
+                .createMediaSource(MediaItem.fromUri(Uri.parse(url)))
             p.addListener(object : Player.Listener {
                 override fun onVideoSizeChanged(v: VideoSize) {
                     if (v.width <= 0 || v.height <= 0) return
@@ -93,14 +102,14 @@ class MirrorCam(
                     onSize()
                 }
                 override fun onPlaybackStateChanged(s: Int) {
-                    if (s == Player.STATE_READY) { status = "đang nhận hình ${sz.width}x${sz.height} ${if (tcp) "TCP" else "UDP"}"; log(status); onErr("") }
+                    if (s == Player.STATE_READY) { status = "đang nhận hình ${sz.width}x${sz.height} ${if (tcp) "TCP" else "UDP"} $url"; log(status); onErr("") }
                 }
                 override fun onPlayerError(e: PlaybackException) {
                     var c: Throwable? = e.cause; var why = ""
                     while (c != null && why.length < 90) { why += " ← " + c.javaClass.simpleName + (c.message?.let { ": " + it.take(50) } ?: ""); c = c.cause }
                     status = "lỗi RTSP ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why"
                     Log.w(TAG, "rtsp", e); log(status)
-                    onErr("Cam gương ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why")
+                    onErr("${if (is70) "Cam 70mai" else "Cam gương"} ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why")
                     stopPlayer(); retryLater()
                 }
             })
@@ -141,7 +150,7 @@ class MirrorCam(
         h.post {
             want = false
             stopPlayer()
-            wifi()?.let { n -> Thread { api(n, "exitrecorder") }.start() }
+            if (!is70) wifi()?.let { n -> Thread { api(n, "exitrecorder") }.start() }
             status = "đã tắt"
         }
     }
@@ -152,6 +161,5 @@ class MirrorCam(
 
     companion object {
         private const val TAG = "MirrorCam"
-        private const val HOST = "192.168.5.1"
     }
 }
