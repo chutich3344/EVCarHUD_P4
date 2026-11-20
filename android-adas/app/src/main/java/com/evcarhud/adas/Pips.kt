@@ -138,9 +138,9 @@ class TileMap(ctx: Context) : View(ctx) {
             cv.restore()
             // mui ten vi tri: luon chi len (ban do da xoay)
             cv.save(); cv.translate(cx, cy)
-            val a = h * 0.07f
+            val a = h * 0.055f   // nho lai (truoc 0.07) cho do trum len vach xanh
             val arrow = Path().apply { moveTo(0f, -a * 1.3f); lineTo(a, a); lineTo(0f, a * 0.45f); lineTo(-a, a); close() }
-            p.style = Paint.Style.FILL; p.color = Color.rgb(71, 224, 138); cv.drawPath(arrow, p)
+            p.style = Paint.Style.FILL; p.color = Color.rgb(255, 170, 10); cv.drawPath(arrow, p)   // mau vang/cam cho khac vach dan duong xanh
             p.style = Paint.Style.STROKE; p.strokeWidth = 3f; p.color = Color.WHITE; cv.drawPath(arrow, p)
             cv.restore()
         } else {
