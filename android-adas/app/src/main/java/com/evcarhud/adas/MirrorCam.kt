@@ -145,7 +145,12 @@ class MirrorCam(
                 startKeep(net)
                 try { Thread.sleep(800) } catch (_: InterruptedException) {}
                 "70mai"
-            } else { val rr = api(net, "enterrecorder"); startKeep(net); rr }
+            } else {
+                // Cam gương chỉ cho MỘT phiên RTSP. Phiên cũ chưa dọn -> lần sau buf=0% (chập chờn).
+                // Reset: exitrecorder để cam nhả phiên, chờ chút, rồi enterrecorder lại.
+                api(net, "exitrecorder"); try { Thread.sleep(500) } catch (_: InterruptedException) {}
+                val rr = api(net, "enterrecorder"); startKeep(net); rr
+            }
             // App hang (Sinjet, mpv/ffmpeg) chi goi enterrecorder roi mo rtsp://192.168.5.1:554, KHONG path,
             // va ffmpeg mac dinh RTSP = UDP. 0.1.65 ep TCP truoc -> tat. Nay cam guong UU TIEN UDP (giong mpv),
             // xen ke sang TCP neu UDP khong duoc. 70mai van TCP truoc.
@@ -162,24 +167,24 @@ class MirrorCam(
             log((if (is70) "70mai" else "cam gương") + " thu $url ${if (tcp) "TCP" else "UDP"} (VLC)")
             if (!want || player != null) return@post
 
-            // libVLC: it can keo luong RTSP cam re hon ExoPlayer.
-            // 0.1.69 (HW decode) ĐÃ giai ma duoc: TCP cho Vout=1. Khung mat la do code cu tao LAI
-            // ImageReader MOI LAN Vout. 0.1.70 giu co dinh 1280x720 thi Vout=0 — vi VLC khong xuat
-            // duoc ra surface SAI KICH THUOC that cua luong. Nay: giai ma phan cung nhu 0.1.69, nhung
-            // khi biet kich thuoc that (Vout dau) thi doi ImageReader ve dung kich thuoc MOT LAN roi giu.
+            // Giai ma PHAN MEM (libavcodec) nhu app hang Sinjet. HW (MediaCodec) voi cam nay luon Vout=0
+            // (profile/chroma la). Dong thoi reset phien RTSP o tren de lan nao cung co du lieu -> test
+            // DUNG khau giai ma phan mem co du lieu (truoc gio chua lan nao quan sat duoc ca hai cung luc).
             val args = arrayListOf(
                 "--no-audio",
-                "--rtsp-timeout=5",
-                "--network-caching=250",
-                "--live-caching=250",
+                "--rtsp-timeout=8",
+                "--network-caching=300",
+                "--live-caching=300",
                 "--no-stats",
                 "--quiet",
+                "--avcodec-hw=none",          // tat giai ma phan cung -> libavcodec phan mem
+                "--codec=avcodec",
                 if (tcp) "--rtsp-tcp" else "--no-rtsp-tcp",
             )
             val lib = LibVLC(ctx, args)
             val p = MediaPlayer(lib)
             val media = Media(lib, Uri.parse(url))
-            media.setHWDecoderEnabled(true, true)   // uu tien HW, cho fallback phan mem (nhu 0.1.69 ra Vout=1)
+            media.setHWDecoderEnabled(false, false)  // giai ma phan mem nhu app hang
             media.addOption(":network-caching=250")
             media.addOption(if (tcp) ":rtsp-tcp" else ":no-rtsp-tcp")
             p.media = media
@@ -215,26 +220,20 @@ class MirrorCam(
             // canh giu: 12 s khong co khung hinh nao thi bo, thu lai bang kieu truyen kia
             h.postDelayed({
                 if (player === p && !gotFrame) {
-                    status = "không có hình sau 12 s · ${traceStr(tcp)}"; log("không có hình 12 s · $url ${traceStr(tcp)}"); onErr("Cam: $status")
+                    status = "không có hình sau 15 s · ${traceStr(tcp)}"; log("không có hình 15 s · $url ${traceStr(tcp)}"); onErr("Cam: $status")
                     stopPlayer(); retryLater()
                 }
-            }, 12_000)
+            }, 15_000)
         }
     }
 
     @Volatile private var sized = false
-    /** Lan Vout dau: doi ImageReader ve DUNG kich thuoc that cua luong MOT LAN roi giu (khong doi nua).
-     * VLC khong xuat duoc ra surface sai kich thuoc (0.1.70 Vout=0); doi dung kich thuoc -> ra khung. */
+    /** Chi ghi lai kich thuoc that (de log). KHONG tao lai ImageReader/doi surface giua chung — gay van app. */
     private fun fitTrack(p: MediaPlayer) {
         if (sized) return
-        val t = try { p.currentVideoTrack } catch (_: Exception) { null } ?: return
-        if (t.width < 64 || t.height < 64) return
         sized = true
-        if (t.width == sz.width && t.height == sz.height) { log("kich thuoc that khop ${t.width}x${t.height}"); return }
-        log("doi surface ve kich thuoc that ${t.width}x${t.height} (tu ${sz.width}x${sz.height})")
-        sz = Size(t.width, t.height)
-        onSize()                       // bao AdasService tinh lai hinh hoc theo kich thuoc moi
-        attachReader(p)                // tao lai ImageReader dung kich thuoc, re-attach MOT LAN
+        val t = try { p.currentVideoTrack } catch (_: Exception) { null } ?: return
+        if (t.width >= 64 && t.height >= 64) log("kich thuoc that ${t.width}x${t.height}")
     }
 
     private fun attachReader(p: MediaPlayer) {
