@@ -11,6 +11,7 @@ import android.view.Surface
 import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.bytedeco.javacv.Frame
+import org.bytedeco.javacv.FrameGrabber
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
@@ -165,7 +166,7 @@ class MirrorCam(
                     setOption("reorder_queue_size", "0")
                     setOption("buffer_size", "1048576")
                     setOption("fflags", "nobuffer")
-                    imageMode = FFmpegFrameGrabber.ImageMode.COLOR
+                    imageMode = FrameGrabber.ImageMode.COLOR
                     pixelFormat = avutil.AV_PIX_FMT_BGR24
                     imageWidth = W                        // ffmpeg tu scale ve 1280x720 (nguon co the 4K)
                     imageHeight = H
