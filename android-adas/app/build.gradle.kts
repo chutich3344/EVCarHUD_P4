@@ -45,7 +45,7 @@ android {
 
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
-    // cam guong Wi-Fi: RTSP -> giai ma (MirrorCam.kt)
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.4.1")
+    // cam guong / 70mai Wi-Fi: RTSP -> giai ma (MirrorCam.kt). libVLC xu ly RTSP cam re tot hon ExoPlayer
+    // (cung bo giai ma mpv/VLC ma app hang dung). Chi co arm64 nen chi nang them ~15 MB.
+    implementation("org.videolan.android:libvlc-all:3.6.5")
 }

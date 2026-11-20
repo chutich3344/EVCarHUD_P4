@@ -13,18 +13,20 @@ import android.os.HandlerThread
 import android.util.Log
 import android.util.Size
 import android.view.Surface
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.common.VideoSize
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.rtsp.RtspMediaSource
+import org.videolan.libvlc.LibVLC
+import org.videolan.libvlc.Media
+import org.videolan.libvlc.MediaPlayer
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
  * Cam guong Wi-Fi (app hang "rearview_wifi", Sinjet): API http://192.168.5.1:8000/app/...,
- * goi app/enterrecorder thi cam mo RTSP rtsp://192.168.5.1:554. Giai ma bang Media3 ra ImageReader YUV
+ * goi app/enterrecorder thi cam mo RTSP rtsp://192.168.5.1:554.
+ * 70mai: RTSP thang rtsp://192.168.0.1:554/livestream/12 sau khi dang ky client.cgi.
+ *
+ * 20/11: ExoPlayer/Media3 noi duoc RTSP nhung khong keo duoc goi RTP tu may dam cam re
+ * (nap mai khong co khung hinh). Chuyen sang libVLC (cung dong giai ma mpv/VLC ma app hang dung):
+ * VLC keo luong -> bo giai ma phan cung ghi thang vao Surface cua ImageReader(YUV_420_888)
  * -> cung duong onFrame(Image) nhu camera dien thoai.
  * Goc nhin: 3 clip 4K 17/11 khop f ~ 520 px o ngang 1280 (~102 do).
  */
@@ -43,16 +45,17 @@ class MirrorCam(
     private val paths70 = listOf("/livestream/12", "/livestream/11", "/livestream/1", "/live")
     private val th = HandlerThread("mirror").apply { start() }
     private val h = Handler(th.looper)
-    private var player: ExoPlayer? = null
+    private var vlc: LibVLC? = null
+    private var player: MediaPlayer? = null
     private var reader: ImageReader? = null
+    private var attached = false
     private var want = false
     private var retry = 0
-    private var decFail = 0
     private var frames = 0
     @Volatile private var gotFrame = false
     private var frAt = 0L
 
-    @Volatile private var sz = Size(1920, 1080)
+    @Volatile private var sz = Size(1280, 720)
     override val size: Size get() = sz
     // 70mai M310 goc rong ~130 do cheo -> f uoc ~450 px o ngang 1280 (tu hieu chinh se chinh lai)
     override val focalPx: Double get() = (if (is70) 450.0 else 520.0) * sz.width / 1280.0
@@ -117,55 +120,59 @@ class MirrorCam(
                 try { Thread.sleep(800) } catch (_: InterruptedException) {}
                 "70mai"
             } else api(net, "enterrecorder")
-            // cam can thoi gian bat may chu RTSP sau enterrecorder; xen ke UDP (mac dinh cua app hang/ffmpeg) va TCP
-            // 20/11: UDP treo "dang nap" mai (goi RTP UDP khong di qua Wi-Fi cam) -> thu TCP truoc
+            // cam can thoi gian bat may chu RTSP sau enterrecorder; xen ke TCP/UDP qua moi lan thu lai
             val tcp = retry % 2 == 0
             status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
             Log.i(TAG, status); log(status)
             if (!is70 && retry < 2) { log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function")); log("rtsp_url: " + api(net, "getparamvalue?param=rtsp_url")); log("stream: " + api(net, "getparamvalue?param=stream_info")) }
             if (!is70) try { Thread.sleep(1500) } catch (_: InterruptedException) {}
             val url = if (is70) "rtsp://$HOST:554" + paths70[(retry / 2) % paths70.size] else "rtsp://$HOST:554"
-            if (is70) log("70mai thu $url ${if (tcp) "TCP" else "UDP"}")
+            log((if (is70) "70mai" else "cam gương") + " thu $url ${if (tcp) "TCP" else "UDP"} (VLC)")
             if (!want || player != null) return@post
-            // cam guong gui SPS trong SDP bi doc ra 13216x16 (20/11) -> bo giai ma tu choi; FixRenderer sua kich thuoc khi cau hinh
-            val rf = androidx.media3.exoplayer.RenderersFactory { eh, vl, _, _, _ -> arrayOf(FixRenderer(ctx, eh, vl)) }
-            val p = ExoPlayer.Builder(ctx, rf).setLooper(th.looper).build()
-            val src = RtspMediaSource.Factory()
-                .setForceUseRtpTcp(tcp)
-                .setSocketFactory(net.socketFactory)      // Wi-Fi cam khong co Internet: ep di qua Wi-Fi
-                .setTimeoutMs(4000)
-                .createMediaSource(MediaItem.fromUri(Uri.parse(url)))
-            p.addListener(object : Player.Listener {
-                override fun onVideoSizeChanged(v: VideoSize) {
-                    log("kich thuoc hinh ${v.width}x${v.height}")
-                    if (v.width <= 0 || v.height <= 0 || bogus(v.width, v.height)) return
-                    if (v.width == sz.width && v.height == sz.height && reader != null) return
-                    sz = Size(v.width, v.height)
-                    attachReader(p)
-                    onSize()
+
+            // libVLC: it can keo luong RTSP cam re hon ExoPlayer
+            val args = arrayListOf(
+                "--no-audio",
+                "--rtsp-timeout=5",
+                "--network-caching=250",
+                "--live-caching=250",
+                "--no-stats",
+                "--quiet",
+                if (tcp) "--rtsp-tcp" else "--no-rtsp-tcp",
+            )
+            val lib = LibVLC(ctx, args)
+            val p = MediaPlayer(lib)
+            val media = Media(lib, Uri.parse(url))
+            media.setHWDecoderEnabled(true, true)   // uu tien giai ma phan cung, cho fallback phan mem
+            media.addOption(":network-caching=250")
+            media.addOption(if (tcp) ":rtsp-tcp" else ":no-rtsp-tcp")
+            p.media = media
+            media.release()
+
+            p.setEventListener { e ->
+                when (e.type) {
+                    MediaPlayer.Event.Opening -> log("VLC mo luong")
+                    MediaPlayer.Event.Buffering -> if (e.buffering >= 100f) log("VLC nap xong 100%")
+                    MediaPlayer.Event.Playing -> {
+                        status = "đang phát ${if (tcp) "TCP" else "UDP"} $url"; log("VLC Playing · $status")
+                    }
+                    MediaPlayer.Event.Vout -> {
+                        log("VLC Vout x${e.voutCount}")
+                        if (e.voutCount > 0) fitTrack(p)
+                    }
+                    MediaPlayer.Event.EncounteredError -> {
+                        status = "lỗi VLC ${if (tcp) "TCP" else "UDP"} $url"; log(status)
+                        onErr("${if (is70) "Cam 70mai" else "Cam gương"} ${if (tcp) "TCP" else "UDP"}: VLC báo lỗi luồng")
+                        stopPlayer(); retryLater()
+                    }
+                    MediaPlayer.Event.EndReached -> { log("VLC het luong"); stopPlayer(); retryLater() }
                 }
-                override fun onRenderedFirstFrame() { log("khung hinh dau tien ${sz.width}x${sz.height}") }
-                override fun onPlaybackStateChanged(s: Int) {
-                    log("trang thai " + when (s) { Player.STATE_BUFFERING -> "dang nap"; Player.STATE_READY -> "san sang"; Player.STATE_ENDED -> "het"; else -> "nghi" })
-                    if (s == Player.STATE_READY) { status = "đang nhận hình ${sz.width}x${sz.height} ${if (tcp) "TCP" else "UDP"} $url"; log(status); onErr("") }
-                }
-                override fun onPlayerError(e: PlaybackException) {
-                    var c: Throwable? = e.cause; var why = ""
-                    while (c != null && why.length < 600) { why += " ← " + c.javaClass.simpleName + (c.message?.let { ": " + it.take(220) } ?: ""); c = c.cause }
-                    status = "lỗi RTSP ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why"
-                    if (e.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) decFail++
-                    Log.w(TAG, "rtsp", e); log(status)
-                    why = why.take(160)
-                    onErr("${if (is70) "Cam 70mai" else "Cam gương"} ${if (tcp) "TCP" else "UDP"}: ${e.errorCodeName}$why")
-                    stopPlayer(); retryLater()
-                }
-            })
-            attachReader(p)
-            p.setMediaSource(src)
-            p.volume = 0f
-            p.playWhenReady = true
-            p.prepare()
+            }
+
+            vlc = lib
             player = p
+            attachReader(p)
+            p.play()
             gotFrame = false
             // canh giu: 10 s khong co khung hinh nao thi bo, thu lai bang kieu truyen kia
             h.postDelayed({
@@ -177,26 +184,40 @@ class MirrorCam(
         }
     }
 
-    private fun attachReader(p: ExoPlayer) {
+    /** Khi VLC bao co luong hinh: lay kich thuoc that de ImageReader dung ti le, tranh meo hinh. */
+    private fun fitTrack(p: MediaPlayer) {
+        val t = try { p.currentVideoTrack } catch (_: Exception) { null } ?: return
+        val w = t.width; val hh = t.height
+        if (w < 64 || hh < 64 || (w == sz.width && hh == sz.height)) return
+        sz = Size(w, hh)
+        log("kich thuoc hinh ${w}x$hh")
+        attachReader(p)
+        onSize()
+    }
+
+    private fun attachReader(p: MediaPlayer) {
         val old = reader
-        // lan 2 tro di sau loi khoi tao bo giai ma: tao ImageReader co co dung (mot so bo giai ma Qualcomm doi co nay)
-        val rd = if (decFail > 0 && android.os.Build.VERSION.SDK_INT >= 29)
-            ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3,
-                android.hardware.HardwareBuffer.USAGE_CPU_READ_OFTEN or android.hardware.HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE)
-        else ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3)
+        val rd = ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3)
         rd.setOnImageAvailableListener({ ir ->
             val im = try { ir.acquireLatestImage() } catch (_: Exception) { null } ?: return@setOnImageAvailableListener
             frames++; gotFrame = true
+            if (!gotFrameLogged) { gotFrameLogged = true; log("khung hinh dau tien ${im.width}x${im.height}"); onErr("") }
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - frAt > 10_000) { log("nhan $frames khung/10 s · ${im.width}x${im.height}"); frames = 0; frAt = now }
             onFrame(im)     // onFrame tu dong close()
         }, h)
         reader = rd
-        p.setVideoSurface(rd.surface)
-        // KHONG dong reader cu ngay: setVideoSurface chay bat dong bo tren luong phat, bo giai ma co the dang cau hinh
-        // voi surface cu -> dong ngay thi MediaCodec.configure bao IllegalArgumentException (loi DECODER_INIT_FAILED 20/11)
+        val vout = p.vlcVout
+        if (attached) { try { vout.detachViews() } catch (_: Exception) {}; attached = false }
+        vout.setVideoSurface(rd.surface, null)
+        vout.setWindowSize(sz.width, sz.height)
+        vout.attachViews()
+        attached = true
+        // KHONG dong reader cu ngay: bo giai ma co the dang doi surface -> dong cham mot nhip
         if (old != null) h.postDelayed({ try { old.close() } catch (_: Exception) {} }, 3000)
     }
+
+    @Volatile private var gotFrameLogged = false
 
     private fun retryLater() {
         if (!want) return
@@ -205,8 +226,18 @@ class MirrorCam(
     }
 
     private fun stopPlayer() {
-        try { player?.release() } catch (_: Exception) {}
-        player = null
+        gotFrameLogged = false
+        try {
+            player?.let { p ->
+                p.setEventListener(null)
+                if (attached) { try { p.vlcVout.detachViews() } catch (_: Exception) {} }
+                p.stop()
+                p.release()
+            }
+        } catch (_: Exception) {}
+        attached = false
+        try { vlc?.release() } catch (_: Exception) {}
+        player = null; vlc = null
         reader?.close(); reader = null
     }
 
@@ -224,23 +255,7 @@ class MirrorCam(
     override fun setPreview(s: Surface?) {}
     override fun release() { close(); h.post { th.quitSafely() } }
 
-    /** Bo giai ma H.264 bo qua kich thuoc vo ly trong SDP (bo giai ma tu doc SPS trong luong). */
-    private class FixRenderer(c: Context, eh: Handler, vl: androidx.media3.exoplayer.video.VideoRendererEventListener) :
-        androidx.media3.exoplayer.video.MediaCodecVideoRenderer(c, androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT, 0L, eh, vl, 50) {
-        override fun getMediaFormat(format: androidx.media3.common.Format, codecMimeType: String, codecMaxValues: CodecMaxValues,
-                                    codecOperatingRate: Float, deviceNeedsNoPostProcessWorkaround: Boolean, tunnelingAudioSessionId: Int): android.media.MediaFormat {
-            val f = super.getMediaFormat(format, codecMimeType, codecMaxValues, codecOperatingRate, deviceNeedsNoPostProcessWorkaround, tunnelingAudioSessionId)
-            if (bogus(format.width, format.height)) {
-                f.setInteger(android.media.MediaFormat.KEY_WIDTH, 3840); f.setInteger(android.media.MediaFormat.KEY_HEIGHT, 2160)
-                f.setInteger(android.media.MediaFormat.KEY_MAX_WIDTH, 3840); f.setInteger(android.media.MediaFormat.KEY_MAX_HEIGHT, 2160)
-                f.setInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE, 3840 * 2160 * 3 / 4)
-            }
-            return f
-        }
-    }
-
     companion object {
-        fun bogus(w: Int, h: Int) = w > 8192 || h > 8192 || (w > 0 && w < 64) || (h > 0 && h < 64)
         private const val TAG = "MirrorCam"
     }
 }
