@@ -339,7 +339,7 @@ class MainActivity : Activity() {
                     .setPrimaryClip(android.content.ClipData.newPlainText("do-cam", sb.toString()))
             }.setNegativeButton("Đóng", null).show()
         Thread {
-            Probe.run(this) { line -> runOnUiThread { sb.append(line).append('\n'); tv.text = sb.toString() } }
+            Probe.run(this) { line -> svc?.logLine("DO CAM $line"); runOnUiThread { sb.append(line).append('\n'); tv.text = sb.toString() } }
         }.start()
     }
 

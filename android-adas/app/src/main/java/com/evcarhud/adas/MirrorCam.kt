@@ -62,7 +62,7 @@ class MirrorCam(
         val code = c.responseCode
         val b = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText().take(120) } ?: ""
         c.disconnect(); "$code $b"
-    } catch (e: Exception) { "lỗi ${e.javaClass.simpleName}" }
+    } catch (e: Exception) { "lỗi ${e.javaClass.simpleName} ${e.message?.take(80) ?: ""}" }
 
     override fun open() {
         h.post {
