@@ -73,6 +73,19 @@ class MirrorCam(
         "VLC[${if (tcp) "TCP" else "UDP"} O=${if (evOpen) 1 else 0} buf=$evBufMax% P=${if (evPlay) 1 else 0} Vout=$evVout khung=$frames]$evErr"
     private fun showTrace(tcp: Boolean) { status = traceStr(tcp); onErr("Cam: ${traceStr(tcp)}") }
 
+    @Volatile private var bound = false
+    private fun bindNet(net: Network) {
+        try {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            cm.bindProcessToNetwork(net); bound = true; log("bám mạng Wi-Fi cam")
+        } catch (e: Exception) { log("bind net lỗi ${e.javaClass.simpleName}") }
+    }
+    private fun unbindNet() {
+        if (!bound) return
+        try { (ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).bindProcessToNetwork(null) } catch (_: Exception) {}
+        bound = false
+    }
+
     private fun wifi(): Network? {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         @Suppress("DEPRECATION")
@@ -122,6 +135,9 @@ class MirrorCam(
             if (player != null) return@post
             val net = wifi()
             if (net == null) { status = "chưa nối Wi-Fi cam"; onErr(if (is70) "Chưa nối Wi-Fi cam 70mai (70mai_…)" else "Chưa nối Wi-Fi cam gương (mirror_wifi…)"); retryLater(); return@post }
+            // VLC/live555 mo socket UDP tren MANG MAC DINH (4G neu Wi-Fi cam khong co mang) -> goi RTP cam gui toi
+            // IP wlan0 khong vao duoc socket do -> buf=0%. Ep ca tien trinh bam mang Wi-Fi cam khi dang xem.
+            bindNet(net)
             val r = if (is70) {
                 if (retry == 0) log("70mai thong tin: " + hisnet(net, "getdeviceattr.cgi"))
                 log("70mai register: " + hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}"))
@@ -260,6 +276,7 @@ class MirrorCam(
             stopPlayer()
             if (!is70) wifi()?.let { n -> Thread { api(n, "exitrecorder") }.start() }
             keep?.interrupt(); keep = null
+            unbindNet()           // tra mang mac dinh (4G) cho phan con lai cua app
             status = "đã tắt"
         }
     }
