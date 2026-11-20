@@ -10,6 +10,7 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Handler
@@ -263,17 +264,22 @@ class TileMap(ctx: Context) : View(ctx) {
         p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14)
         cv.drawRect(0f, 0f, w, bh, p)
         p.textAlign = Paint.Align.LEFT
-        val a = bh * 0.30f; val ax = h * 0.04f + a; val ay = bh * 0.5f
+        // mui ten cao bang chu so cua so met, canh giua theo chieu cao chu (nguoi dung 20/11: can bang voi "120 m")
+        p.textSize = bh * 0.46f; p.typeface = bold
+        val nb = Rect(); p.getTextBounds("0", 0, 1, nb)
+        val base = bh * 0.52f; val capH = -nb.top.toFloat(); val capMid = base - capH / 2
+        val a = capH * 1.05f / 2.3f                   // mui ten cao ~2,3a (than a + dau 1,3a)
+        val ax = h * 0.06f + a * 0.8f; val ay = capMid + 0.15f * a
         arrowCol = Color.WHITE; drawTurn(cv, trn, ax, ay, a, exit); arrowCol = Color.rgb(6, 30, 20)
         p.style = Paint.Style.FILL; p.strokeWidth = 0f
-        val tx = ax + a + h * 0.05f
+        val tx = ax + a * 0.8f + h * 0.05f
         p.color = Color.WHITE; p.textSize = bh * 0.46f; p.typeface = bold
-        cv.drawText(big, tx, bh * 0.52f, p)
+        cv.drawText(big, tx, base, p)
         val bw = p.measureText(big)
         if (info.isNotEmpty()) {
             p.textSize = bh * 0.24f; p.color = Color.argb(235, 255, 255, 255); p.textAlign = Paint.Align.RIGHT
-            val iw = minOf(p.measureText(info), w - tx - bw - h * 0.08f)
-            if (iw > 0) cv.drawText(fit(info, iw + 1f), w - h * 0.04f, bh * 0.50f, p)
+            val iw = minOf(p.measureText(info), w - tx - bw - h * 0.13f)
+            if (iw > 0) cv.drawText(fit(info, iw + 1f), w - h * 0.09f, base, p)
             p.textAlign = Paint.Align.LEFT
         }
         p.textSize = bh * 0.22f; p.color = Color.argb(235, 255, 255, 255)

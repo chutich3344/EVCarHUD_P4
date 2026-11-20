@@ -49,6 +49,7 @@ class MirrorCam(
     private var retry = 0
     private var decFail = 0
     private var frames = 0
+    @Volatile private var gotFrame = false
     private var frAt = 0L
 
     @Volatile private var sz = Size(1920, 1080)
@@ -117,7 +118,8 @@ class MirrorCam(
                 "70mai"
             } else api(net, "enterrecorder")
             // cam can thoi gian bat may chu RTSP sau enterrecorder; xen ke UDP (mac dinh cua app hang/ffmpeg) va TCP
-            val tcp = retry % 2 == 1
+            // 20/11: UDP treo "dang nap" mai (goi RTP UDP khong di qua Wi-Fi cam) -> thu TCP truoc
+            val tcp = retry % 2 == 0
             status = "enterrecorder: $r · ${if (tcp) "TCP" else "UDP"}"
             Log.i(TAG, status); log(status)
             if (retry == 0 && !is70) log("rtsp_function: " + api(net, "getparamvalue?param=rtsp_function"))
@@ -164,6 +166,14 @@ class MirrorCam(
             p.playWhenReady = true
             p.prepare()
             player = p
+            gotFrame = false
+            // canh giu: 10 s khong co khung hinh nao thi bo, thu lai bang kieu truyen kia
+            h.postDelayed({
+                if (player === p && !gotFrame) {
+                    status = "không có hình sau 10 s (${if (tcp) "TCP" else "UDP"})"; log(status); onErr("Cam: $status")
+                    stopPlayer(); retryLater()
+                }
+            }, 10_000)
         }
     }
 
@@ -176,7 +186,7 @@ class MirrorCam(
         else ImageReader.newInstance(sz.width, sz.height, ImageFormat.YUV_420_888, 3)
         rd.setOnImageAvailableListener({ ir ->
             val im = try { ir.acquireLatestImage() } catch (_: Exception) { null } ?: return@setOnImageAvailableListener
-            frames++
+            frames++; gotFrame = true
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - frAt > 10_000) { log("nhan $frames khung/10 s · ${im.width}x${im.height}"); frames = 0; frAt = now }
             onFrame(im)     // onFrame tu dong close()
