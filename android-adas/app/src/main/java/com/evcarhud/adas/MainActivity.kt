@@ -49,6 +49,8 @@ class MainActivity : Activity() {
         super.onCreate(b)
         prefs = Prefs(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // hien phien ban moi lan mo app de biet da cai dung ban (nguoi dung hoi 20/11)
+        android.widget.Toast.makeText(this, "App Làn ${appVer()}", android.widget.Toast.LENGTH_LONG).show()
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE

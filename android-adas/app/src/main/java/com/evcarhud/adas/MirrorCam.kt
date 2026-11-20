@@ -123,7 +123,9 @@ class MirrorCam(
             val url = if (is70) "rtsp://$HOST:554" + paths70[(retry / 2) % paths70.size] else "rtsp://$HOST:554"
             if (is70) log("70mai thu $url ${if (tcp) "TCP" else "UDP"}")
             if (!want || player != null) return@post
-            val p = ExoPlayer.Builder(ctx).setLooper(th.looper).build()
+            // cam guong gui SPS trong SDP bi doc ra 13216x16 (20/11) -> bo giai ma tu choi; FixRenderer sua kich thuoc khi cau hinh
+            val rf = androidx.media3.exoplayer.RenderersFactory { eh, vl, _, _, _ -> arrayOf(FixRenderer(ctx, eh, vl)) }
+            val p = ExoPlayer.Builder(ctx, rf).setLooper(th.looper).build()
             val src = RtspMediaSource.Factory()
                 .setForceUseRtpTcp(tcp)
                 .setSocketFactory(net.socketFactory)      // Wi-Fi cam khong co Internet: ep di qua Wi-Fi
@@ -131,7 +133,7 @@ class MirrorCam(
                 .createMediaSource(MediaItem.fromUri(Uri.parse(url)))
             p.addListener(object : Player.Listener {
                 override fun onVideoSizeChanged(v: VideoSize) {
-                    if (v.width <= 0 || v.height <= 0) return
+                    if (v.width <= 0 || v.height <= 0 || bogus(v.width, v.height)) return
                     if (v.width == sz.width && v.height == sz.height && reader != null) return
                     sz = Size(v.width, v.height)
                     attachReader(p)
@@ -204,7 +206,23 @@ class MirrorCam(
     override fun setPreview(s: Surface?) {}
     override fun release() { close(); h.post { th.quitSafely() } }
 
+    /** Bo giai ma H.264 bo qua kich thuoc vo ly trong SDP (bo giai ma tu doc SPS trong luong). */
+    private class FixRenderer(c: Context, eh: Handler, vl: androidx.media3.exoplayer.video.VideoRendererEventListener) :
+        androidx.media3.exoplayer.video.MediaCodecVideoRenderer(c, androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT, 0L, eh, vl, 50) {
+        override fun getMediaFormat(format: androidx.media3.common.Format, codecMimeType: String, codecMaxValues: CodecMaxValues,
+                                    codecOperatingRate: Float, deviceNeedsNoPostProcessWorkaround: Boolean, tunnelingAudioSessionId: Int): android.media.MediaFormat {
+            val f = super.getMediaFormat(format, codecMimeType, codecMaxValues, codecOperatingRate, deviceNeedsNoPostProcessWorkaround, tunnelingAudioSessionId)
+            if (bogus(format.width, format.height)) {
+                f.setInteger(android.media.MediaFormat.KEY_WIDTH, 3840); f.setInteger(android.media.MediaFormat.KEY_HEIGHT, 2160)
+                f.setInteger(android.media.MediaFormat.KEY_MAX_WIDTH, 3840); f.setInteger(android.media.MediaFormat.KEY_MAX_HEIGHT, 2160)
+                f.setInteger(android.media.MediaFormat.KEY_MAX_INPUT_SIZE, 3840 * 2160 * 3 / 4)
+            }
+            return f
+        }
+    }
+
     companion object {
+        fun bogus(w: Int, h: Int) = w > 8192 || h > 8192 || (w > 0 && w < 64) || (h > 0 && h < 64)
         private const val TAG = "MirrorCam"
     }
 }

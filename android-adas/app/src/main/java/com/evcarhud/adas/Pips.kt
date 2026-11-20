@@ -237,11 +237,11 @@ class TileMap(ctx: Context) : View(ctx) {
         p.strokeWidth = ts * 0.075f; p.color = Color.rgb(6, 40, 26); cv.drawPath(routePath, p)
         p.strokeWidth = ts * 0.05f; p.color = Color.rgb(74, 222, 128); cv.drawPath(routePath, p)
         p.strokeCap = Paint.Cap.BUTT
+        // chi ve mui ten re (trai / phai / thang / quay dau...) o diem re, khong o tron (nguoi dung chot 20/11)
         val rr = height * 0.085f
         cv.save(); cv.rotate(bearing, ex, ey)
-        p.style = Paint.Style.FILL; p.color = Color.rgb(74, 222, 128); cv.drawCircle(ex, ey, rr, p)
-        p.style = Paint.Style.STROKE; p.strokeWidth = 3f; p.color = Color.WHITE; cv.drawCircle(ex, ey, rr, p)
-        drawTurn(cv, WazeNav.turn, ex, ey, rr * 0.55f, WazeNav.exit)
+        arrowCol = Color.WHITE; drawTurn(cv, WazeNav.turn, ex, ey, rr * 0.75f, WazeNav.exit, outline = true)
+        arrowCol = Color.rgb(6, 30, 20)
         cv.restore()
         p.style = Paint.Style.FILL; p.strokeWidth = 0f
     }
@@ -331,9 +331,12 @@ class TileMap(ctx: Context) : View(ctx) {
     }
 
     /** Mui ten re don gian ve bang net (mau toi tren o xanh). */
-    private fun drawTurn(cv: Canvas, trn: Int, x: Float, y: Float, s: Float, exit: Int) {
-        p.style = Paint.Style.STROKE; p.strokeWidth = s * 0.32f; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
-        p.color = Color.rgb(6, 30, 20)
+    private var arrowCol = Color.rgb(6, 30, 20)
+    /** outline: ve 1 lop vien toi day hon truoc (de mui ten trang noi tren nen ban do). */
+    private fun drawTurn(cv: Canvas, trn: Int, x: Float, y: Float, s: Float, exit: Int, outline: Boolean = false) {
+        if (outline) { val c = arrowCol; arrowCol = Color.rgb(6, 30, 20); halo = s * 0.22f; drawTurn(cv, trn, x, y, s, exit); halo = 0f; arrowCol = c }
+        p.style = Paint.Style.STROKE; p.strokeWidth = s * 0.32f + halo; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
+        p.color = arrowCol
         val path = Path()
         if (trn == 17) {                                     // toi noi: co
             path.moveTo(x - s * 0.5f, y + s); path.lineTo(x - s * 0.5f, y - s)
@@ -343,7 +346,7 @@ class TileMap(ctx: Context) : View(ctx) {
             p.strokeCap = Paint.Cap.BUTT; return
         }
         if (trn in 10..12 || trn == 19 || trn == 20) {         // vong xuyen + so loi ra
-            p.strokeWidth = s * 0.22f
+            p.strokeWidth = s * 0.22f + halo
             cv.drawCircle(x, y - s * 0.15f, s * 0.5f, p)
             path.moveTo(x, y + s); path.lineTo(x, y + s * 0.35f); cv.drawPath(path, p)
             if (exit > 0) { p.style = Paint.Style.FILL; p.textAlign = Paint.Align.CENTER; p.textSize = s * 0.8f; cv.drawText("$exit", x, y + s * 0.13f, p); p.textAlign = Paint.Align.LEFT }
@@ -367,9 +370,10 @@ class TileMap(ctx: Context) : View(ctx) {
         p.strokeCap = Paint.Cap.BUTT
     }
 
+    private var halo = 0f
     private fun arrowHead(cv: Canvas, x: Float, y: Float, deg: Float, s: Float) {
         cv.save(); cv.rotate(deg, x, y)
-        p.style = Paint.Style.FILL
+        p.style = if (halo > 0f) Paint.Style.FILL_AND_STROKE else Paint.Style.FILL; p.strokeWidth = halo
         cv.drawPath(Path().apply { moveTo(x, y - s * 0.55f); lineTo(x + s * 0.45f, y + s * 0.05f); lineTo(x - s * 0.45f, y + s * 0.05f); close() }, p)
         p.style = Paint.Style.STROKE
         cv.restore()
