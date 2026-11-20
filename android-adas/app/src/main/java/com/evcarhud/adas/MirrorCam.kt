@@ -160,7 +160,10 @@ class MirrorCam(
             log((if (is70) "70mai" else "cam gương") + " thu $url ${if (tcp) "TCP" else "UDP"} (VLC)")
             if (!want || player != null) return@post
 
-            // libVLC: it can keo luong RTSP cam re hon ExoPlayer
+            // libVLC: it can keo luong RTSP cam re hon ExoPlayer.
+            // 0.1.71: buf=100% nhung Vout=0 khung=0 -> bo giai ma PHAN CUNG (MediaCodec) khong nhai duoc
+            // luong cam dam cam re (profile/chroma la). App hang dung ffmpeg giai ma PHAN MEM (libavcodec).
+            // Ep VLC giai ma phan mem (chinh libavcodec ma app hang dung) + xuat chroma mem (I420).
             val args = arrayListOf(
                 "--no-audio",
                 "--rtsp-timeout=5",
@@ -168,12 +171,14 @@ class MirrorCam(
                 "--live-caching=250",
                 "--no-stats",
                 "--quiet",
+                "--avcodec-hw=none",          // tat giai ma phan cung -> dung libavcodec phan mem
+                "--codec=avcodec",            // ep bo giai ma ffmpeg (giong app hang)
                 if (tcp) "--rtsp-tcp" else "--no-rtsp-tcp",
             )
             val lib = LibVLC(ctx, args)
             val p = MediaPlayer(lib)
             val media = Media(lib, Uri.parse(url))
-            media.setHWDecoderEnabled(true, true)   // uu tien giai ma phan cung, cho fallback phan mem
+            media.setHWDecoderEnabled(false, false)  // giai ma phan mem (libavcodec) nhu app hang; HW tra Vout=0
             media.addOption(":network-caching=250")
             media.addOption(if (tcp) ":rtsp-tcp" else ":no-rtsp-tcp")
             p.media = media
