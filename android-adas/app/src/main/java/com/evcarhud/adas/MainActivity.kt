@@ -233,8 +233,7 @@ class MainActivity : Activity() {
                 if (prefs.camSrc != "phone") T("Làm nét vật cản", "tăng nét viền xe/vật phía trước, giảm mờ xung quanh", { prefs.camSharpen }, { b -> prefs.camSharpen = b }, true) else null,
                 if (prefs.camSrc != "phone") T("Cân màu tự động", "chống ám/bệt màu, màu trung thực hơn", { prefs.camColor }, { b -> prefs.camColor = b }, true) else null,
                 H("Hiệu chỉnh"),
-                T("Tự hiệu chỉnh", svc?.calibInfo()?.lineSequence()?.firstOrNull(), { prefs.autoCalib }, { b -> svc?.setAuto(b) }, false),
-                A("Học lại từ đầu", "sau khi gắn lại điện thoại", null) { svc?.resetCalib(); toast("Chạy thẳng 1–2 phút trên đường có vạch để app tự học"); refreshSettings() },
+                T("Tự hiệu chỉnh", svc?.calibInfo()?.lineSequence()?.firstOrNull() ?: "bật lại = học lại từ đầu", { prefs.autoCalib }, { b -> svc?.setAuto(b); if (b) toast("Học lại từ đầu: chạy thẳng 1–2 phút trên đường có vạch để app tự học"); refreshSettings() }, false),
                 A("Chỉnh tay (kéo điểm tụ)", null, null) { closeSettings(); startCalib() },
                 A("Chiều cao camera", "từ camera xuống mặt đường", "%.1f m".format(prefs.camH)) {
                     val hs = arrayOf(0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.7f, 1.9f)
@@ -270,7 +269,6 @@ class MainActivity : Activity() {
                 A("Số liệu AI + ghi 1 khung", null, null) { diag() },
                 A("Xem ảnh mô hình AI đang thấy", null, null) { showModelView() },
                 T("Hiện số liệu trên màn", null, { prefs.showDbg }, { b -> prefs.showDbg = b }, false),
-                A("Dò camera Wi-Fi", "cam gương, Xiaomi M310P… (nối Wi-Fi của cam trước)", null) { probeCam() },
             ) },
             SettingsView.Cat("tt", "Thông tin", { appVer() }) { listOf(
                 A("Phiên bản app", null, appVer()) { },

@@ -346,17 +346,16 @@ class AdasService : Service() {
         saveCalib(); rebuildGeom()
     }
 
+    /** Bat/tat tu hieu chinh. BAT lai = HOC LAI TU DAU: ve goc mac dinh cua nguon cam roi hoc lai
+     *  (gop nut "Hoc lai tu dau" cu vao day cho gon). */
     fun setAuto(on: Boolean) {
         prefs.autoCalib = on
-        if (on) { yawGood = 0; prefs.calibrated = false; gP = Double.NaN }
-    }
-
-    /** Hoc lai hieu chinh tu dau (ve goc mac dinh cua nguon camera hien tai). */
-    fun resetCalib() {
-        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = 0.0; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; calRoll = 0.0; gP = Double.NaN }
-        prefs.autoCalib = true; prefs.calibrated = false; yawGood = 0
-        saveCalib(); rebuildGeom()
-        clog?.line("hoc lai hieu chinh")
+        if (on) {
+            if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = 0.0; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; calRoll = 0.0; gP = Double.NaN }
+            prefs.calibrated = false; yawGood = 0
+            saveCalib(); rebuildGeom()
+            clog?.line("bat tu hieu chinh = hoc lai tu dau")
+        }
     }
 
     private fun saveCalib() { prefs.pitch = calPitch.toFloat(); prefs.yaw = calYaw.toFloat(); prefs.roll = calRoll.toFloat() }
