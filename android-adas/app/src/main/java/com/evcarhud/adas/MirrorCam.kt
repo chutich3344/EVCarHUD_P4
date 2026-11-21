@@ -215,9 +215,7 @@ class MirrorCam(
             // cam guong chi 1 phien RTSP -> reset phien (exit roi enter) de lan nao cung co du lieu
             val info = if (is70) {
                 if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
-                // 70mai chi 1 phien: lan truoc thoat khong dong phien -> mo lai 454/loi. Bo dang ky phien cu
-                // roi dang ky lai cho sach (unregister co the khong ho tro -> tra loi, bo qua).
-                hisnet(net, "client.cgi?&-operation=unregister&-ip=${myIp(net)}"); sleep(250)
+                // Chi dang ky (nhu 0.1.86 chay OK). KHONG unregister: no lam cam ngung day hinh (khung=0).
                 hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
             } else {
                 api(net, "exitrecorder"); sleep(400)
