@@ -510,7 +510,9 @@ class AdasService : Service() {
     // ---------------- camera -> AI ----------------
     private fun onFrame(im: YuvFrame) {
         val now = SystemClock.elapsedRealtime()
-        if (lastFrameAt != 0L && now - lastFrameAt > 700) camSettleUntil = now + 1500   // vua rot khung -> cho on dinh
+        // chi coi la "rot that su" khi gap >1.5s (giat nhe cam Wi-Fi binh thuong <1.5s van bao duoc);
+        // cho on dinh ngan 0.8s -> khong tat canh bao va cham oan khi cam chi giat vat.
+        if (lastFrameAt != 0L && now - lastFrameAt > 1500) camSettleUntil = now + 800
         lastFrameAt = now
         val cb = onPreview
         if (uiVisible && cb != null && now - lastPrev >= (if (hot >= 1) 200 else 100)) { lastPrev = now; try { drawPreview(im, cb) } catch (e: Exception) { Log.w(TAG, "prev", e) } }

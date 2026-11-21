@@ -244,7 +244,9 @@ class MirrorCam(
                     setOption("fflags", "nobuffer")       // khong don khung -> khong tre dan (realtime)
                     setOption("flags", "low_delay")
                     imageMode = FrameGrabber.ImageMode.COLOR
-                    pixelFormat = avutil.AV_PIX_FMT_BGR24
+                    // Lay thang YUV420P (I420) tu ffmpeg -> KHONG phai doi mau BGR->YUV tung diem tren Kotlin
+                    // (vong lap 2M diem/khung = nang, tre + nong). Chi can chep khoi -> nhanh hon nhieu.
+                    pixelFormat = avutil.AV_PIX_FMT_YUV420P
                     imageWidth = W                        // ffmpeg tu scale ve 1920x1080 (nguon co the 4K)
                     imageHeight = H
                     imageScalingFlags = swscale.SWS_BICUBIC   // co anh net hon mac dinh (bilinear)
@@ -285,51 +287,26 @@ class MirrorCam(
         status = "đã tắt"
     }
 
-    /** BGR24 (1280x720) -> I420 vao bo dem truc tiep -> YuvFrame -> onFrame. */
+    /** ffmpeg xuat YUV420P (Y|U|V lien tiep, stride plane Y = imageStride) -> chep khoi sang bo dem
+     *  (stride chuan W) -> YuvFrame -> onFrame. Khong con doi mau tung diem. */
     private fun deliver(f: Frame) {
         val src = (f.image?.getOrNull(0) as? ByteBuffer) ?: return
-        val stride = f.imageStride                       // byte/hang (co the > W*3 do can le)
+        val stride = f.imageStride                       // stride plane Y (co the >= W do can le)
         if (f.imageWidth != W || f.imageHeight != H) return
+        val cStride = stride / 2
+        val cw = W / 2; val ch = H / 2
+        val yBase = 0
+        val uBase = stride * H
+        val vBase = uBase + cStride * ch
+        if (vBase + cStride * ch > src.capacity()) return     // phong khung bo dem thieu (bo khung)
         val buf = i420[bufI]; bufI = bufI xor 1
         buf.clear()
-        val y = buf.duplicate()
         val uStart = W * H
         val vStart = W * H + W * H / 4
-        // Y
-        for (j in 0 until H) {
-            val row = j * stride
-            var oi = j * W
-            var i = row
-            var x = 0
-            while (x < W) {
-                val b = src.get(i).toInt() and 0xff
-                val gg = src.get(i + 1).toInt() and 0xff
-                val r = src.get(i + 2).toInt() and 0xff
-                val yy = (77 * r + 150 * gg + 29 * b) shr 8          // 0.299/0.587/0.114
-                y.put(oi, yy.coerceIn(0, 255).toByte())
-                i += 3; oi++; x++
-            }
-        }
-        // U, V: lay mau 2x2 (dung diem goc tren-trai moi o)
-        var ui = uStart; var vi = vStart
-        var j = 0
-        while (j < H) {
-            val row = j * stride
-            var x = 0
-            while (x < W) {
-                val i = row + x * 3
-                val b = src.get(i).toInt() and 0xff
-                val gg = src.get(i + 1).toInt() and 0xff
-                val r = src.get(i + 2).toInt() and 0xff
-                val u = ((-43 * r - 84 * gg + 127 * b) shr 8) + 128
-                val v = ((127 * r - 106 * gg - 21 * b) shr 8) + 128
-                buf.put(ui, u.coerceIn(0, 255).toByte())
-                buf.put(vi, v.coerceIn(0, 255).toByte())
-                ui++; vi++
-                x += 2
-            }
-            j += 2
-        }
+        // chep tung hang (bo phan dem stride neu co), dung ByteBuffer.put khoi -> nhanh
+        copyPlane(src, yBase, stride, buf, 0, W, W, H)
+        copyPlane(src, uBase, cStride, buf, uStart, cw, cw, ch)
+        copyPlane(src, vBase, cStride, buf, vStart, cw, cw, ch)
         frames++; gotFrame = true
         if (!gotFrameLogged) { gotFrameLogged = true; log("khung hình đầu tiên ${W}x$H"); onErr("") }
         val now = SystemClock.elapsedRealtime()
@@ -351,6 +328,19 @@ class MirrorCam(
 
     private fun sliced(buf: ByteBuffer, start: Int, len: Int): ByteBuffer {
         val d = buf.duplicate(); d.position(start); d.limit(start + len); return d.slice()
+    }
+
+    /** Chep 1 mat phang: tu src (base, srcStride) sang dst (dstStart, dstStride=rowW) rong rowW cao rows. */
+    private fun copyPlane(src: ByteBuffer, base: Int, srcStride: Int, dst: ByteBuffer, dstStart: Int, rowW: Int, dstStride: Int, rows: Int) {
+        if (srcStride == dstStride) {                        // lien tuc: chep 1 phat
+            val s = src.duplicate(); s.position(base); s.limit(base + srcStride * rows)
+            val d = dst.duplicate(); d.position(dstStart); d.put(s)
+            return
+        }
+        for (j in 0 until rows) {                            // co dem le: chep tung hang
+            val s = src.duplicate(); s.position(base + j * srcStride); s.limit(base + j * srcStride + rowW)
+            val d = dst.duplicate(); d.position(dstStart + j * dstStride); d.put(s)
+        }
     }
 
     @Volatile private var gotFrameLogged = false
