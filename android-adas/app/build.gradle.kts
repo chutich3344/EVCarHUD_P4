@@ -37,10 +37,11 @@ android {
     // Mo hinh .onnx de nguyen (khong nen) de chep ra nhanh
     androidResources { noCompress += "onnx" }
     packaging {
-        // JavaCV/ffmpeg co the trung ten .so giua cac module -> giu ban dau tien.
-        // KHONG dat useLegacyPackaging: manifest da extractNativeLibs=false (nen .so khong nen, can le trang)
-        // cho onnxruntime; ep legacy=true lam APK OPPO khong phan tich duoc ("Parsing failed").
+        // .so cua ffmpeg (bytedeco) KHONG can le 16KB nhu onnxruntime -> de khong nen (extractNativeLibs=false)
+        // thi OPPO/Android 15 khong phan tich duoc APK ("Parsing failed"). Dong goi NEN + giai nen khi cai
+        // (useLegacyPackaging=true + manifest extractNativeLibs=true): cai duoc moi may, khong phu thuoc can le.
         jniLibs {
+            useLegacyPackaging = true
             pickFirsts += listOf("**/*.so")
         }
         resources {
