@@ -363,8 +363,27 @@ class TileMap(ctx: Context) : View(ctx) {
 
     private val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
 
+    // Dang noi Wi-Fi cam guong (khong Internet) thi tien trinh bi bam vao Wi-Fi do -> tai tile hong
+    // (UnknownHostException). Xin GIU mang 4G/5G co Internet va tai tile thang qua no (nhu CloudLog).
+    @Volatile private var cellNet: android.net.Network? = null
+    private var cellAsked = false
+    private fun wantCell() {
+        if (cellAsked) return
+        cellAsked = true
+        try {
+            val req = android.net.NetworkRequest.Builder()
+                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+            cm.requestNetwork(req, object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(n: android.net.Network) { cellNet = n; main.post { invalidate() } }
+                override fun onLost(n: android.net.Network) { if (cellNet == n) cellNet = null }
+            })
+        } catch (_: Exception) { cellAsked = false }
+    }
+
     private fun inetNet(): android.net.Network? {
         fun ok(n: android.net.Network?) = n != null && cm.getNetworkCapabilities(n)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        cellNet?.let { if (ok(it)) return it }       // uu tien 4G/5G da giu (co Internet du dang bam Wi-Fi cam)
         val a = cm.activeNetwork
         if (ok(a)) return a
         @Suppress("DEPRECATION")
@@ -375,6 +394,7 @@ class TileMap(ctx: Context) : View(ctx) {
         val src = source
         val k = "$zoom/$x/$y"
         mem.get(k)?.let { return it }
+        wantCell()                                    // giu san 4G/5G de tai tile khi dang bam Wi-Fi cam
         if (loading.add(k)) io.execute {
             val f = File(dir, "${src}_${zoom}_${x}_$y.png")
             val url = when (src) {

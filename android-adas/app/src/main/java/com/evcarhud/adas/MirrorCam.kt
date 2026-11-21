@@ -224,9 +224,9 @@ class MirrorCam(
             startKeep(net)
             log("${if (is70) "70mai" else "cam gương"} mở: $info")
 
-            // app hang (mpv/ffmpeg) mac dinh RTSP = UDP. Cam guong thu UDP truoc (giong hang), xen ke TCP.
-            // 70mai thu TCP truoc.
-            val udp = if (is70) retry % 2 == 1 else retry % 2 == 0
+            // On dinh > do tre (nguoi dung chap nhan tre nhe): uu tien TCP (khong mat goi -> khong rot/vo khung),
+            // xen ke UDP khi TCP khong duoc. (truoc day cam guong UDP truoc hay rot tren link nhieu.)
+            val udp = retry % 2 == 1
             val url = "rtsp://$HOST:554" + (if (is70) paths70[(retry / 2) % paths70.size] else "")
             status = "mở ffmpeg ${if (udp) "UDP" else "TCP"} $url"
             log(status); onErr("Cam: " + traceStr(udp))
@@ -239,10 +239,9 @@ class MirrorCam(
                     setOption("rtsp_transport", if (udp) "udp" else "tcp")
                     // KHONG set rtsp_flags="" (rong) -> avformat_open_input tra -22 EINVAL. Chi set khi co gia tri.
                     setOption("timeout", "8000000")       // timeout socket (us) cho rtsp (ffmpeg 6)
-                    setOption("max_delay", "200000")      // giam tre: 0.2s (truoc 0.5s)
-                    setOption("reorder_queue_size", "0")  // khong xep lai goi -> do tre, hop live
+                    setOption("max_delay", "500000")      // dem 0.5s cho muot (chiu tre nhe, bot giat)
                     setOption("buffer_size", "1048576")
-                    setOption("fflags", "nobuffer")
+                    // KHONG dat fflags=nobuffer / reorder_queue_size=0: lam vo khung + rot tren link nhieu.
                     imageMode = FrameGrabber.ImageMode.COLOR
                     pixelFormat = avutil.AV_PIX_FMT_BGR24
                     imageWidth = W                        // ffmpeg tu scale ve 1920x1080 (nguon co the 4K)

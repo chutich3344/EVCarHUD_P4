@@ -205,6 +205,9 @@ class AdasService : Service() {
     private var yawN = 0
     private var yawGood = 0
     @Volatile private var lastFrameAt = 0L
+    // Khi cam rot/noi lai (gap khung), khung dau sau do hay nhay -> chan canh bao PHANH/xe truoc gia
+    // trong 1,5 s cho on dinh, tranh "loi phanh" khi lai xe.
+    @Volatile private var camSettleUntil = 0L
     private var camOpenAt = 0L
 
     override fun onBind(i: Intent?): IBinder = LocalBinder()
@@ -507,6 +510,7 @@ class AdasService : Service() {
     // ---------------- camera -> AI ----------------
     private fun onFrame(im: YuvFrame) {
         val now = SystemClock.elapsedRealtime()
+        if (lastFrameAt != 0L && now - lastFrameAt > 700) camSettleUntil = now + 1500   // vua rot khung -> cho on dinh
         lastFrameAt = now
         val cb = onPreview
         if (uiVisible && cb != null && now - lastPrev >= (if (hot >= 1) 200 else 100)) { lastPrev = now; try { drawPreview(im, cb) } catch (e: Exception) { Log.w(TAG, "prev", e) } }
@@ -724,6 +728,8 @@ class AdasService : Service() {
         if (level >= 3) l3Hold = wall + 2000 else if (wall < l3Hold && leadM != null) level = 3
         // muc 2 can 2 lan lien tiep
         if (level == 2) { l2n++; if (l2n < 2) level = 1 } else if (level < 2) l2n = 0
+        // cam vua rot/noi lai: khung dau hay nhay -> chan canh bao gia (khong keu PHANH oan)
+        if (wall < camSettleUntil) { level = 0; ttc = null; vrelF = Float.NaN; l3Since = 0L; l3Hold = 0L; l2n = 0 }
         val near = leadM != null && (level > 0 || (ttc != null && ttc < 4f))
         calibYaw(o, v)
         main.post { onResult(o, g, v, ldw, off, leadM, ttc, level, near) }
