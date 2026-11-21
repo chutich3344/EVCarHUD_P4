@@ -67,6 +67,7 @@ class Overlay(ctx: Context) : View(ctx) {
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pt = FloatArray(4)
     private val gearRect = RectF()
+    private val gearHit = RectF()   // vung cham rong hon nut ve, de bam trung khi lai
     private val btnOk = RectF()
     private val btnNo = RectF()
 
@@ -293,14 +294,15 @@ class Overlay(ctx: Context) : View(ctx) {
             cv.drawText(st, x + 0.7f * u, top + 11.75f * u, txt)
         }
 
-        // chip ben phai: [cai dat] [LAN] [HUD]
+        // chip ben phai: [cai dat] [LAN] [HUD]  — nut Cai dat to, vung cham rong de bam khi lai
         var xr = width - 2f * u0
-        txt.textSize = 1.25f * u0
-        val gw = 2.6f * u0
-        gearRect.set(xr - gw, top, xr, top + 2.6f * u0)
-        fill.color = Color.argb(140, 18, 24, 32); cv.drawRoundRect(gearRect, 1.3f * u0, 1.3f * u0, fill)
-        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 1.6f * u0
-        cv.drawText("⚙", gearRect.centerX(), gearRect.centerY() + 0.55f * u0, txt)
+        val gw = 3.6f * u0
+        val gh = 3.2f * u0
+        gearRect.set(xr - gw, top, xr, top + gh)
+        gearHit.set(gearRect.left - 1.4f * u0, gearRect.top - 1.4f * u0, gearRect.right + 1.4f * u0, gearRect.bottom + 1.4f * u0)
+        fill.color = Color.argb(190, 20, 27, 37); cv.drawRoundRect(gearRect, 1.2f * u0, 1.2f * u0, fill)
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 2.1f * u0
+        cv.drawText("⚙", gearRect.centerX(), gearRect.centerY() + 0.72f * u0, txt)
         xr -= gw + 0.6f * u0
         val bothLanes = sn?.out?.let { it.laneProb[1] > 0.5f && it.laneProb[2] > 0.5f } ?: false
         val lanBg = when { sn != null && sn.ldw != '-' -> Color.argb(220, 220, 50, 60); bothLanes -> Color.argb(200, 30, 158, 90); else -> Color.argb(140, 90, 96, 104) }
@@ -488,8 +490,8 @@ class Overlay(ctx: Context) : View(ctx) {
             }
             return true
         }
-        if (e.action == MotionEvent.ACTION_DOWN) return gearRect.contains(e.x, e.y)
-        if (e.action == MotionEvent.ACTION_UP && gearRect.contains(e.x, e.y)) { onGear(); return true }
+        if (e.action == MotionEvent.ACTION_DOWN) return gearHit.contains(e.x, e.y)
+        if (e.action == MotionEvent.ACTION_UP && gearHit.contains(e.x, e.y)) { onGear(); return true }
         return false
     }
 }

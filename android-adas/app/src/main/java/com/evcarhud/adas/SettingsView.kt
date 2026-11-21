@@ -83,9 +83,11 @@ class SettingsView(ctx: Context, private val cats: List<Cat>, private val onClos
     private fun buildRail() {
         rail.removeAllViews()
         val top = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val back = IconView(context, "back").apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x1FFFFFFF) } }
+        val back = IconView(context, "back").apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33223042); setStroke(maxOf(1, (1.6f * u).toInt()), 0x59FFFFFF.toInt()) }
+        }   // nut to hon (64u) + vien ro, de bam khi lai
         back.setOnClickListener { onClose() }
-        top.addView(back, LinearLayout.LayoutParams((46 * u).toInt(), (46 * u).toInt()))
+        top.addView(back, LinearLayout.LayoutParams((64 * u).toInt(), (64 * u).toInt()))
         top.addView(tv("Cài đặt", 30f, bold = true), LinearLayout.LayoutParams(-2, -2).apply { leftMargin = (14 * u).toInt() })
         rail.addView(top, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (12 * u).toInt(); leftMargin = (4 * u).toInt() })
         cats.forEachIndexed { i, c ->

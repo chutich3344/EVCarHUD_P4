@@ -66,7 +66,7 @@ class Prefs(ctx: Context) {
         get() = p.getInt("tc", 2)
         set(v) = p.edit().putInt("tc", v).apply()
     var mapCorner: Int
-        get() = p.getInt("mc", 3)
+        get() = p.getInt("mc", 2)   // mac dinh goc duoi-trai (khop thiet ke 21/11); overlay.avoid() da tranh ve vach de len map
         set(v) = p.edit().putInt("mc", v).apply()
     /** Khoa HERE Routing v8 (platform.here.com), trong = dung OSRM. */
     var hereKey: String

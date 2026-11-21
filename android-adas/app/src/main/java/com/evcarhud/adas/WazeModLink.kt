@@ -23,6 +23,7 @@ import android.os.Parcel
 class WazeModLink(private val ctx: Context, private val log: (String) -> Unit, private val onData: (Bundle?) -> Unit) {
     @Volatile var status = "chưa nối"; private set
     @Volatile var ok = false; private set
+    @Volatile var apiVer = 0; private set   // phien ban WazeMod Data API (getApiVersion), chi de ghi log/kiem tra tuong thich
     private val main = Handler(Looper.getMainLooper())
     private var svc: IBinder? = null
     private var bound = false
@@ -95,11 +96,25 @@ class WazeModLink(private val ctx: Context, private val log: (String) -> Unit, p
             b.transact(REGISTER, d, r, 0)
             r.readException()
             set("đã nối, đang nhận dữ liệu", true)
+            readApiVersion(b)
         } catch (e: SecurityException) {
             set("chưa cho phép · bấm để xin quyền", false)
         } catch (e: Exception) {
             set("lỗi ${e.javaClass.simpleName}", false)
         } finally { d.recycle(); r.recycle() }
+    }
+
+    /** Doc phien ban API (getApiVersion = 2) 1 lan sau khi dang ky — chi ghi log, de biet neu Waze Mod sau nay doi API. */
+    private fun readApiVersion(b: IBinder) {
+        if (apiVer > 0) return
+        val d = Parcel.obtain(); val r = Parcel.obtain()
+        try {
+            d.writeInterfaceToken(DESCRIPTOR)
+            b.transact(API_VERSION, d, r, 0)
+            r.readException()
+            apiVer = r.readInt()
+            log("WAZEMOD api v$apiVer")
+        } catch (_: Exception) {} finally { d.recycle(); r.recycle() }
     }
 
     fun stop() {
@@ -119,6 +134,7 @@ class WazeModLink(private val ctx: Context, private val log: (String) -> Unit, p
         const val ACTION_REQUEST = "com.wazemod.api.action.REQUEST_ACCESS"
         private const val DESCRIPTOR = "com.wazemod.api.IWazeModData"
         private const val LISTENER = "com.wazemod.api.IWazeModListener"
+        private const val API_VERSION = 2
         private const val REGISTER = 4
         private const val UNREGISTER = 5
         private const val ON_UPDATE = 2
