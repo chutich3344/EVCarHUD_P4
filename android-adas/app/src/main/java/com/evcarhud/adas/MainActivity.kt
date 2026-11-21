@@ -50,7 +50,7 @@ class MainActivity : Activity() {
         prefs = Prefs(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // hien phien ban moi lan mo app de biet da cai dung ban (nguoi dung hoi 20/11)
-        android.widget.Toast.makeText(this, "App Làn ${appVer()}", android.widget.Toast.LENGTH_LONG).show()
+        android.widget.Toast.makeText(this, "App LANE ${appVer()}", android.widget.Toast.LENGTH_LONG).show()
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -222,11 +222,16 @@ class MainActivity : Activity() {
                 T("Tốc độ mặc định theo luật", "50 / 60 khi chưa thấy biển (bản đồ OSM)", { prefs.defLimit }, { b -> prefs.defLimit = b }, false),
                 T("Camera phạt nguội", "lấy từ Waze / GOFA", { prefs.camAlert }, { b -> prefs.camAlert = b }, false),
             ) },
-            SettingsView.Cat("cam", "Camera", { (when (prefs.camSrc) { "mirror" -> "cam gương"; "70mai" -> "70mai"; else -> "ĐT" }) + " · " + (if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "đã hiệu chỉnh" else "đang học") }) { listOf(
+            SettingsView.Cat("cam", "Camera", { (when (prefs.camSrc) { "mirror" -> "cam gương"; "70mai" -> "70mai"; else -> "ĐT" }) + " · " + (if (!prefs.autoCalib) "chỉnh tay" else if (prefs.calibrated) "đã hiệu chỉnh" else "đang học") }) { listOfNotNull(
                 S("Nguồn camera", null, listOf("Điện thoại", "Cam gương", "70mai"), { when (prefs.camSrc) { "mirror" -> 1; "70mai" -> 2; else -> 0 } }, { k ->
                     val m = when (k) { 1 -> "mirror"; 2 -> "70mai"; else -> "phone" }
                     if (m != prefs.camSrc) { prefs.camSrc = m; svc?.switchCam(); toast(when (k) { 1 -> "Dùng cam gương: điện thoại phải đang nối Wi-Fi của cam"; 2 -> "Dùng cam 70mai: nối Wi-Fi 70mai_… của cam"; else -> "Dùng camera điện thoại" }) }
                 }, false),
+                // Cac muc sau chi cho cam Wi-Fi (cam guong / 70mai)
+                if (prefs.camSrc != "phone") H("Camera Wi-Fi — hiệu năng & hình ảnh") else null,
+                if (prefs.camSrc != "phone") S("Độ phân giải", "720p mát, mượt, đỡ trễ · AI tự thu nhỏ ảnh nên 720p không giảm độ chính xác", listOf("720p", "1080p"), { if (prefs.camHd) 1 else 0 }, { k -> val hd = k == 1; if (hd != prefs.camHd) { prefs.camHd = hd; svc?.restartCam(); toast(if (hd) "1080p: nét hơn, nóng & trễ hơn" else "720p: mát, mượt, đỡ trễ") } }, true) else null,
+                if (prefs.camSrc != "phone") T("Làm nét vật cản", "tăng nét viền xe/vật phía trước, giảm mờ xung quanh", { prefs.camSharpen }, { b -> prefs.camSharpen = b }, true) else null,
+                if (prefs.camSrc != "phone") T("Cân màu tự động", "chống ám/bệt màu, màu trung thực hơn", { prefs.camColor }, { b -> prefs.camColor = b }, true) else null,
                 H("Hiệu chỉnh"),
                 T("Tự hiệu chỉnh", svc?.calibInfo()?.lineSequence()?.firstOrNull(), { prefs.autoCalib }, { b -> svc?.setAuto(b) }, false),
                 A("Học lại từ đầu", "sau khi gắn lại điện thoại", null) { svc?.resetCalib(); toast("Chạy thẳng 1–2 phút trên đường có vạch để app tự học"); refreshSettings() },
@@ -258,7 +263,7 @@ class MainActivity : Activity() {
             ) },
             SettingsView.Cat("nang", "Hiệu năng & nhiệt", { arrayOf("tiết kiệm", "cân bằng", "tối đa")[prefs.perf.coerceIn(0, 2)] }) { listOf(
                 S("Chế độ", "tiết kiệm: AI 3 lần/giây, đọc biển thưa hơn · tối đa: chỉ giảm khi pin ≥ 43°", listOf("Tiết kiệm", "Cân bằng", "Tối đa"), { prefs.perf }, { k -> prefs.perf = k }, true),
-                S("Bộ xử lý AI", null, listOf("NPU", "CPU"), { if (prefs.accel == "npu") 0 else 1 }, { k -> val a = if (k == 0) "npu" else "cpu"; if (a != prefs.accel) { prefs.accel = a; svc?.reloadSettings(true) } }, false),
+                S("Bộ xử lý AI", "Tự động: ưu tiên NPU, máy tự đối chiếu CPU, NPU sai thì tự về CPU", listOf("Tự động (NPU)", "Ép CPU"), { if (prefs.accel == "npu") 0 else 1 }, { k -> val a = if (k == 0) "npu" else "cpu"; if (a != prefs.accel) { prefs.accel = a; svc?.reloadSettings(true) } }, false),
                 A("Nhiệt độ hiện tại", svc?.heatInfo() ?: "", null) { },
             ) },
             SettingsView.Cat("kt", "Kỹ thuật", { "chẩn đoán" }) { listOf(
@@ -270,7 +275,7 @@ class MainActivity : Activity() {
             SettingsView.Cat("tt", "Thông tin", { appVer() }) { listOf(
                 A("Phiên bản app", null, appVer()) { },
                 A("Mã HUD", null, prefs.hudMac.ifEmpty { "chưa có" }) { },
-                A("Giới thiệu & giấy phép", null, null) { AlertDialog.Builder(this).setTitle("EVCarHUD Làn").setMessage(ABOUT).setPositiveButton("OK", null).show() },
+                A("Giới thiệu & giấy phép", null, null) { AlertDialog.Builder(this).setTitle("EVCarHUD LANE").setMessage(ABOUT).setPositiveButton("OK", null).show() },
                 A("Thoát hẳn (tắt chạy nền)", null, null) {
                     startService(Intent(this, AdasService::class.java).setAction(AdasService.ACTION_STOP))
                     finish()

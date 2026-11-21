@@ -37,14 +37,16 @@ class MirrorCam(
     private val log: (String) -> Unit = {},
     /** "mirror" = cam guong Sinjet (goi API :8000 truoc), "70mai" = cam 70mai (RTSP /livestream/12, 192.168.0.1). */
     private val kind: String = "mirror",
+    /** true = 1080p (net hon, nong + tre hon), false = 720p (mat, muot, do tre). AI tu thu nho nen 720p khong giam do chinh xac. */
+    private val hd: Boolean = false,
 ) : FrameSource {
     private val is70 = kind == "70mai"
     private val HOST = if (is70) "192.168.0.1" else "192.168.5.1"
     private val paths70 = listOf("/livestream/12", "/livestream/11", "/livestream/1", "/live")
 
-    // Nguon cam 4K -> ffmpeg scale ve 1920x1080 (truoc 1280x720) cho net hon tren man HUD rong.
-    private val W = 1920
-    private val H = 1080
+    // Nguon cam 4K -> ffmpeg scale ve do phan giai chon: 1080p net / 720p mat + do tre + nhe giai ma.
+    private val W = if (hd) 1920 else 1280
+    private val H = if (hd) 1080 else 720
 
     @Volatile private var want = false
     @Volatile private var grabber: FFmpegFrameGrabber? = null
@@ -200,11 +202,13 @@ class MirrorCam(
      *  grabImage ket treo mai. Neu >4s khong co khung moi (da tung co khung) thi stop grabber de
      *  pha ket, vong lap bat loi -> noi lai luong. */
     private fun watchLoop() {
+        // 70mai hay giat/treo hon cam guong -> bat đứng hình SOM hon (2,5s) de noi lai muot; cam guong giu 4s.
+        val froze = if (is70) 2500L else 4000L
         while (want) {
-            sleep(1000)
+            sleep(800)
             val last = lastFrameAt
-            if (gotFrame && last > 0 && SystemClock.elapsedRealtime() - last > 4000) {
-                log("đứng hình >4s → mở lại luồng")
+            if (gotFrame && last > 0 && SystemClock.elapsedRealtime() - last > froze) {
+                log("đứng hình >${froze / 1000.0}s → mở lại luồng")
                 lastFrameAt = SystemClock.elapsedRealtime()      // tranh goi stop lien tuc
                 try { grabber?.stop() } catch (_: Exception) {}   // pha grabImage dang ket
             }
@@ -296,7 +300,13 @@ class MirrorCam(
                 try { g?.stop() } catch (_: Exception) {}
                 try { g?.release() } catch (_: Exception) {}
             }
-            if (want) { retry++; sleep(minOf(8000L, 1500L * retry)) }
+            if (want) {
+                retry++
+                // Luong vua roi DA tung ra khung (chi giat/treo) -> noi lai NHANH cho muot, nhat la 70mai
+                // (da nho goodPath nen mo thang luong cu). Chua bao gio ra khung -> giai do dan tranh dap cam.
+                val quick = gotFrame
+                sleep(if (quick) (if (is70) 500L else 900L) else minOf(8000L, 1500L * retry))
+            }
         }
         keep?.interrupt(); keep = null
         if (!is70) camNet?.let { n -> try { api(n, "exitrecorder") } catch (_: Exception) {} }

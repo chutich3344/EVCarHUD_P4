@@ -49,13 +49,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <!-- chia se dia diem tu HERE WeGo / Google Maps -->
-            <intent-filter android:label="Dẫn đường trên EVCarHUD Làn">
+            <intent-filter android:label="Dẫn đường trên EVCarHUD LANE">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
             <!-- mo dia diem geo:lat,lon -->
-            <intent-filter android:label="Dẫn đường trên EVCarHUD Làn">
+            <intent-filter android:label="Dẫn đường trên EVCarHUD LANE">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />

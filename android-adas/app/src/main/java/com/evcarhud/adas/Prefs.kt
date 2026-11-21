@@ -49,6 +49,18 @@ class Prefs(ctx: Context) {
     var camSrc: String
         get() = p.getString("camsrc", "phone") ?: "phone"
         set(v) = p.edit().putString("camsrc", v).apply()
+    /** Do phan giai cam Wi-Fi: false = 720p (mat, muot, do tre), true = 1080p (net hon, nong hon). */
+    var camHd: Boolean
+        get() = p.getBoolean("camhd", false)
+        set(v) = p.edit().putBoolean("camhd", v).apply()
+    /** Lam net anh xem cam Wi-Fi (unsharp nhe tren preview, khong dung cho AI). */
+    var camSharpen: Boolean
+        get() = p.getBoolean("camsharp", true)
+        set(v) = p.edit().putBoolean("camsharp", v).apply()
+    /** Can mau tu dong cam Wi-Fi: gian dai gia tri (limited->full) + tang bao hoa cho preview. */
+    var camColor: Boolean
+        get() = p.getBoolean("camcolor", true)
+        set(v) = p.edit().putBoolean("camcolor", v).apply()
     var showDbg: Boolean
         get() = p.getBoolean("dbg", false)
         set(v) = p.edit().putBoolean("dbg", v).apply()

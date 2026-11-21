@@ -107,6 +107,7 @@ class AdasService : Service() {
     var onPreview: ((Bitmap) -> Unit)? = null
     private val prevBmp = Array(2) { Bitmap.createBitmap(PW, PH, Bitmap.Config.ARGB_8888) }
     private val prevPx = IntArray(PW * PH)
+    private val sharpPx = IntArray(PW * PH)      // bo dem lam net preview (unsharp nhe)
     private var prevI = 0
     private var lastPrev = 0L
     @Volatile var bright = -1
@@ -292,7 +293,7 @@ class AdasService : Service() {
         // bo bao loi cua nguon cu (vd. cam guong da tat sau khi doi ve camera dien thoai)
         val err: (String) -> Unit = { e -> main.post { if (me == null || cam === me) { loadMsg = e; publishIdle() } } }
         try {
-            me = if (prefs.camSrc != "phone") MirrorCam(this, ::onFrame, err, { main.post { rebuildGeom() } }, { clog?.line("cam wifi: $it") }, prefs.camSrc)
+            me = if (prefs.camSrc != "phone") MirrorCam(this, ::onFrame, err, { main.post { rebuildGeom() } }, { clog?.line("cam wifi: $it") }, prefs.camSrc, prefs.camHd)
             else CamSource(this, ::onFrame, err)
             cam = me
         } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
@@ -307,6 +308,14 @@ class AdasService : Service() {
         saveCalib()
         makeCam(); rebuildGeom(); applyRate()
         clog?.line("nguon camera: ${prefs.camSrc}")
+    }
+
+    /** Mo lai camera (vd. doi do phan giai 720p/1080p) KHONG dong lai hieu chinh nhu switchCam. */
+    fun restartCam() {
+        if (prefs.camSrc == "phone") return
+        cam?.release(); cam = null; loadMsg = ""
+        makeCam(); rebuildGeom(); applyRate()
+        clog?.line("mo lai cam: ${prefs.camSrc} ${if (prefs.camHd) "1080p" else "720p"}")
     }
 
     fun reloadSettings(accelChanged: Boolean) {
@@ -549,6 +558,11 @@ class AdasService : Service() {
         val flip = cam?.flip == true
         val sx = w / PW.toFloat(); val sy = h / PH.toFloat()
         val ny = yb.limit(); val nu = minOf(ub.limit(), vb.limit())
+        // Cam Wi-Fi hay bi nhat mau / toi: can mau tu dong gian dai Y (limited 16-235 -> full 0-255)
+        // + tang bao hoa mau. Chi ap cho cam Wi-Fi va chi anh HIEN (preview), KHONG dung cho AI.
+        val wifi = prefs.camSrc != "phone"
+        val colOn = wifi && prefs.camColor
+        val sat = if (colOn) 1.30f else 1f
         var sum = 0L
         for (y in 0 until PH) {
             val iy0 = (y * sy).toInt().coerceAtMost(h - 1)
@@ -564,16 +578,40 @@ class AdasService : Service() {
                 val U = (if (ui < nu) ub.get(ui).toInt() and 0xff else 128) - 128
                 val V = (if (ui < nu) vb.get(ui).toInt() and 0xff else 128) - 128
                 sum += Y
-                val r = (Y + 1.402f * V).toInt().coerceIn(0, 255)
-                val g = (Y - 0.344f * U - 0.714f * V).toInt().coerceIn(0, 255)
-                val b = (Y + 1.772f * U).toInt().coerceIn(0, 255)
+                val Yf = if (colOn) (((Y - 16) * 1.164f).coerceIn(0f, 255f)) else Y.toFloat()
+                val Uf = U * sat; val Vf = V * sat
+                val r = (Yf + 1.402f * Vf).toInt().coerceIn(0, 255)
+                val g = (Yf - 0.344f * Uf - 0.714f * Vf).toInt().coerceIn(0, 255)
+                val b = (Yf + 1.772f * Uf).toInt().coerceIn(0, 255)
                 prevPx[row + x] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
         bright = (sum / (PW * PH)).toInt()
+        // Lam net: unsharp nhe (net vien xe/vat phia truoc, bot mo xung quanh). Chi cam Wi-Fi, chi preview.
+        val out = if (wifi && prefs.camSharpen) sharpen(prevPx) else prevPx
         val bm = prevBmp[prevI]; prevI = 1 - prevI
-        bm.setPixels(prevPx, 0, PW, 0, 0, PW, PH)
+        bm.setPixels(out, 0, PW, 0, 0, PW, PH)
         main.post { cb(bm) }
+    }
+
+    /** Unsharp nhe tren preview PWxPH: moi diem = tam*(1+4a) - a*(tren+duoi+trai+phai), tung kenh.
+     *  Preview nho (640x360) + chay <=10 lan/giay nen nhe may. Ket qua vao sharpPx. */
+    private fun sharpen(src: IntArray): IntArray {
+        val a = 0.35f
+        for (y in 0 until PH) {
+            val row = y * PW
+            for (x in 0 until PW) {
+                val i = row + x
+                if (x == 0 || y == 0 || x == PW - 1 || y == PH - 1) { sharpPx[i] = src[i]; continue }
+                val c = src[i]; val up = src[i - PW]; val dn = src[i + PW]; val lf = src[i - 1]; val rt = src[i + 1]
+                val cr = (c shr 16) and 0xff; val cg = (c shr 8) and 0xff; val cb = c and 0xff
+                val sr = ((cr * (1 + 4 * a)) - a * (((up shr 16) and 0xff) + ((dn shr 16) and 0xff) + ((lf shr 16) and 0xff) + ((rt shr 16) and 0xff))).toInt().coerceIn(0, 255)
+                val sg = ((cg * (1 + 4 * a)) - a * (((up shr 8) and 0xff) + ((dn shr 8) and 0xff) + ((lf shr 8) and 0xff) + ((rt shr 8) and 0xff))).toInt().coerceIn(0, 255)
+                val sb = ((cb * (1 + 4 * a)) - a * ((up and 0xff) + (dn and 0xff) + (lf and 0xff) + (rt and 0xff))).toInt().coerceIn(0, 255)
+                sharpPx[i] = (0xff shl 24) or (sr shl 16) or (sg shl 8) or sb
+            }
+        }
+        return sharpPx
     }
 
     // ---- tu tim mep taplo: hang anh dung yen khi xe chay (taplo) vs hang thay doi (duong) ----
@@ -1038,7 +1076,7 @@ class AdasService : Service() {
         val stop = PendingIntent.getService(this, 1, Intent(this, AdasService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         val n = Notification.Builder(this, CH)
             .setSmallIcon(R.drawable.ic_notif)
-            .setContentTitle("EVCarHUD Làn")
+            .setContentTitle("EVCarHUD LANE")
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
