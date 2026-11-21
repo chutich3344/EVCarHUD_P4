@@ -215,6 +215,9 @@ class MirrorCam(
             // cam guong chi 1 phien RTSP -> reset phien (exit roi enter) de lan nao cung co du lieu
             val info = if (is70) {
                 if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
+                // 70mai chi 1 phien: lan truoc thoat khong dong phien -> mo lai 454/loi. Bo dang ky phien cu
+                // roi dang ky lai cho sach (unregister co the khong ho tro -> tra loi, bo qua).
+                hisnet(net, "client.cgi?&-operation=unregister&-ip=${myIp(net)}"); sleep(250)
                 hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
             } else {
                 api(net, "exitrecorder"); sleep(400)
@@ -287,26 +290,25 @@ class MirrorCam(
         status = "đã tắt"
     }
 
-    /** ffmpeg xuat YUV420P (Y|U|V lien tiep, stride plane Y = imageStride) -> chep khoi sang bo dem
-     *  (stride chuan W) -> YuvFrame -> onFrame. Khong con doi mau tung diem. */
+    /** ffmpeg xuat YUV420P: Y/U/V nam o 3 BUFFER RIENG (image[0],[1],[2]), KHONG lien khoi.
+     *  Chep tung mat phang sang bo dem (stride chuan W) -> YuvFrame -> onFrame. Khong doi mau tung diem. */
     private fun deliver(f: Frame) {
-        val src = (f.image?.getOrNull(0) as? ByteBuffer) ?: return
-        val stride = f.imageStride                       // stride plane Y (co the >= W do can le)
+        val img = f.image ?: return
+        val yb = (img.getOrNull(0) as? ByteBuffer) ?: return
+        val ub = (img.getOrNull(1) as? ByteBuffer) ?: return
+        val vb = (img.getOrNull(2) as? ByteBuffer) ?: return
         if (f.imageWidth != W || f.imageHeight != H) return
-        val cStride = stride / 2
+        val yStride = f.imageStride                      // stride plane Y (>= W do can le)
+        val cStride = yStride / 2                         // YUV420P: stride U/V = 1/2 plane Y
         val cw = W / 2; val ch = H / 2
-        val yBase = 0
-        val uBase = stride * H
-        val vBase = uBase + cStride * ch
-        if (vBase + cStride * ch > src.capacity()) return     // phong khung bo dem thieu (bo khung)
         val buf = i420[bufI]; bufI = bufI xor 1
         buf.clear()
         val uStart = W * H
         val vStart = W * H + W * H / 4
         // chep tung hang (bo phan dem stride neu co), dung ByteBuffer.put khoi -> nhanh
-        copyPlane(src, yBase, stride, buf, 0, W, W, H)
-        copyPlane(src, uBase, cStride, buf, uStart, cw, cw, ch)
-        copyPlane(src, vBase, cStride, buf, vStart, cw, cw, ch)
+        copyPlane(yb, 0, yStride, buf, 0, W, W, H)
+        copyPlane(ub, 0, cStride, buf, uStart, cw, cw, ch)
+        copyPlane(vb, 0, cStride, buf, vStart, cw, cw, ch)
         frames++; gotFrame = true
         if (!gotFrameLogged) { gotFrameLogged = true; log("khung hình đầu tiên ${W}x$H"); onErr("") }
         val now = SystemClock.elapsedRealtime()
@@ -330,15 +332,19 @@ class MirrorCam(
         val d = buf.duplicate(); d.position(start); d.limit(start + len); return d.slice()
     }
 
-    /** Chep 1 mat phang: tu src (base, srcStride) sang dst (dstStart, dstStride=rowW) rong rowW cao rows. */
+    /** Chep 1 mat phang: tu src (base, srcStride) sang dst (dstStart, dstStride=rowW) rong rowW cao rows.
+     *  Chong tran: neu stride nguon la ma le khac du doan thi chep tung hang va bo qua hang vuot gioi han. */
     private fun copyPlane(src: ByteBuffer, base: Int, srcStride: Int, dst: ByteBuffer, dstStart: Int, rowW: Int, dstStride: Int, rows: Int) {
-        if (srcStride == dstStride) {                        // lien tuc: chep 1 phat
+        val cap = src.capacity()
+        if (srcStride == dstStride && base + srcStride * rows <= cap) {   // lien tuc + vua -> chep 1 phat
             val s = src.duplicate(); s.position(base); s.limit(base + srcStride * rows)
             val d = dst.duplicate(); d.position(dstStart); d.put(s)
             return
         }
         for (j in 0 until rows) {                            // co dem le: chep tung hang
-            val s = src.duplicate(); s.position(base + j * srcStride); s.limit(base + j * srcStride + rowW)
+            val sp = base + j * srcStride
+            if (sp + rowW > cap) break                       // het du lieu nguon -> dung
+            val s = src.duplicate(); s.position(sp); s.limit(sp + rowW)
             val d = dst.duplicate(); d.position(dstStart + j * dstStride); d.put(s)
         }
     }
