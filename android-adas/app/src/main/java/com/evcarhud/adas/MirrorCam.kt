@@ -145,6 +145,24 @@ class MirrorCam(
         return cm.getLinkProperties(net)?.linkAddresses?.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
     }
 
+    // Dashcam cam guong co 2 mat: switchcam(0/1) chon mat SAU / mat TRUOC. Mac dinh cam phat mat SAU;
+    // ADAS can mat TRUOC (nhin duong). Doc gia tri hien tai (= cam sau), dao sang gia tri con lai =
+    // cam truoc, giu co dinh moi vong (khong doc-dao lai keo lat nguoc). Mac dinh doan 1 neu doc loi.
+    @Volatile private var frontVal: String? = null
+    @Volatile private var camLogged = false
+    private fun selectFrontCam(net: Network) {
+        if (frontVal == null) {
+            val cur = api(net, "getparamvalue?param=switchcam")       // "<code> <body>"
+            val body = cur.substringAfter(' ', cur)
+            val after = if (body.contains("switchcam")) body.substringAfter("switchcam") else body
+            val rear = after.firstOrNull { it == '0' || it == '1' }?.toString()
+            frontVal = when (rear) { "0" -> "1"; "1" -> "0"; else -> "1" }
+            log("switchcam đọc='$cur' → cam trước=$frontVal")
+        }
+        val r = api(net, "setparamvalue?param=switchcam&value=$frontVal")
+        if (!camLogged) { camLogged = true; log("đặt cam trước ($frontVal): $r") }
+    }
+
     private var keep: Thread? = null
     private fun startKeep(net: Network) {
         if (keep?.isAlive == true) return
@@ -179,7 +197,9 @@ class MirrorCam(
                 if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
                 hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
             } else {
-                api(net, "exitrecorder"); sleep(400); api(net, "enterrecorder")
+                api(net, "exitrecorder"); sleep(400)
+                selectFrontCam(net)                 // dashcam 2 mat: chon cam TRUOC (mat duong)
+                api(net, "enterrecorder")
             }
             startKeep(net)
             log("${if (is70) "70mai" else "cam gương"} mở: $info")
