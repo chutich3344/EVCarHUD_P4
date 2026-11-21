@@ -159,11 +159,9 @@ class MirrorCam(
                 g = FFmpegFrameGrabber(url).apply {
                     format = "rtsp"
                     setOption("rtsp_transport", if (udp) "udp" else "tcp")
-                    setOption("rtsp_flags", "prefer_tcp".takeIf { !udp } ?: "")
-                    setOption("stimeout", "8000000")      // ffmpeg cu: timeout socket (us)
-                    setOption("timeout", "8000000")       // ffmpeg moi
+                    // KHONG set rtsp_flags="" (rong) -> avformat_open_input tra -22 EINVAL. Chi set khi co gia tri.
+                    setOption("timeout", "8000000")       // timeout socket (us) cho rtsp (ffmpeg 6)
                     setOption("max_delay", "500000")
-                    setOption("reorder_queue_size", "0")
                     setOption("buffer_size", "1048576")
                     setOption("fflags", "nobuffer")
                     imageMode = FrameGrabber.ImageMode.COLOR
