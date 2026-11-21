@@ -10,6 +10,7 @@ import android.util.Log
 import android.util.Size
 import android.view.Surface
 import org.bytedeco.ffmpeg.global.avutil
+import org.bytedeco.ffmpeg.global.swscale
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.bytedeco.javacv.Frame
 import org.bytedeco.javacv.FrameGrabber
@@ -41,8 +42,9 @@ class MirrorCam(
     private val HOST = if (is70) "192.168.0.1" else "192.168.5.1"
     private val paths70 = listOf("/livestream/12", "/livestream/11", "/livestream/1", "/live")
 
-    private val W = 1280
-    private val H = 720
+    // Nguon cam 4K -> ffmpeg scale ve 1920x1080 (truoc 1280x720) cho net hon tren man HUD rong.
+    private val W = 1920
+    private val H = 1080
 
     @Volatile private var want = false
     @Volatile private var grabber: FFmpegFrameGrabber? = null
@@ -224,8 +226,9 @@ class MirrorCam(
                     setOption("fflags", "nobuffer")
                     imageMode = FrameGrabber.ImageMode.COLOR
                     pixelFormat = avutil.AV_PIX_FMT_BGR24
-                    imageWidth = W                        // ffmpeg tu scale ve 1280x720 (nguon co the 4K)
+                    imageWidth = W                        // ffmpeg tu scale ve 1920x1080 (nguon co the 4K)
                     imageHeight = H
+                    imageScalingFlags = swscale.SWS_BICUBIC   // co anh net hon mac dinh (bilinear)
                 }
                 g.start()
                 grabber = g
