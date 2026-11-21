@@ -53,6 +53,12 @@ class MirrorCam(
     @Volatile private var frames = 0
     @Volatile private var gotFrame = false
     @Volatile private var lastFrameAt = 0L      // lan cuoi grabImage ra khung (watchdog đứng hình)
+    // 70mai: nho luong (udp/path) da ra khung de uu tien, khoi do lai tu dau moi lan noi lai
+    @Volatile private var goodUdp: Boolean? = null
+    @Volatile private var goodPath = -1
+    private var goodFail = 0
+    private var curUdp = false
+    private var curPath = 0
     private var watch: Thread? = null
     private var frAt = 0L
 
@@ -173,9 +179,11 @@ class MirrorCam(
         keep = Thread {
             var n = 0
             while (want) {
-                val r = if (is70) hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
+                // 70mai: GIU am ket noi bang GET vo hai. KHONG re-register dinh ky — register lai lam cam
+                // RESET luong (avformat mo duoc 1920x1080 nhung sau do khung=0). Da register 1 lan luc mo.
+                val r = if (is70) hisnet(net, "getdeviceattr.cgi")
                         else api(net, "getparamvalue?param=rec")
-                if (n++ < 2) log("${if (is70) "70mai register" else "cam gương giữ phiên"}: $r")
+                if (n++ < 2) log("${if (is70) "70mai giữ kết nối" else "cam gương giữ phiên"}: $r")
                 try { Thread.sleep(if (is70) 3000 else 1500) } catch (_: InterruptedException) { break }
             }
         }.apply { isDaemon = true; start() }
@@ -227,8 +235,11 @@ class MirrorCam(
 
             // REALTIME: cam guong uu tien UDP (bo goi cu -> tre co dinh thap, giong app hang). TCP khong
             // mat goi nhung neu giai ma khong kip thi don lai -> tre tang dan toi vai PHUT. 70mai TCP truoc.
-            val udp = if (is70) retry % 2 == 1 else retry % 2 == 0
-            val url = "rtsp://$HOST:554" + (if (is70) paths70[(retry / 2) % paths70.size] else "")
+            val useGood = is70 && goodPath >= 0
+            val udp = when { useGood -> goodUdp == true; is70 -> retry % 2 == 1; else -> retry % 2 == 0 }
+            val pathIdx = if (useGood) goodPath else (retry / 2) % paths70.size
+            curUdp = udp; curPath = pathIdx
+            val url = "rtsp://$HOST:554" + (if (is70) paths70[pathIdx] else "")
             status = "mở ffmpeg ${if (udp) "UDP" else "TCP"} $url"
             log(status); onErr("Cam: " + traceStr(udp))
 
@@ -254,7 +265,7 @@ class MirrorCam(
                 }
                 g.start()
                 grabber = g
-                log("ffmpeg mở luồng OK ${g.imageWidth}x${g.imageHeight}")
+                log("ffmpeg mở luồng OK ${g.imageWidth}x${g.imageHeight} codec=${try { g.videoCodecName } catch (_: Exception) { "?" }} fps=${try { "%.0f".format(g.frameRate) } catch (_: Exception) { "?" }}")
                 gotFrame = false
                 lastFrameAt = 0L
                 var lastDeliver = 0L
@@ -262,7 +273,12 @@ class MirrorCam(
                 while (want) {
                     val f: Frame? = try { g.grabImage() } catch (e: Exception) { log("grab lỗi ${e.message?.take(80)}"); null }
                     if (f == null) {
-                        if (!gotFrame && SystemClock.elapsedRealtime() - startAt > 12_000) { log("không có khung 12 s (${if (udp) "UDP" else "TCP"})"); break }
+                        // 70mai: neu mo luong duoc ma 5 s khong co khung thi chuyen luong khac cho nhanh (dò /12→/11→/1→/live)
+                        if (!gotFrame && SystemClock.elapsedRealtime() - startAt > (if (is70) 5_000L else 12_000L)) {
+                            log("không có khung ${if (is70) 5 else 12} s (${if (udp) "UDP" else "TCP"} $url)")
+                            if (is70 && goodPath >= 0 && ++goodFail >= 2) { goodPath = -1; goodFail = 0; log("bỏ nhớ luồng, dò lại từ đầu") }
+                            break
+                        }
                         continue
                     }
                     val now = SystemClock.elapsedRealtime()
@@ -308,6 +324,7 @@ class MirrorCam(
         copyPlane(ub, 0, cStride, buf, uStart, cw, cw, ch)
         copyPlane(vb, 0, cStride, buf, vStart, cw, cw, ch)
         frames++; gotFrame = true
+        if (is70 && goodPath < 0) { goodPath = curPath; goodUdp = curUdp; goodFail = 0; log("nhớ luồng chạy được: ${if (curUdp) "UDP" else "TCP"} ${paths70[curPath]}") }
         if (!gotFrameLogged) { gotFrameLogged = true; log("khung hình đầu tiên ${W}x$H"); onErr("") }
         val now = SystemClock.elapsedRealtime()
         if (now - frAt > 10_000) { log("nhận $frames khung/10 s"); frames = 0; frAt = now }
