@@ -259,7 +259,9 @@ class Overlay(ctx: Context) : View(ctx) {
         val lim = sn?.limit
         if (sn != null && lim != null && !calib) {
             val sx = x + maxOf(txt.measureText(numT), txt.measureText("00")) + 1.2f * u
+            txt.clearShadowLayer()   // so trong bien = den thuan nhu bien that, bo bong/mo
             drawSpeed(cv, lim, sx + numH / 2, numTop + numH / 2, numH)
+            txt.setShadowLayer(0.8f * u, 0f, 0.2f * u, Color.argb(170, 0, 0, 0))   // tra lai bong cho chu ben canh
             txt.typeface = fSemi; txt.textSize = 1.5f * u; txt.textAlign = Paint.Align.LEFT
             val cx = sx + numH + 0.8f * u
             val why = sn.limitWhy
@@ -272,9 +274,7 @@ class Overlay(ctx: Context) : View(ctx) {
         txt.typeface = fSemi; txt.textSize = 1.5f * u; txt.color = Color.WHITE
         val kind = if (lead != null && SystemClock.elapsedRealtime() - kindAt < 4000) kindTxt else null
         val sub = when {
-            sn != null && sn.state == 1 && lead == null -> "m · xe đỗ, AI tạm nghỉ"
-            sn != null && sn.state == 3 && lead == null -> "m · máy nóng, AI tạm nghỉ"
-            lead == null || calib -> "m · chưa thấy xe trước"
+            lead == null || calib -> "m · chưa thấy xe trước"   // thong bao xe do/may nong da dua xuong duoi dong trang thai AI
             sn.level >= 1 -> "m · ${kind ?: "tối thiểu"} ${if (kind != null) "· tối thiểu " else ""}${Op.safeDist(sn.vKmh).roundToInt()} m" + (sn.ttc?.let { " · %.1f s".format(it) } ?: "")
             else -> "m · ${kind ?: "xe trước"}"
         }
@@ -292,6 +292,17 @@ class Overlay(ctx: Context) : View(ctx) {
             cv.drawRoundRect(RectF(x, top + 10.4f * u, x + w, top + 12.3f * u), 0.8f * u, 0.8f * u, fill)
             txt.color = Color.argb(235, 255, 255, 255)
             cv.drawText(st, x + 0.7f * u, top + 11.75f * u, txt)
+        }
+        // dong thong bao trang thai (xe do / may nong / dang hieu chinh...) nam NGAY DUOI dong AI de de chup loi
+        val msg = sn?.msg ?: ""
+        if (msg.isNotEmpty()) {
+            txt.textAlign = Paint.Align.LEFT; txt.textSize = 1.3f * u; txt.typeface = fBold
+            val mw = minOf(txt.measureText(msg), width * 0.62f) + 1.6f * u
+            fill.color = Color.argb(165, 150, 24, 24)
+            cv.drawRoundRect(RectF(x, top + 12.7f * u, x + mw, top + 14.8f * u), 0.9f * u, 0.9f * u, fill)
+            txt.color = Color.argb(245, 255, 226, 160)
+            cv.drawText(msg, x + 0.8f * u, top + 14.15f * u, txt)
+            txt.typeface = fSemi
         }
 
         // chip ben phai: [cai dat] [LAN] [HUD]  — nut Cai dat to, vung cham rong de bam khi lai
