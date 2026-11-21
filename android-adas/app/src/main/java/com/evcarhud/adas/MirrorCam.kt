@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.SystemClock
 import android.util.Log
 import android.util.Size
@@ -67,23 +68,60 @@ class MirrorCam(
 
     private fun traceStr(udp: Boolean) = "FFMPEG[${if (udp) "UDP" else "TCP"} khung=$frames ${W}x$H]"
 
+    // Cam Wi-Fi KHONG co internet -> he dieu hanh de luong mac dinh ra 5G, socket native cua ffmpeg
+    // khong ra duoc cam (-101 ENETUNREACH) du da bindProcessToNetwork. Phai XIN rieng mang Wi-Fi
+    // KHONG yeu cau NET_CAPABILITY_INTERNET (requestNetwork), cho onAvailable, roi bam ca tien trinh
+    // vao mang do va GIU callback (buong callback = mat mang). Bam lai ngay truoc khi mo ffmpeg.
+    private val cm get() = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    @Volatile private var camNet: Network? = null
     @Volatile private var bound = false
-    private fun bindNet(net: Network) {
+    private var netCb: ConnectivityManager.NetworkCallback? = null
+
+    /** Xin mang Wi-Fi cam (khong internet), cho co mang <=timeoutMs, bam tien trinh. Tra Network hoac null. */
+    private fun acquireCamNet(timeoutMs: Long): Network? {
+        camNet?.let { return it }
+        val req = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            .build()
+        val lock = Object()
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(n: Network) {
+                synchronized(lock) {
+                    camNet = n
+                    try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam (requestNetwork)") }
+                    catch (e: Exception) { log("bind net lỗi ${e.javaClass.simpleName}") }
+                    lock.notifyAll()
+                }
+            }
+            override fun onLost(n: Network) {
+                synchronized(lock) { if (camNet == n) { camNet = null; bound = false } }
+            }
+        }
         try {
-            (ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).bindProcessToNetwork(net)
-            bound = true; log("bám mạng Wi-Fi cam")
-        } catch (e: Exception) { log("bind net lỗi ${e.javaClass.simpleName}") }
-    }
-    private fun unbindNet() {
-        if (!bound) return
-        try { (ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).bindProcessToNetwork(null) } catch (_: Exception) {}
-        bound = false
+            cm.requestNetwork(req, cb)
+            netCb = cb
+        } catch (e: Exception) { log("requestNetwork lỗi ${e.javaClass.simpleName}"); return null }
+        synchronized(lock) {
+            val end = SystemClock.elapsedRealtime() + timeoutMs
+            while (camNet == null && SystemClock.elapsedRealtime() < end) {
+                try { lock.wait(end - SystemClock.elapsedRealtime()) } catch (_: InterruptedException) { break }
+            }
+        }
+        return camNet
     }
 
-    private fun wifi(): Network? {
-        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        @Suppress("DEPRECATION")
-        return cm.allNetworks.firstOrNull { cm.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true }
+    /** Bam lai tien trinh vao mang cam (goi ngay truoc khi mo ffmpeg). */
+    private fun rebind() {
+        camNet?.let { try { cm.bindProcessToNetwork(it); bound = true } catch (_: Exception) {} }
+    }
+
+    private fun releaseCamNet() {
+        netCb?.let { try { cm.unregisterNetworkCallback(it) } catch (_: Exception) {} }
+        netCb = null
+        if (bound) { try { cm.bindProcessToNetwork(null) } catch (_: Exception) {} }
+        bound = false; camNet = null
     }
 
     private fun api(net: Network, q: String): String = try {
@@ -130,13 +168,12 @@ class MirrorCam(
     private fun runLoop() {
         avutil.av_log_set_level(avutil.AV_LOG_ERROR)
         while (want) {
-            val net = wifi()
+            val net = acquireCamNet(6000)
             if (net == null) {
                 status = "chưa nối Wi-Fi cam"
                 onErr(if (is70) "Chưa nối Wi-Fi cam 70mai (70mai_…)" else "Chưa nối Wi-Fi cam gương (mirror_wifi…)")
                 sleep(2000); retry++; continue
             }
-            bindNet(net)
             // cam guong chi 1 phien RTSP -> reset phien (exit roi enter) de lan nao cung co du lieu
             val info = if (is70) {
                 if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
@@ -156,6 +193,7 @@ class MirrorCam(
 
             var g: FFmpegFrameGrabber? = null
             try {
+                rebind()   // bam lai mang cam ngay truoc khi ffmpeg mo socket (tranh -101 ra 5G)
                 g = FFmpegFrameGrabber(url).apply {
                     format = "rtsp"
                     setOption("rtsp_transport", if (udp) "udp" else "tcp")
@@ -198,8 +236,8 @@ class MirrorCam(
             if (want) { retry++; sleep(minOf(8000L, 1500L * retry)) }
         }
         keep?.interrupt(); keep = null
-        if (!is70) wifi()?.let { n -> try { api(n, "exitrecorder") } catch (_: Exception) {} }
-        unbindNet()
+        if (!is70) camNet?.let { n -> try { api(n, "exitrecorder") } catch (_: Exception) {} }
+        releaseCamNet()
         status = "đã tắt"
     }
 
