@@ -52,6 +52,8 @@ class MirrorCam(
     private var retry = 0
     @Volatile private var frames = 0
     @Volatile private var gotFrame = false
+    @Volatile private var lastFrameAt = 0L      // lan cuoi grabImage ra khung (watchdog đứng hình)
+    private var watch: Thread? = null
     private var frAt = 0L
 
     // 2 bo dem I420 luan phien (buffer chi can hop le trong luc goi onFrame dong bo)
@@ -183,6 +185,22 @@ class MirrorCam(
         if (worker?.isAlive == true) { want = true; return }
         want = true
         worker = Thread { runLoop() }.apply { isDaemon = true; name = "mirror-ffmpeg"; start() }
+        watch = Thread { watchLoop() }.apply { isDaemon = true; name = "mirror-watch"; start() }
+    }
+
+    /** Canh luong đứng hình: cam gương hay treo (mat goi I-frame, UDP ngăt) nhung khong bao loi ->
+     *  grabImage ket treo mai. Neu >4s khong co khung moi (da tung co khung) thi stop grabber de
+     *  pha ket, vong lap bat loi -> noi lai luong. */
+    private fun watchLoop() {
+        while (want) {
+            sleep(1000)
+            val last = lastFrameAt
+            if (gotFrame && last > 0 && SystemClock.elapsedRealtime() - last > 4000) {
+                log("đứng hình >4s → mở lại luồng")
+                lastFrameAt = SystemClock.elapsedRealtime()      // tranh goi stop lien tuc
+                try { grabber?.stop() } catch (_: Exception) {}   // pha grabImage dang ket
+            }
+        }
     }
 
     private fun runLoop() {
@@ -221,7 +239,8 @@ class MirrorCam(
                     setOption("rtsp_transport", if (udp) "udp" else "tcp")
                     // KHONG set rtsp_flags="" (rong) -> avformat_open_input tra -22 EINVAL. Chi set khi co gia tri.
                     setOption("timeout", "8000000")       // timeout socket (us) cho rtsp (ffmpeg 6)
-                    setOption("max_delay", "500000")
+                    setOption("max_delay", "200000")      // giam tre: 0.2s (truoc 0.5s)
+                    setOption("reorder_queue_size", "0")  // khong xep lai goi -> do tre, hop live
                     setOption("buffer_size", "1048576")
                     setOption("fflags", "nobuffer")
                     imageMode = FrameGrabber.ImageMode.COLOR
@@ -234,6 +253,7 @@ class MirrorCam(
                 grabber = g
                 log("ffmpeg mở luồng OK ${g.imageWidth}x${g.imageHeight}")
                 gotFrame = false
+                lastFrameAt = 0L
                 var lastDeliver = 0L
                 val startAt = SystemClock.elapsedRealtime()
                 while (want) {
@@ -243,6 +263,7 @@ class MirrorCam(
                         continue
                     }
                     val now = SystemClock.elapsedRealtime()
+                    lastFrameAt = now                           // luong con song (watchdog theo doi)
                     if (now - lastDeliver < 70) continue        // ~14 fps toi da, bo bot cho nhe
                     lastDeliver = now
                     deliver(f)
@@ -342,6 +363,7 @@ class MirrorCam(
         grabber = null
         try { g?.stop() } catch (_: Exception) {}   // mo khoa grabImage dang cho
         keep?.interrupt()
+        watch?.interrupt()
         worker?.interrupt()
     }
 
