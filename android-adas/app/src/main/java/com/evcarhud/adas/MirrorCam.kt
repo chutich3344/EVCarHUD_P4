@@ -304,13 +304,13 @@ class MirrorCam(
         status = "đã tắt"
     }
 
-    /** ffmpeg xuat YUV420P: Y/U/V nam o 3 BUFFER RIENG (image[0],[1],[2]), KHONG lien khoi.
+    /** ffmpeg xuat YUV420P. Tuy build JavaCV: Y/U/V co the o 3 BUFFER RIENG (image[0],[1],[2])
+     *  HOAC LIEN KHOI trong 1 buffer image[0] (limit co the bi dat = W*H). Xu ly ca 2 kieu de
+     *  khong vut khung (loi 0.1.88: ep 3 buffer, image[1]/[2] null -> deliver thoat som -> den man).
      *  Chep tung mat phang sang bo dem (stride chuan W) -> YuvFrame -> onFrame. Khong doi mau tung diem. */
     private fun deliver(f: Frame) {
         val img = f.image ?: return
         val yb = (img.getOrNull(0) as? ByteBuffer) ?: return
-        val ub = (img.getOrNull(1) as? ByteBuffer) ?: return
-        val vb = (img.getOrNull(2) as? ByteBuffer) ?: return
         if (f.imageWidth != W || f.imageHeight != H) return
         val yStride = f.imageStride                      // stride plane Y (>= W do can le)
         val cStride = yStride / 2                         // YUV420P: stride U/V = 1/2 plane Y
@@ -319,10 +319,26 @@ class MirrorCam(
         buf.clear()
         val uStart = W * H
         val vStart = W * H + W * H / 4
-        // chep tung hang (bo phan dem stride neu co), dung ByteBuffer.put khoi -> nhanh
-        copyPlane(yb, 0, yStride, buf, 0, W, W, H)
-        copyPlane(ub, 0, cStride, buf, uStart, cw, cw, ch)
-        copyPlane(vb, 0, cStride, buf, vStart, cw, cw, ch)
+        val ub = img.getOrNull(1) as? ByteBuffer
+        val vb = img.getOrNull(2) as? ByteBuffer
+        if (!layoutLogged) {
+            layoutLogged = true
+            log("YUV layout: planes=${img.size} y.lim=${yb.limit()} y.cap=${yb.capacity()} stride=$yStride" +
+                (if (ub != null) " u.lim=${ub.limit()} u.cap=${ub.capacity()}" else " u=null") +
+                (if (vb != null) " v.lim=${vb.limit()}" else " v=null"))
+        }
+        if (ub != null && vb != null) {                  // 3 buffer rieng
+            copyPlane(yb, 0, yStride, buf, 0, W, W, H)
+            copyPlane(ub, 0, cStride, buf, uStart, cw, cw, ch)
+            copyPlane(vb, 0, cStride, buf, vStart, cw, cw, ch)
+        } else {                                         // lien khoi trong image[0]: doc theo capacity
+            val src = yb.duplicate(); src.position(0); src.limit(yb.capacity())
+            val uOff = yStride * H                        // U bat dau sau plane Y
+            val vOff = uOff + cStride * ch                // V sau plane U
+            copyPlane(src, 0, yStride, buf, 0, W, W, H)
+            copyPlane(src, uOff, cStride, buf, uStart, cw, cw, ch)
+            copyPlane(src, vOff, cStride, buf, vStart, cw, cw, ch)
+        }
         frames++; gotFrame = true
         if (is70 && goodPath < 0) { goodPath = curPath; goodUdp = curUdp; goodFail = 0; log("nhớ luồng chạy được: ${if (curUdp) "UDP" else "TCP"} ${paths70[curPath]}") }
         if (!gotFrameLogged) { gotFrameLogged = true; log("khung hình đầu tiên ${W}x$H"); onErr("") }
@@ -365,6 +381,7 @@ class MirrorCam(
     }
 
     @Volatile private var gotFrameLogged = false
+    @Volatile private var layoutLogged = false
 
     private fun sleep(ms: Long) { try { Thread.sleep(ms) } catch (_: InterruptedException) {} }
 
