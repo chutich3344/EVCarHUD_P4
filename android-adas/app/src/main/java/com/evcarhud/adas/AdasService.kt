@@ -813,7 +813,7 @@ class AdasService : Service() {
         val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-",
             batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
         s.hood = prefs.hood
-        s.stat = statLine(o)
+        s.stat = if (prefs.showDbg) statLine(o) else ""   // dong test chi hien khi bat "Hien so lieu" (Ky thuat)
         signSnap(s, v)
         if (prefs.showDbg) s.dbg = calibInfo()
         onSnap?.invoke(s)
@@ -842,9 +842,13 @@ class AdasService : Service() {
         else -> 0
     }
 
-    private fun stateMsg() = when {
-        loadMsg.isNotEmpty() && camNoImage() -> loadMsg
-        loadMsg.isNotEmpty() && !loadMsg.startsWith("Camera") -> loadMsg
+    private fun stateMsg(): String {
+        // "Cam: FFMPEG[...]" la dong test luong cam -> chi hien khi bat "Hien so lieu" (Ky thuat). Giu lai
+        // cac thong bao that (Chua noi Wi-Fi, Dang nap mo hinh, Camera chua len hinh, Dang tu hieu chinh...).
+        val lm = if (!prefs.showDbg && loadMsg.startsWith("Cam: ")) "" else loadMsg
+        return when {
+        lm.isNotEmpty() && camNoImage() -> lm
+        lm.isNotEmpty() && !lm.startsWith("Camera") -> lm
         camNoImage() -> "Camera chưa lên hình (app khác đang dùng camera?)"
         bright in 0..12 -> "Ảnh camera quá tối hoặc bị che"
         hot >= 3 -> "Máy nóng: đã dừng AI, chạy lại khi mát"
@@ -852,6 +856,7 @@ class AdasService : Service() {
         hot == 2 -> "Máy nóng: giảm còn 3 lần/giây"
         prefs.autoCalib && !prefs.calibrated && targetHz > 0 -> "Đang tự hiệu chỉnh camera (chạy thẳng trên 20 km/h)…"
         else -> ""
+        }
     }
 
     private fun camNoImage(): Boolean {
@@ -966,7 +971,7 @@ class AdasService : Service() {
         logTick(null, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, null)
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
             if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
-            .also { it.hood = prefs.hood; it.stat = statLine(null); signSnap(it, it.vKmh); if (prefs.showDbg) it.dbg = calibInfo() })
+            .also { it.hood = prefs.hood; it.stat = if (prefs.showDbg) statLine(null) else ""; signSnap(it, it.vKmh); if (prefs.showDbg) it.dbg = calibInfo() })
     }
 
     // ---------------- tan suat + nhiet ----------------

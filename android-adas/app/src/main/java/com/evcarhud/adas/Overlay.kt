@@ -119,7 +119,7 @@ class Overlay(ctx: Context) : View(ctx) {
         if (sn != null && !calib) drawSigns(cv, sn, u)
         sn?.dbg?.let { drawDbg(cv, it, u) }
         if (sn != null && !calib) drawWarn(cv, sn, u)
-        if (calib) { drawCalib(cv, u); if (sn != null && sn.msg.isNotEmpty()) pill(cv, sn.msg, width / 2f, 17.5f * u, u) }
+        if (calib) drawCalib(cv, u)   // thong bao (msg) da ve o giua-tren trong drawTop, bo pill trung o duoi
     }
 
     private fun levelColor(l: Int, a: Int = 255) = when {
@@ -284,26 +284,33 @@ class Overlay(ctx: Context) : View(ctx) {
         txt.color = if (sn != null && sn.ldw != '-') red else Color.rgb(120, 200, 255)
         cv.drawText("${sn?.vKmh?.roundToInt() ?: 0} km/h · $offTxt", x, top + 9.6f * u, txt)
         txt.clearShadowLayer()
-        val st = sn?.stat ?: ""
+        // 2 dong log (trang thai AI + thong bao) dua len GIUA-TREN, can giua man, ngang hang bien/chip.
+        // Nam gon giua bien (trai) va cum chip (phai); dai qua thi nen chu (textScaleX) cho vua, khong de len.
+        val cx0 = width / 2f
+        val maxW = width * 0.48f
+        val st = sn?.stat ?: ""   // dong test AI; AdasService chi dat khi bat "Hien so lieu" (Ky thuat)
         if (st.isNotEmpty()) {
-            txt.textSize = 1.2f * u
-            val w = minOf(txt.measureText(st), width * 0.6f) + 1.4f * u
-            fill.color = Color.argb(130, 0, 0, 0)
-            cv.drawRoundRect(RectF(x, top + 10.4f * u, x + w, top + 12.3f * u), 0.8f * u, 0.8f * u, fill)
-            txt.color = Color.argb(235, 255, 255, 255)
-            cv.drawText(st, x + 0.7f * u, top + 11.75f * u, txt)
+            txt.typeface = fSemi; txt.textSize = 1.15f * u; txt.textScaleX = 1f; txt.textAlign = Paint.Align.CENTER
+            val tw = txt.measureText(st); if (tw > maxW) txt.textScaleX = maxW / tw
+            val w = minOf(tw, maxW) + 1.4f * u
+            fill.color = Color.argb(140, 0, 0, 0)
+            cv.drawRoundRect(RectF(cx0 - w / 2, top + 0.7f * u, cx0 + w / 2, top + 2.6f * u), 0.8f * u, 0.8f * u, fill)
+            txt.color = Color.argb(238, 255, 255, 255)
+            cv.drawText(st, cx0, top + 2.05f * u, txt); txt.textScaleX = 1f
         }
-        // dong thong bao trang thai (xe do / may nong / dang hieu chinh...) nam NGAY DUOI dong AI de de chup loi
+        // dong thong bao trang thai (xe do / may nong / dang hieu chinh...) nam duoi dong test (hoac len tren khi tat test)
         val msg = sn?.msg ?: ""
         if (msg.isNotEmpty()) {
-            txt.textAlign = Paint.Align.LEFT; txt.textSize = 1.3f * u; txt.typeface = fBold
-            val mw = minOf(txt.measureText(msg), width * 0.62f) + 1.6f * u
-            fill.color = Color.argb(165, 150, 24, 24)
-            cv.drawRoundRect(RectF(x, top + 12.7f * u, x + mw, top + 14.8f * u), 0.9f * u, 0.9f * u, fill)
+            txt.typeface = fBold; txt.textSize = 1.3f * u; txt.textScaleX = 1f; txt.textAlign = Paint.Align.CENTER
+            val tw = txt.measureText(msg); if (tw > maxW) txt.textScaleX = maxW / tw
+            val mw = minOf(tw, maxW) + 1.6f * u
+            val my = if (st.isNotEmpty()) top + 2.95f * u else top + 0.7f * u
+            fill.color = Color.argb(170, 150, 24, 24)
+            cv.drawRoundRect(RectF(cx0 - mw / 2, my, cx0 + mw / 2, my + 1.9f * u), 0.9f * u, 0.9f * u, fill)
             txt.color = Color.argb(245, 255, 226, 160)
-            cv.drawText(msg, x + 0.8f * u, top + 14.15f * u, txt)
-            txt.typeface = fSemi
+            cv.drawText(msg, cx0, my + 1.45f * u, txt); txt.textScaleX = 1f; txt.typeface = fSemi
         }
+        txt.textAlign = Paint.Align.LEFT
 
         // chip ben phai: [cai dat] [LAN] [HUD]  — nut Cai dat to, vung cham rong de bam khi lai
         var xr = width - 2f * u0
@@ -452,8 +459,8 @@ class Overlay(ctx: Context) : View(ctx) {
             line.color = Color.argb(220, 240, 50, 60); line.strokeWidth = 1.2f * u
             cv.drawRect(0f, 0f, width.toFloat(), height.toFloat(), line)
         }
-        if (sn.msg.isNotEmpty()) pill(cv, sn.msg, width / 2f, height - 4f * u, u)
-        else if (sn.over) pill(cv, "Vượt tốc độ ${sn.limit} km/h", width / 2f, height - 4f * u, u)
+        // thong bao trang thai (msg) da ve o giua-tren trong drawTop -> bo pill trung o day.
+        if (sn.over) pill(cv, "Vượt tốc độ ${sn.limit} km/h", width / 2f, height - 4f * u, u)
     }
 
     private fun pill(cv: Canvas, m: String, cx: Float, cy: Float, u: Float) {

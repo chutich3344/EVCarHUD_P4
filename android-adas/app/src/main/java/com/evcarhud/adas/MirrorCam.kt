@@ -230,6 +230,7 @@ class MirrorCam(
                 onErr(if (is70) "Chưa nối Wi-Fi cam 70mai (70mai_…)" else "Chưa nối Wi-Fi cam gương (mirror_wifi…)")
                 sleep(2000); retry++; continue
             }
+            if (!want) break    // da bi close() (doi nguon cam) -> dung ngay, DUNG goi API cam nua (tranh giành mang)
             // cam guong chi 1 phien RTSP -> reset phien (exit roi enter) de lan nao cung co du lieu
             val info = if (is70) {
                 if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
@@ -251,6 +252,7 @@ class MirrorCam(
             val udp = if (is70) true else (retry % 3 != 2)
             val pathIdx = 0                                   // 70mai: /livestream/12 (duy nhat chay)
             curUdp = udp; curPath = pathIdx
+            if (!want) break    // doi nguon cam giua chung -> khong mo ffmpeg nua
             val url = "rtsp://$HOST:554" + (if (is70) paths70[pathIdx] else "")
             status = "mở ffmpeg ${if (udp) "UDP" else "TCP"} $url"
             log(status); onErr("Cam: " + traceStr(udp))
@@ -428,9 +430,12 @@ class MirrorCam(
         val g = grabber
         grabber = null
         try { g?.stop() } catch (_: Exception) {}   // mo khoa grabImage dang cho
-        keep?.interrupt()
+        keep?.interrupt(); keep = null
         watch?.interrupt()
         worker?.interrupt()
+        // NHA mang + go callback NGAY: neu khong, cam cu van giu bindProcessToNetwork + callback ->
+        // khi doi sang cam kia, 2 cam GIANH mang chung cua app -> cam kia bam nham mang, rot/ting.
+        releaseCamNet()
     }
 
     override fun setRate(hz: Int) {}

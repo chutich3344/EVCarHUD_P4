@@ -268,7 +268,7 @@ class MainActivity : Activity() {
             SettingsView.Cat("kt", "Kỹ thuật", { "chẩn đoán" }) { listOf(
                 A("Số liệu AI + ghi 1 khung", null, null) { diag() },
                 A("Xem ảnh mô hình AI đang thấy", null, null) { showModelView() },
-                T("Hiện số liệu trên màn", null, { prefs.showDbg }, { b -> prefs.showDbg = b }, false),
+                T("Hiện dòng test/log trên màn", "dòng trạng thái AI + dòng \"Cam: FFMPEG…\" + số liệu hiệu chỉnh · tắt thì ẩn hết, vẫn giữ cảnh báo thật", { prefs.showDbg }, { b -> prefs.showDbg = b }, false),
             ) },
             SettingsView.Cat("tt", "Thông tin", { appVer() }) { listOf(
                 A("Phiên bản app", null, appVer()) { },
