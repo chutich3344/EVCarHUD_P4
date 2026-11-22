@@ -63,6 +63,8 @@ class MirrorCam(
     private var curPath = 0
     private var watch: Thread? = null
     private var frAt = 0L
+    // 70mai: da register thanh cong chua. true -> noi lai luong KHONG register nua (khoi keu "ting"), chi kiem mang.
+    @Volatile private var registered70 = false
 
     // 2 bo dem I420 luan phien (buffer chi can hop le trong luc goi onFrame dong bo)
     private val i420 = arrayOf(
@@ -202,11 +204,13 @@ class MirrorCam(
         keep = Thread {
             var n = 0
             while (want) {
-                // 70mai: GIU am ket noi bang GET vo hai. KHONG re-register dinh ky — register lai lam cam
-                // RESET luong (avformat mo duoc 1920x1080 nhung sau do khung=0). Da register 1 lan luc mo.
-                val r = if (is70) hisnet(net, "getdeviceattr.cgi")
+                // 70mai: luong NGUNG day hinh ~6s sau khi mo = PHIEN LIVE het han vi thieu HEARTBEAT (app goc gui
+                // lenh giu phien lien tuc khi xem live). getdeviceattr (0.1.108) KHONG giu duoc. => gui LAI register
+                // (lenh DUY NHAT dong toi luong live) 3s/lan de LAM TUOI phien. Register lai tu CUNG mot IP = lam tuoi
+                // nguoi xem san co, thuong KHONG keu "ting" moi (ting = nguoi xem MOI). Ghi 4 dap an dau de doi chieu.
+                val r = if (is70) hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
                         else api(net, "getparamvalue?param=rec")
-                if (n++ < 2) log("${if (is70) "70mai giữ kết nối" else "cam gương giữ phiên"}: $r")
+                if (n++ < 4) log("${if (is70) "70mai làm tươi phiên" else "cam gương giữ phiên"}: $r")
                 try { Thread.sleep(if (is70) 3000 else 1500) } catch (_: InterruptedException) { break }
             }
         }.apply { isDaemon = true; start() }
@@ -250,9 +254,17 @@ class MirrorCam(
             if (!want) break    // da bi close() (doi nguon cam) -> dung ngay, DUNG goi API cam nua (tranh giành mang)
             // cam guong chi 1 phien RTSP -> reset phien (exit roi enter) de lan nao cung co du lieu
             val info = if (is70) {
-                if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
-                // Chi dang ky (nhu 0.1.86 chay OK). KHONG unregister: no lam cam ngung day hinh (khung=0).
-                hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
+                // "TING" = moi lan client.cgi register, 70mai keu. Luong hay dung ~11s roi noi lai -> moi lan noi
+                // register lai = ting lien tuc. => CHI register 1 LAN (lan dau / sau khi mat hinh han). Lan noi lai
+                // (da tung ra hinh) chi KIEM MANG bang getdeviceattr.cgi (thu dong, KHONG keu ting) roi mo lai RTSP.
+                if (registered70) {
+                    hisnet(net, "getdeviceattr.cgi")            // kiem con dung AP 70mai (200 = ok, 404 = sai mang)
+                } else {
+                    if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
+                    val r = hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
+                    if (r.startsWith("200")) registered70 = true
+                    r
+                }
             } else {
                 api(net, "exitrecorder"); sleep(400)
                 selectFrontCam(net)                 // dashcam 2 mat: chon cam TRUOC (mat duong)
@@ -265,8 +277,9 @@ class MirrorCam(
                 info.contains("<!DOCTYPE") || info.contains("ENONET") || info.contains("ENETUNREACH") ||
                 info.contains("UnknownHost") || info.contains("ECONNREFUSED")
             if (is70 && bad70) {
-                log("70mai: sai mạng (register=$info) → chờ về AP 70mai")
+                log("70mai: sai mạng (kiểm=$info) → chờ về AP 70mai")
                 onErr("Camera chưa lên hình (hãy nối lại Wi-Fi 70mai)")
+                registered70 = false        // mat mang = phien cu chet, lan sau phai register lai
                 releaseCamNet()
                 retry++
                 sleep(minOf(6000L, 2000L * retry))
@@ -363,6 +376,9 @@ class MirrorCam(
             }
             if (want) {
                 retry++
+                // 70mai: lan mo vua roi KHONG ra khung nao = phien co the chet han -> register lai lan sau (chap nhan
+                // 1 "ting" de hoi phuc). Co ra khung (chi giat/treo) -> GIU registered70 -> noi lai KHONG register (im).
+                if (is70 && !gotFrame) registered70 = false
                 // Luong vua roi DA tung ra khung (chi giat/treo) -> noi lai NHANH cho muot, nhat la 70mai
                 // (da nho goodPath nen mo thang luong cu). Chua bao gio ra khung -> giai do dan tranh dap cam.
                 val quick = gotFrame
