@@ -113,7 +113,7 @@ class MirrorCam(
         // Dang ky request MOT LAN roi dung lai (tranh bung nhieu hop thoai xin noi Wi-Fi khi goi lai).
         if (netCb == null) {
             val b = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            val useSpec = autoWifi && Build.VERSION.SDK_INT >= 29
+            val useSpec = autoWifi && is70 && Build.VERSION.SDK_INT >= 29   // CHI 70mai tu noi; cam guong giu nguyen (dang on dinh)
             if (useSpec) {
                 // app tu noi toi AP cam: Android giu ket noi chừng nào app con giu request -> khong rot ENONET
                 try {
@@ -129,10 +129,11 @@ class MirrorCam(
             }
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(n: Network) {
-                    // Chi bam mang DUNG subnet cam (vd 192.168.0.x). Bo qua mang khac (4G/Wi-Fi khac, 172.x…)
-                    // de khong bi day process sang mang sai -> mat ket noi cam (rot ENONET/SocketTimeout).
                     val ip = myIp(n)
-                    if (ip != null && !ip.startsWith(ipPrefix)) { log("bỏ mạng không phải cam ($ip, cần $ipPrefix*)"); return }
+                    // CHI loc subnet khi tu noi (useSpec, 70mai): mang do app tu tao, chac chan la AP cam -> neu IP
+                    // ro rang khac subnet cam (vd 172.x) thi bo. KHONG loc o duong requestNetwork (cam guong) de
+                    // khong lo vut mat mang cam luc IP chua kip gan -> giu cam guong on dinh nhu cu.
+                    if (useSpec && ip != null && !ip.startsWith(ipPrefix)) { log("bỏ mạng không phải cam ($ip, cần $ipPrefix*)"); return }
                     synchronized(netLock) {
                         camNet = n
                         try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam (${if (useSpec) "tự nối" else "requestNetwork"}) ip=$ip") }
@@ -237,8 +238,9 @@ class MirrorCam(
      *  grabImage ket treo mai. Neu >4s khong co khung moi (da tung co khung) thi stop grabber de
      *  pha ket, vong lap bat loi -> noi lai luong. */
     private fun watchLoop() {
-        // 70mai hay giat/treo hon cam guong -> bat đứng hình SOM hon (2,5s) de noi lai muot; cam guong giu 4s.
-        val froze = if (is70) 2500L else 4000L
+        // 70mai day khung theo tung DOT (UDP, co khe vai giay) -> cho rong 5s moi coi la treo that, tranh
+        // noi lai lien tuc (moi lan noi lai den man ~2s, giat hon la cho dot ke tiep). Cam guong giu 4s nhu cu.
+        val froze = if (is70) 5000L else 4000L
         while (want) {
             sleep(800)
             val last = lastFrameAt
@@ -323,26 +325,32 @@ class MirrorCam(
                 gotFrame = false
                 lastFrameAt = 0L
                 var lastDeliver = 0L
-                var failN = 0                                 // so lan grabImage loi/null LIEN TIEP
+                var excN = 0                                  // so lan grabImage NEM LOI lien tiep (grabber da bi stop)
                 val startAt = SystemClock.elapsedRealtime()
                 while (want) {
-                    val f: Frame? = try { g.grabImage() } catch (e: Exception) { if (failN < 2) log("grab lỗi ${e.message?.take(80)}"); null }
+                    var grabEx = false
+                    val f: Frame? = try { g.grabImage() } catch (e: Exception) { grabEx = true; if (excN < 2) log("grab lỗi ${e.message?.take(80)}"); null }
                     if (f == null) {
-                        failN++
                         // 70mai: neu mo luong duoc ma 5 s khong co khung thi chuyen luong khac cho nhanh (dò /12→/11→/1→/live)
                         if (!gotFrame && SystemClock.elapsedRealtime() - startAt > (if (is70) 5_000L else 12_000L)) {
                             log("không có khung ${if (is70) 5 else 12} s (${if (udp) "UDP" else "TCP"} $url)")
                             if (is70 && goodPath >= 0 && ++goodFail >= 2) { goodPath = -1; goodFail = 0; log("bỏ nhớ luồng, dò lại từ đầu") }
                             break
                         }
-                        // TREO: luong đã từng có khung rồi grabImage lỗi liên tục (watchLoop stop grabber để phá
-                        // đứng hình). Trước đây vòng lặp quay vòng mãi "No AVFormatContext" (log 1840 lần) KHÔNG nối
-                        // lại. Giờ thoát ra để mở lại luồng (backoff nhanh vì gotFrame=true).
-                        if (gotFrame && failN >= 10) { log("luồng lỗi liên tục sau khi treo → nối lại"); break }
-                        sleep(5)                                 // tránh quay vòng rát CPU khi grab lỗi liên tục
+                        if (grabEx) {
+                            // grabImage NEM LOI = grabber da bi watchLoop stop() de pha treo -> noi lai (backoff nhanh vi gotFrame=true).
+                            excN++
+                            if (gotFrame && excN >= 8) { log("luồng dừng (grabber stop) → nối lại"); break }
+                            sleep(5)
+                        } else {
+                            // null KHONG loi = khe UDP tam thoi (70mai day khung theo tung dot). ĐUNG noi lai voi —
+                            // cu cho dot ke tiep. Chi khi dung hinh THAT (watchLoop qua nguong froze) moi stop -> loi -> noi lai.
+                            excN = 0
+                            sleep(15)
+                        }
                         continue
                     }
-                    failN = 0
+                    excN = 0
                     val now = SystemClock.elapsedRealtime()
                     lastFrameAt = now                           // luong con song (watchdog theo doi)
                     if (now - lastDeliver < 70) continue        // ~14 fps toi da, bo bot cho nhe
