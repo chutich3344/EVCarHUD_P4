@@ -342,7 +342,7 @@ class Overlay(ctx: Context) : View(ctx) {
         xr -= gw + 0.6f * u0
         val bothLanes = sn?.out?.let { it.laneProb[1] > 0.5f && it.laneProb[2] > 0.5f } ?: false
         val lanBg = when { sn != null && sn.ldw != '-' -> Color.argb(220, 220, 50, 60); bothLanes -> Color.argb(200, 30, 158, 90); else -> Color.argb(140, 90, 96, 104) }
-        xr -= chip(cv, xr, top, u0, "LÀN", null, lanBg) + 0.6f * u0
+        xr -= chip(cv, xr, top, u0, "LANE", null, lanBg) + 0.6f * u0
         val hudOk = sn?.hudOk == true
         xr -= chip(cv, xr, top, u0, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32)) + 0.6f * u0
         // nut chia doi man (camera | ban do): o vuong, dang bat thi to mau xanh
