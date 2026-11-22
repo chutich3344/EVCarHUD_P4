@@ -359,11 +359,26 @@ class MirrorCam(
                         continue
                     }
                     excN = 0
+                    // CAM GUONG: cat tre ~2s = khung bi DON HANG (giai ma/TCP cham hon luc toi) -> grabImage luon tra
+                    // khung CU. Khac phuc chac (khong ep max_delay=0 gay rung): VOT bo khung ton dong, chi giu khung
+                    // MOI NHAT. Grab lien tiep: tra ngay (<12ms) = con hang ton -> bo, lay tiep; grab cho lau = da bat
+                    // kip luong truc tiep -> dung. 70mai GIU NGUYEN (vua on dinh, day theo dot, khong co van de tre).
+                    var cur = f
+                    if (!is70) {
+                        var k = 0
+                        while (k < 16 && want) {
+                            val t0 = SystemClock.elapsedRealtime()
+                            val nf: Frame? = try { g.grabImage() } catch (_: Exception) { null }
+                            if (nf == null) break                // het hang ton / loi -> giu khung moi nhat da co
+                            cur = nf; k++
+                            if (SystemClock.elapsedRealtime() - t0 > 12) break   // grab cho lau = da bat kip live
+                        }
+                    }
                     val now = SystemClock.elapsedRealtime()
                     lastFrameAt = now                           // luong con song (watchdog theo doi)
-                    if (now - lastDeliver < 70) continue        // ~14 fps toi da, bo bot cho nhe
+                    if (now - lastDeliver < (if (is70) 70 else 55)) continue   // ~14fps 70mai / ~18fps cam gương
                     lastDeliver = now
-                    deliver(f)
+                    deliver(cur)
                 }
             } catch (e: Throwable) {
                 status = "lỗi ffmpeg ${if (udp) "UDP" else "TCP"}"
