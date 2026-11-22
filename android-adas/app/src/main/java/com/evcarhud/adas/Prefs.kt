@@ -42,6 +42,14 @@ class Prefs(ctx: Context) {
     var showMap: Boolean
         get() = p.getBoolean("map", true)
         set(v) = p.edit().putBoolean("map", v).apply()
+    /** Ban do Google tu dong sang/toi theo gio mat troi (ngay = anh goc, dem = dao mau toi). Chi tac dung voi nguon Google. Mac dinh TAT. */
+    var mapAuto: Boolean
+        get() = p.getBoolean("mapauto", false)
+        set(v) = p.edit().putBoolean("mapauto", v).apply()
+    /** Chia doi man hinh: trai = camera + ADAS, phai = ban do. Mac dinh TAT. */
+    var splitScreen: Boolean
+        get() = p.getBoolean("split", false)
+        set(v) = p.edit().putBoolean("split", v).apply()
     /** Cong tac tat NHANH het cua so noi (PiP: ban do + o nhiet) de xem camera gon. Mac dinh TAT (van hien PiP). */
     var hidePip: Boolean
         get() = p.getBoolean("hidepip", false)

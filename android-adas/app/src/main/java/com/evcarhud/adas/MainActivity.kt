@@ -57,7 +57,7 @@ class MainActivity : Activity() {
         root = FrameLayout(this).apply { setBackgroundColor(0xff0b0e13.toInt()) }
         overlay = Overlay(this).also { it.overHood = prefs.overHood; it.signScale = SIGN_SCALE[prefs.signSize.coerceIn(0, 3)] }
         temp = TempPip(this)
-        map = TileMap(this).apply { source = prefs.mapSrc }
+        map = TileMap(this).apply { source = prefs.mapSrc; autoDayNight = prefs.mapAuto }
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         root.addView(temp, FrameLayout.LayoutParams(1, 1))
         root.addView(map, FrameLayout.LayoutParams(1, 1))
@@ -66,6 +66,8 @@ class MainActivity : Activity() {
             if (r - l != orr - ol || btm - t != ob - ot) sizePips(r - l)
         }
         overlay.onGear = { settings() }
+        overlay.split = prefs.splitScreen
+        overlay.onSplit = { prefs.splitScreen = !prefs.splitScreen; overlay.split = prefs.splitScreen; sizePips(root.width); toast(if (prefs.splitScreen) "Chia đôi màn: trái camera, phải bản đồ" else "Toàn màn camera") }
         overlay.onLead = { x, y, w -> svc?.leadHint(x, y, w) }
         overlay.avoid = { if (map.visibility == View.VISIBLE && map.width > 1) RectF(map.x, map.y, map.x + map.width, map.y + map.height) else null }
         overlay.onCalibDone = { ok ->
@@ -106,7 +108,11 @@ class MainActivity : Activity() {
     private fun toast(t: String) = android.widget.Toast.makeText(this, t, android.widget.Toast.LENGTH_SHORT).show()
 
     private fun sizePips(w: Int) {
+        if (w <= 0) return
+        if (prefs.splitScreen) { applySplit(w); return }
         val u = w / 100f
+        // thoat che do chia doi: tra camera ve toan man, ban do ve cua so goc
+        overlay.layoutParams = FrameLayout.LayoutParams(-1, -1).also { overlay.x = 0f }
         val topMin = { 2.2f * u + 4.6f * u + 1.2f * u + 6f * u }   // duoi hang thong so + so toc do
         temp.layoutParams = FrameLayout.LayoutParams((27 * u).toInt(), (6.2f * u).toInt())
         map.layoutParams = FrameLayout.LayoutParams((26 * u).toInt(), (19.5f * u).toInt())
@@ -116,7 +122,22 @@ class MainActivity : Activity() {
         showPips()
     }
 
+    /** Chia doi man: trai = camera + lop ve ADAS, phai = ban do (khong keo duoc, o nhiet an). */
+    private fun applySplit(w: Int) {
+        val half = w / 2
+        overlay.setOnTouchListener(null)            // dam bao overlay nhan cham nut chip o nua trai
+        overlay.layoutParams = FrameLayout.LayoutParams(half, -1).also { overlay.x = 0f; overlay.y = 0f }
+        map.setOnTouchListener(null)                // ban do co dinh nua phai, khong keo
+        map.layoutParams = FrameLayout.LayoutParams(w - half, -1).also { map.x = half.toFloat(); map.y = 0f }
+        map.requestLayout(); overlay.requestLayout()
+        val c = overlay.calib
+        temp.visibility = View.GONE
+        map.visibility = if (c) View.GONE else View.VISIBLE
+        overlay.invalidate()
+    }
+
     private fun showPips() {
+        if (prefs.splitScreen) { applySplit(root.width); return }
         val c = overlay.calib || prefs.hidePip      // hidePip = tat nhanh het cua so noi
         temp.visibility = if (prefs.showTemp && !c) View.VISIBLE else View.GONE
         map.visibility = if (prefs.showMap && !c) View.VISIBLE else View.GONE
@@ -242,9 +263,11 @@ class MainActivity : Activity() {
                 },
             ) },
             SettingsView.Cat("hien", "Hiển thị", { if (prefs.hidePip) "ẩn PiP" else listOfNotNull(if (prefs.showMap) "bản đồ" else null, if (prefs.showTemp) "nhiệt" else null).joinToString(" · ").ifEmpty { "gọn" } }) { listOf(
+                T("Chia đôi màn (camera | bản đồ)", "trái camera + ADAS, phải bản đồ · bật nhanh bằng nút ◫ trên màn", { prefs.splitScreen }, { b -> prefs.splitScreen = b; overlay.split = b; sizePips(root.width) }, true),
                 T("Ẩn cửa sổ nổi (PiP)", "ẩn nhanh bản đồ + ô nhiệt để xem camera gọn", { prefs.hidePip }, { b -> prefs.hidePip = b; showPips() }, false),
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),
                 S("Nguồn bản đồ", null, listOf("Google tối", "OpenStreetMap"), { if (prefs.mapSrc == "osm") 1 else 0 }, { k -> prefs.mapSrc = if (k == 1) "osm" else "google"; map.source = prefs.mapSrc }, false),
+                T("Bản đồ Google tự sáng/tối (ngày/đêm)", "ngày hiện bản đồ sáng, đêm đổi sang nền tối theo giờ mặt trời · chỉ với nguồn Google", { prefs.mapAuto }, { b -> prefs.mapAuto = b; map.autoDayNight = b }, true),
                 S("Cỡ số khoảng cách + biển", "biển tốc độ, biển báo, camera", listOf("Nhỏ", "Vừa", "To", "Rất to"), { prefs.signSize }, { k -> prefs.signSize = k; overlay.signScale = SIGN_SCALE[k]; overlay.invalidate() }, true),
                 T("Ô nhiệt độ máy", null, { prefs.showTemp }, { b -> prefs.showTemp = b; showPips() }, false),
                 T("Vạch làn kéo xuống đáy màn", "tắt = cắt ở mép taplo", { prefs.overHood }, { b -> prefs.overHood = b; overlay.overHood = b; overlay.invalidate() }, false),

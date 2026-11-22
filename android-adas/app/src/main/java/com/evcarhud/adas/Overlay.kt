@@ -40,6 +40,11 @@ class Overlay(ctx: Context) : View(ctx) {
     var imgH = 720
     var onGear: () -> Unit = {}
     var onCalibDone: (Boolean) -> Unit = {}
+    /** Bam nut chia doi man (camera | ban do) tren hang chip. */
+    var onSplit: () -> Unit = {}
+    /** Trang thai chia doi hien tai (de to mau nut). */
+    var split = false
+        set(v) { field = v; invalidate() }
 
     // hieu chinh
     var calib = false
@@ -68,6 +73,8 @@ class Overlay(ctx: Context) : View(ctx) {
     private val pt = FloatArray(4)
     private val gearRect = RectF()
     private val gearHit = RectF()   // vung cham rong hon nut ve, de bam trung khi lai
+    private val splitRect = RectF()
+    private val splitHit = RectF()
     private val btnOk = RectF()
     private val btnNo = RectF()
 
@@ -337,7 +344,15 @@ class Overlay(ctx: Context) : View(ctx) {
         val lanBg = when { sn != null && sn.ldw != '-' -> Color.argb(220, 220, 50, 60); bothLanes -> Color.argb(200, 30, 158, 90); else -> Color.argb(140, 90, 96, 104) }
         xr -= chip(cv, xr, top, u0, "LÀN", null, lanBg) + 0.6f * u0
         val hudOk = sn?.hudOk == true
-        chip(cv, xr, top, u0, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32))
+        xr -= chip(cv, xr, top, u0, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32)) + 0.6f * u0
+        // nut chia doi man (camera | ban do): o vuong, dang bat thi to mau xanh
+        splitRect.set(xr - gw, top, xr, top + gh)
+        splitHit.set(splitRect.left - 1.4f * u0, splitRect.top - 1.4f * u0, splitRect.right + 1.4f * u0, splitRect.bottom + 1.4f * u0)
+        fill.color = if (split) Color.argb(220, 30, 158, 90) else Color.argb(190, 20, 27, 37)
+        cv.drawRoundRect(splitRect, 1.2f * u0, 1.2f * u0, fill)
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 2.1f * u0
+        cv.drawText("◫", splitRect.centerX(), splitRect.centerY() + 0.72f * u0, txt)
+        txt.textAlign = Paint.Align.LEFT
     }
 
     /** Hinh bien mau (assets/bien/<lop>.png, ve tu SVG MIT @road-signs/vn); 17 = khung bien toc do trong. */
@@ -522,8 +537,11 @@ class Overlay(ctx: Context) : View(ctx) {
             }
             return true
         }
-        if (e.action == MotionEvent.ACTION_DOWN) return gearHit.contains(e.x, e.y)
-        if (e.action == MotionEvent.ACTION_UP && gearHit.contains(e.x, e.y)) { onGear(); return true }
+        if (e.action == MotionEvent.ACTION_DOWN) return gearHit.contains(e.x, e.y) || splitHit.contains(e.x, e.y)
+        if (e.action == MotionEvent.ACTION_UP) {
+            if (gearHit.contains(e.x, e.y)) { onGear(); return true }
+            if (splitHit.contains(e.x, e.y)) { onSplit(); return true }
+        }
         return false
     }
 }

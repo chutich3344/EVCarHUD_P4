@@ -76,6 +76,9 @@ class TileMap(ctx: Context) : View(ctx) {
     /** Nguon nen: google (mac dinh, thu nghiem, dao mau thanh nen toi), osm. CARTO da doi khoa API nen bo. */
     var source = "google"
         set(v) { if (field != v) { field = v; mem.evictAll(); loading.clear(); err = ""; invalidate() } }
+    /** Google: tu dong sang (ngay) / toi (dem) theo gio mat troi tai vi tri GPS. Tat = luon toi nhu cu. */
+    var autoDayNight = false
+        set(v) { if (field != v) { field = v; invalidate() } }
     private var err = ""
     private val zoom = 16
     private var lat = 0.0
@@ -107,6 +110,22 @@ class TileMap(ctx: Context) : View(ctx) {
         invalidate()
     }
 
+    /** Ban ngay? Goc cao mat troi > -6 do (hoang hon dan su) tai vi tri GPS + gio hien tai.
+     *  Chua co GPS thi theo gio dong ho (6h–18h = ngay). */
+    private fun isDay(): Boolean {
+        val cal = java.util.Calendar.getInstance()
+        val h = cal.get(java.util.Calendar.HOUR_OF_DAY) + cal.get(java.util.Calendar.MINUTE) / 60.0
+        if (!fix) return h in 6.0..18.0
+        val doy = cal.get(java.util.Calendar.DAY_OF_YEAR)
+        val decl = Math.toRadians(23.45) * Math.sin(2 * PI * (284 + doy) / 365.0)
+        val tz = (cal.get(java.util.Calendar.ZONE_OFFSET) + cal.get(java.util.Calendar.DST_OFFSET)) / 3_600_000.0
+        val solarTime = h - tz + lon / 15.0                 // gio mat troi dia phuong (xap xi)
+        val hAng = Math.toRadians(15.0 * (solarTime - 12))
+        val latR = Math.toRadians(lat)
+        val sinElev = Math.sin(latR) * Math.sin(decl) + Math.cos(latR) * Math.cos(decl) * Math.cos(hAng)
+        return sinElev > Math.sin(Math.toRadians(-6.0))
+    }
+
     override fun onDraw(cv: Canvas) {
         val w = width.toFloat(); val h = height.toFloat()
         val rad = h * 0.08f
@@ -130,7 +149,9 @@ class TileMap(ctx: Context) : View(ctx) {
                 if (ty < 0 || ty >= n) continue
                 val bm = tile(((tx % n) + n) % n, ty) ?: continue
                 val left = cx + ((tx - fx) * ts).toFloat(); val top = cy + ((ty - fy) * ts).toFloat()
-                cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), if (source == "google") dark else null)
+                // google: dao mau toi, TRU KHI auto ngay/dem dang la ban ngay -> giu ban do sang.
+                val useDark = source == "google" && !(autoDayNight && isDay())
+                cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), if (useDark) dark else null)
             }
             if (source != "google") cv.drawColor(Color.argb(70, 0, 0, 0))   // lam toi nhe cho de nhin ban dem
             drawRoute(cv, n, fx, fy, ts, cx, cy)
