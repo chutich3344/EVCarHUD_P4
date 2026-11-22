@@ -42,6 +42,10 @@ class Prefs(ctx: Context) {
     var showMap: Boolean
         get() = p.getBoolean("map", true)
         set(v) = p.edit().putBoolean("map", v).apply()
+    /** Cong tac tat NHANH het cua so noi (PiP: ban do + o nhiet) de xem camera gon. Mac dinh TAT (van hien PiP). */
+    var hidePip: Boolean
+        get() = p.getBoolean("hidepip", false)
+        set(v) = p.edit().putBoolean("hidepip", v).apply()
     var overHood: Boolean
         get() = p.getBoolean("overhood", true)
         set(v) = p.edit().putBoolean("overhood", v).apply()

@@ -117,7 +117,7 @@ class MainActivity : Activity() {
     }
 
     private fun showPips() {
-        val c = overlay.calib
+        val c = overlay.calib || prefs.hidePip      // hidePip = tat nhanh het cua so noi
         temp.visibility = if (prefs.showTemp && !c) View.VISIBLE else View.GONE
         map.visibility = if (prefs.showMap && !c) View.VISIBLE else View.GONE
     }
@@ -241,7 +241,8 @@ class MainActivity : Activity() {
                         .setItems(hs.map { "%.1f m".format(it) }.toTypedArray()) { _, k -> prefs.camH = hs[k]; svc?.reloadSettings(false); refreshSettings() }.show()
                 },
             ) },
-            SettingsView.Cat("hien", "Hiển thị", { listOfNotNull(if (prefs.showMap) "bản đồ" else null, if (prefs.showTemp) "nhiệt" else null).joinToString(" · ").ifEmpty { "gọn" } }) { listOf(
+            SettingsView.Cat("hien", "Hiển thị", { if (prefs.hidePip) "ẩn PiP" else listOfNotNull(if (prefs.showMap) "bản đồ" else null, if (prefs.showTemp) "nhiệt" else null).joinToString(" · ").ifEmpty { "gọn" } }) { listOf(
+                T("Ẩn cửa sổ nổi (PiP)", "ẩn nhanh bản đồ + ô nhiệt để xem camera gọn", { prefs.hidePip }, { b -> prefs.hidePip = b; showPips() }, false),
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),
                 S("Nguồn bản đồ", null, listOf("Google tối", "OpenStreetMap"), { if (prefs.mapSrc == "osm") 1 else 0 }, { k -> prefs.mapSrc = if (k == 1) "osm" else "google"; map.source = prefs.mapSrc }, false),
                 S("Cỡ số khoảng cách + biển", "biển tốc độ, biển báo, camera", listOf("Nhỏ", "Vừa", "To", "Rất to"), { prefs.signSize }, { k -> prefs.signSize = k; overlay.signScale = SIGN_SCALE[k]; overlay.invalidate() }, true),
