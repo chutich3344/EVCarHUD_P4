@@ -255,10 +255,15 @@ class MirrorCam(
                     setOption("rtsp_transport", if (udp) "udp" else "tcp")
                     // KHONG set rtsp_flags="" (rong) -> avformat_open_input tra -22 EINVAL. Chi set khi co gia tri.
                     setOption("timeout", "8000000")       // timeout socket (us) cho rtsp (ffmpeg 6)
-                    setOption("max_delay", "100000")      // 0.1s: do tre thap (realtime), bo goi tre
+                    setOption("max_delay", "0")           // KHONG cho tre do sap xep goi -> realtime nhat
                     setOption("buffer_size", "1048576")
                     setOption("fflags", "nobuffer")       // khong don khung -> khong tre dan (realtime)
                     setOption("flags", "low_delay")
+                    // Giam tre "load video" (Sinjet trễ ~2s): mo luong nhanh, khong phan tich lau, khong dem reorder.
+                    setOption("probesize", "500000")      // ~500KB (mac dinh 5MB) -> mo luong nhanh hon, van du doc codec
+                    setOption("analyzeduration", "500000") // phan tich toi da 0.5s (mac dinh ~5s) truoc khi ra khung
+                    setOption("reorder_queue_size", "0")  // UDP: khong cho sap xep lai goi -> bot tre dong
+                    setOption("rtbufsize", "256000")      // bo dem thoi gian thuc nho -> khong don tre
                     imageMode = FrameGrabber.ImageMode.COLOR
                     // Lay thang YUV420P (I420) tu ffmpeg -> KHONG phai doi mau BGR->YUV tung diem tren Kotlin
                     // (vong lap 2M diem/khung = nang, tre + nong). Chi can chep khoi -> nhanh hon nhieu.
@@ -273,18 +278,26 @@ class MirrorCam(
                 gotFrame = false
                 lastFrameAt = 0L
                 var lastDeliver = 0L
+                var failN = 0                                 // so lan grabImage loi/null LIEN TIEP
                 val startAt = SystemClock.elapsedRealtime()
                 while (want) {
-                    val f: Frame? = try { g.grabImage() } catch (e: Exception) { log("grab lỗi ${e.message?.take(80)}"); null }
+                    val f: Frame? = try { g.grabImage() } catch (e: Exception) { if (failN < 2) log("grab lỗi ${e.message?.take(80)}"); null }
                     if (f == null) {
+                        failN++
                         // 70mai: neu mo luong duoc ma 5 s khong co khung thi chuyen luong khac cho nhanh (dò /12→/11→/1→/live)
                         if (!gotFrame && SystemClock.elapsedRealtime() - startAt > (if (is70) 5_000L else 12_000L)) {
                             log("không có khung ${if (is70) 5 else 12} s (${if (udp) "UDP" else "TCP"} $url)")
                             if (is70 && goodPath >= 0 && ++goodFail >= 2) { goodPath = -1; goodFail = 0; log("bỏ nhớ luồng, dò lại từ đầu") }
                             break
                         }
+                        // TREO: luong đã từng có khung rồi grabImage lỗi liên tục (watchLoop stop grabber để phá
+                        // đứng hình). Trước đây vòng lặp quay vòng mãi "No AVFormatContext" (log 1840 lần) KHÔNG nối
+                        // lại. Giờ thoát ra để mở lại luồng (backoff nhanh vì gotFrame=true).
+                        if (gotFrame && failN >= 10) { log("luồng lỗi liên tục sau khi treo → nối lại"); break }
+                        sleep(5)                                 // tránh quay vòng rát CPU khi grab lỗi liên tục
                         continue
                     }
+                    failN = 0
                     val now = SystemClock.elapsedRealtime()
                     lastFrameAt = now                           // luong con song (watchdog theo doi)
                     if (now - lastDeliver < 70) continue        // ~14 fps toi da, bo bot cho nhe
