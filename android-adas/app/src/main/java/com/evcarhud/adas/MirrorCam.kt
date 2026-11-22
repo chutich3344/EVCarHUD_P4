@@ -1,10 +1,14 @@
 package com.evcarhud.adas
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiNetworkSpecifier
+import android.os.Build
+import android.os.PatternMatcher
 import android.os.SystemClock
 import android.util.Log
 import android.util.Size
@@ -92,15 +96,28 @@ class MirrorCam(
     private val netLock = Object()
 
     /** Xin mang Wi-Fi cam (khong internet), cho co mang <=timeoutMs, bam tien trinh. Tra Network hoac null.
-     *  Dung Wi-Fi may dang noi san (user tu chon Wi-Fi cam). */
+     *  - Cam guong: dung Wi-Fi may DANG NOI san (user tu chon), requestNetwork thuong — GIU NGUYEN, dang on dinh.
+     *  - 70mai: GHIM bang WifiNetworkSpecifier(SSID bat dau "70mai", mat khau 12345678). Log 0.1.104 da chung minh
+     *    may TU NHAY khoi AP 70mai sang Wi-Fi nha (192.168.0.190 / 192.168.68.x) -> register 404 + RTSP -111 lap vo tan.
+     *    Specifier giu may DINH vao AP 70mai (khong roaming) suot phien. An toan voi cam guong: chi khi is70, va
+     *    close() da nha callback sach (releaseCamNet) nen khong gianh mang voi cam kia. */
+    @SuppressLint("MissingPermission")
     private fun acquireCamNet(timeoutMs: Long): Network? {
         camNet?.let { return it }
-        // Dang ky request MOT LAN roi dung lai. Dung Wi-Fi may DANG NOI san (user tu chon Wi-Fi cam) -
-        // KHONG tu noi (WifiNetworkSpecifier da bo: no giu AP nay lam cam KIA bam nham mang -> tèo ca 2).
         if (netCb == null) {
             val b = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
                 .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            if (is70 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    val spec = WifiNetworkSpecifier.Builder()
+                        .setSsidPattern(PatternMatcher("70mai", PatternMatcher.PATTERN_PREFIX))
+                        .setWpa2Passphrase("12345678")
+                        .build()
+                    b.setNetworkSpecifier(spec)
+                    log("70mai: ghim Wi-Fi SSID \"70mai…\" (chống nhảy mạng)")
+                } catch (e: Exception) { log("70mai: ghim Wi-Fi lỗi ${e.javaClass.simpleName}") }
+            }
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(n: Network) {
                     synchronized(netLock) {
@@ -112,6 +129,14 @@ class MirrorCam(
                 }
                 override fun onLost(n: Network) {
                     synchronized(netLock) { if (camNet == n) { camNet = null; bound = false } }
+                }
+                override fun onUnavailable() {
+                    // 70mai: specifier bi tu choi / het han -> go callback de vong sau xin lai (hien lai hop thoai).
+                    synchronized(netLock) {
+                        try { cm.unregisterNetworkCallback(this) } catch (_: Exception) {}
+                        if (netCb === this) netCb = null
+                        netLock.notifyAll()
+                    }
                 }
             }
             try {
@@ -240,6 +265,16 @@ class MirrorCam(
                 api(net, "exitrecorder"); sleep(400)
                 selectFrontCam(net)                 // dashcam 2 mat: chon cam TRUOC (mat duong)
                 api(net, "enterrecorder")
+            }
+            // 70mai: neu register tra 404 / trang HTML = may dang o NHAM mang (Wi-Fi nha), KHONG phai AP 70mai.
+            // Dung mo ffmpeg (chi toi -111 lap vo tan). Nha mang + cho specifier ghim lai AP 70mai, giai do.
+            if (is70 && (info.startsWith("404") || info.contains("<?xml") || info.contains("<html") || info.contains("<!DOCTYPE"))) {
+                log("70mai: sai mạng (register=$info) → chờ ghim lại AP 70mai")
+                onErr("Camera chưa lên hình (đang chờ Wi-Fi 70mai)")
+                releaseCamNet()
+                retry++
+                sleep(minOf(6000L, 2000L * retry))
+                continue
             }
             startKeep(net)
             log("${if (is70) "70mai" else "cam gương"} mở: $info")

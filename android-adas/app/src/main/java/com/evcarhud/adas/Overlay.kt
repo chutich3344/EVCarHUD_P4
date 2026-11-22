@@ -447,10 +447,13 @@ class Overlay(ctx: Context) : View(ctx) {
             if (cur.isNotEmpty()) lines += cur
         }
         val lh = 1.5f * u
-        val x = 2f * u; val y0 = 15f * u
+        val x = 2f * u
         val w = lines.maxOf { txt.measureText(it) } + 1.6f * u
+        val boxH = lines.size * lh + 0.8f * u
+        // DUOI HUD cho de nhin (user 22/11): neo day man, le trai, cach day 1u.
+        val y0 = height - boxH - 1f * u
         fill.color = Color.argb(120, 0, 0, 0)
-        cv.drawRoundRect(RectF(x, y0, x + w, y0 + lines.size * lh + 0.8f * u), u, u, fill)
+        cv.drawRoundRect(RectF(x, y0, x + w, y0 + boxH), u, u, fill)
         txt.color = Color.argb(235, 255, 255, 255)
         lines.forEachIndexed { i, l -> cv.drawText(l, x + 0.8f * u, y0 + (i + 1) * lh, txt) }
     }
