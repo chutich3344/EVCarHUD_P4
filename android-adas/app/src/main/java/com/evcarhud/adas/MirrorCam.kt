@@ -1,14 +1,10 @@
 package com.evcarhud.adas
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import android.net.wifi.WifiNetworkSpecifier
-import android.os.Build
-import android.os.PatternMatcher
 import android.os.SystemClock
 import android.util.Log
 import android.util.Size
@@ -43,8 +39,6 @@ class MirrorCam(
     private val kind: String = "mirror",
     /** true = 1080p (net hon, nong + tre hon), false = 720p (mat, muot, do tre). AI tu thu nho nen 720p khong giam do chinh xac. */
     private val hd: Boolean = false,
-    /** Tu noi Wi-Fi cam bang WifiNetworkSpecifier (mat khau 12345678) de giu chat ket noi, tranh rot ENONET. */
-    private val autoWifi: Boolean = false,
 ) : FrameSource {
     private val is70 = kind == "70mai"
     private val HOST = if (is70) "192.168.0.1" else "192.168.5.1"
@@ -97,46 +91,21 @@ class MirrorCam(
 
     private val netLock = Object()
 
-    /** Ten Wi-Fi cam (tien to) de app TU NOI khi bat camAutoWifi (WifiNetworkSpecifier, mat khau 12345678). */
-    private val wifiPrefix = if (is70) "70mai" else "mirror_wifi"
-    private val wifiPass = "12345678"
-    // IP may khi noi dung cam: 70mai -> 192.168.0.x, cam guong -> 192.168.5.x. Chi bam mang DUNG subnet nay,
-    // bo qua mang khac (vd 172.23.x cua 4G/Wi-Fi khac) de khong bi day sang mang sai -> rot ket noi cam.
-    private val ipPrefix = HOST.substringBeforeLast('.') + "."
-
     /** Xin mang Wi-Fi cam (khong internet), cho co mang <=timeoutMs, bam tien trinh. Tra Network hoac null.
-     *  autoWifi: dung WifiNetworkSpecifier => app TU NOI toi AP cam + GIU CHAT (Android khong ngat), lan dau
-     *  hoi 1 lan. KHONG autoWifi: dung Wi-Fi may dang noi san (user tu chon Wi-Fi cam). */
-    @SuppressLint("NewApi")   // WifiNetworkSpecifier chi goi khi Build.VERSION.SDK_INT >= 29 (useSpec)
+     *  Dung Wi-Fi may dang noi san (user tu chon Wi-Fi cam). */
     private fun acquireCamNet(timeoutMs: Long): Network? {
         camNet?.let { return it }
-        // Dang ky request MOT LAN roi dung lai (tranh bung nhieu hop thoai xin noi Wi-Fi khi goi lai).
+        // Dang ky request MOT LAN roi dung lai. Dung Wi-Fi may DANG NOI san (user tu chon Wi-Fi cam) -
+        // KHONG tu noi (WifiNetworkSpecifier da bo: no giu AP nay lam cam KIA bam nham mang -> tèo ca 2).
         if (netCb == null) {
             val b = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            val useSpec = autoWifi && is70 && Build.VERSION.SDK_INT >= 29   // CHI 70mai tu noi; cam guong giu nguyen (dang on dinh)
-            if (useSpec) {
-                // app tu noi toi AP cam: Android giu ket noi chừng nào app con giu request -> khong rot ENONET
-                try {
-                    b.setNetworkSpecifier(
-                        WifiNetworkSpecifier.Builder()
-                            .setSsidPattern(PatternMatcher(wifiPrefix, PatternMatcher.PATTERN_PREFIX))
-                            .setWpa2Passphrase(wifiPass).build()
-                    )
-                } catch (e: Exception) { log("specifier lỗi ${e.javaClass.simpleName}") }
-            } else {
-                b.removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                b.removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            }
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(n: Network) {
-                    val ip = myIp(n)
-                    // CHI loc subnet khi tu noi (useSpec, 70mai): mang do app tu tao, chac chan la AP cam -> neu IP
-                    // ro rang khac subnet cam (vd 172.x) thi bo. KHONG loc o duong requestNetwork (cam guong) de
-                    // khong lo vut mat mang cam luc IP chua kip gan -> giu cam guong on dinh nhu cu.
-                    if (useSpec && ip != null && !ip.startsWith(ipPrefix)) { log("bỏ mạng không phải cam ($ip, cần $ipPrefix*)"); return }
                     synchronized(netLock) {
                         camNet = n
-                        try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam (${if (useSpec) "tự nối" else "requestNetwork"}) ip=$ip") }
+                        try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam (requestNetwork) ip=${myIp(n)}") }
                         catch (e: Exception) { log("bind net lỗi ${e.javaClass.simpleName}") }
                         netLock.notifyAll()
                     }
@@ -148,7 +117,6 @@ class MirrorCam(
             try {
                 cm.requestNetwork(b.build(), cb)
                 netCb = cb
-                if (useSpec) log("tự nối Wi-Fi cam ($wifiPrefix…) — lần đầu bấm Đồng ý")
             } catch (e: Exception) { log("requestNetwork lỗi ${e.javaClass.simpleName}"); return null }
         }
         synchronized(netLock) {
@@ -301,16 +269,10 @@ class MirrorCam(
                     // Load NHANH (ca 2 cam): khong cho phan tich lau truoc khi ra khung dau (mac dinh ~5s -> ~10s load).
                     setOption("probesize", "500000")      // ~500KB (mac dinh 5MB)
                     setOption("analyzeduration", "500000") // toi da 0.5s (mac dinh ~5s)
-                    if (is70) {
-                        // 70mai: giu cau hinh streaming ON DINH nhu 0.1.95 (da chay muot 7 phut). Cac option giam
-                        // tre ganh (max_delay=0/reorder=0/rtbufsize nho) lam luong UDP 70mai RUNG/RƠT -> khong dung.
-                        setOption("max_delay", "100000")  // 0.1s
-                    } else {
-                        // Cam guong (Sinjet) trễ ~2s LUC CHAY: ep realtime manh de bot tre dong.
-                        setOption("max_delay", "0")           // khong cho tre do sap xep goi
-                        setOption("reorder_queue_size", "0")  // UDP: khong cho sap xep lai goi -> bot tre
-                        setOption("rtbufsize", "256000")      // bo dem thoi gian thuc nho
-                    }
+                    // Cau hinh streaming ON DINH cho CA 2 cam (nhu ban cam guong chay muot truoc day). KHONG
+                    // ep giam tre ganh (max_delay=0/reorder=0/rtbufsize nho): no lam luong UDP RUNG/RƠT ca 2 cam.
+                    // Cam guong tre ~2s thi chap nhan (user: "tre thi khac phuc sau", uu tien on dinh).
+                    setOption("max_delay", "100000")      // 0.1s
                     imageMode = FrameGrabber.ImageMode.COLOR
                     // Lay thang YUV420P (I420) tu ffmpeg -> KHONG phai doi mau BGR->YUV tung diem tren Kotlin
                     // (vong lap 2M diem/khung = nang, tre + nong). Chi can chep khoi -> nhanh hon nhieu.
