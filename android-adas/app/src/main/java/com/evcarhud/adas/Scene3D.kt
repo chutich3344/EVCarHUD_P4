@@ -92,18 +92,59 @@ class Scene3D(ctx: Context) : WebView(ctx) {
 
     private class G(var c: String, var x: Float, var y: Float, var lead: Boolean)
 
-    /** Hop xe (toa do chuan hoa anh) -> diem tren mat duong (x truoc, y phai, m). */
+    /** Do cui bu them (rad, duong = camera thuc te ngua len hon hieu chinh dang dung). Tu khop theo khoang cach xe truoc cua openpilot. */
+    private var dPitch = 0.0
+    private var dPitchN = 0
+
+    /**
+     * Hop xe (toa do chuan hoa anh) -> diem tren mat duong (x truoc, y phai, m).
+     * 23/11: cam 70mai luc dang tu hieu chinh (cui = 0) lam moi xe bi chieu sat dau xe -> "don cuc".
+     * Sua: (1) tu khop do cui bang xe truoc (openpilot biet khoang cach) nen khong phu thuoc hieu chinh;
+     * (2) cam mat ca (goc ngang > 100 do, 70mai) dung chieu equidistant de xe hai ben khong bi ep vao giua;
+     * (3) bo hop "nguoi" dang ngoi tren xe may / xe dap (truoc ve ca nguoi lan xe thanh 1 dong).
+     */
     private fun objs(sn: Snap, o: Op.Out, leadOk: Boolean): List<G> {
         val cam = sn.cam ?: return emptyList()
-        val src = sn.wide ?: sn.objs ?: emptyList()
+        val raw = sn.wide ?: sn.objs ?: emptyList()
         val m = cam.viewFromCalib
-        fun ray(u: Float, v: Float): DoubleArray {
-            val vx = (u - cam.cx) / cam.f; val vy = (v - cam.cy) / cam.f; val vz = 1.0
+        val fish = 2 * Math.atan(cam.w / 2.0 / cam.f) > Math.toRadians(100.0)
+        val fEq = cam.f * 561.0 / 450.0          // 70mai: r = f*theta (do tu video goc 2880: f=1262)
+        fun ray(u: Float, v: Float, dp: Double = dPitch): DoubleArray {
+            var vx: Double; var vy: Double; var vz: Double
+            if (fish) {
+                val dx = u - cam.cx; val dy = v - cam.cy; val r = Math.hypot(dx, dy) + 1e-9; val th = r / fEq
+                vx = Math.sin(th) * dx / r; vy = Math.sin(th) * dy / r; vz = Math.cos(th)
+            } else { vx = (u - cam.cx) / cam.f; vy = (v - cam.cy) / cam.f; vz = 1.0 }
+            // bu do cui: quay tia quanh truc ngang cua camera
+            val c = Math.cos(dp); val s = Math.sin(dp)
+            val y2 = vy * c - vz * s; val z2 = vy * s + vz * c; vy = y2; vz = z2
             // calib = M^T * view
             return doubleArrayOf(m[0] * vx + m[3] * vy + m[6] * vz, m[1] * vx + m[4] * vy + m[7] * vz, m[2] * vx + m[5] * vy + m[8] * vz)
         }
-        val res = ArrayList<G>()
+        // bo nguoi lai xe may / xe dap: hop nguoi chong len hop xe 2 banh
+        val twoW = raw.filter { it.cls == 1 || it.cls == 3 }
+        val src = raw.filter { b -> b.cls != 0 || twoW.none { w ->
+            val ix = minOf(b.x2, w.x2) - maxOf(b.x1, w.x1); val iy = minOf(b.y2, w.y2) - maxOf(b.y1, w.y1)
+            ix > 0.5f * (b.x2 - b.x1) && iy > 0f } }
         val hoodPx = (if (sn.hood in 0.3f..1f) sn.hood else 1f) * cam.h
+        // tu khop do cui theo xe truoc: chon hop xe cung huong ngang voi xe truoc, gan nhat
+        if (leadOk && o.leadProb > 0.7f && o.leadX in 6f..80f) {
+            val aLead = Math.atan2(o.leadY.toDouble(), o.leadX.toDouble())
+            var best: SignDet.Obj? = null; var bestW = 0f
+            for (b in src) if (b.cls == 2 || b.cls == 5 || b.cls == 7) {
+                if (b.y2 * cam.h > hoodPx - 3) continue
+                val r = ray((b.x1 + b.x2) / 2 * cam.w, b.y2 * cam.h)
+                if (abs(Math.atan2(r[1], r[0]) - aLead) < 0.09 && b.x2 - b.x1 > bestW) { best = b; bestW = b.x2 - b.x1 }
+            }
+            if (best != null) {
+                val r = ray((best.x1 + best.x2) / 2 * cam.w, best.y2 * cam.h)
+                val aCur = Math.atan2(r[2], Math.hypot(r[0], r[1]))
+                val aDes = Math.atan2(sn.camH.toDouble(), Math.hypot(o.leadX.toDouble(), o.leadY.toDouble()))
+                val k = if (dPitchN < 20) 0.35 else 0.12
+                dPitch = (dPitch + k * (aCur - aDes)).coerceIn(-0.35, 0.35); dPitchN++
+            }
+        }
+        val res = ArrayList<G>()
         for (b in src) {
             val c = when (b.cls) { 0 -> "person"; 1 -> "bike"; 2 -> "car"; 3 -> "moto"; 5 -> "bus"; 7 -> "truck"; else -> continue }
             val u = (b.x1 + b.x2) / 2 * cam.w

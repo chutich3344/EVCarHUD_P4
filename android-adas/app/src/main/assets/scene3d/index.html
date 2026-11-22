@@ -146,6 +146,8 @@ const glow = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 6.4), new THREE.MeshBas
 glow.rotation.x = -Math.PI / 2; glow.position.y = 0.03; glow.visible = false; scene.add(glow);
 const KIND = { car: 'car', bus: 'big', truck: 'big', moto: 'moto', bike: 'moto', person: 'person' };
 const GRP = { car: 'v', bus: 'v', truck: 'v', moto: 'm', bike: 'm', person: 'p' };
+const WID = { car: 1.86, big: 2.45, moto: 0.75, person: 0.6 };
+let oncAt = -99;   // lan cuoi thay xe chay nguoc chieu ben trai -> duong 2 chieu, ve vach tim vang
 
 function applyTheme(t) {
   theme = t; const T = THEMES[t];
@@ -193,6 +195,8 @@ window.feed = function (j) {
       const nvx = (o[1] - tr.x) / Math.max(dt, t - tr.t), nvy = (o[2] - tr.y) / Math.max(dt, t - tr.t);
       tr.vx = tr.n > 1 ? 0.7 * tr.vx + 0.3 * nvx : 0; tr.vy = tr.n > 1 ? 0.7 * tr.vy + 0.3 * nvy : 0;
       tr.vx = Math.max(-25, Math.min(25, tr.vx)); tr.vy = Math.max(-4, Math.min(4, tr.vy));
+      // xe chay NGUOC CHIEU: lai gan nhanh hon toc do minh > 3 m/s (dung yen thi chi lai gan dung bang toc do minh)
+      if (tr.n > 3) tr.onc = Math.max(-5, Math.min(5, (tr.onc || 0) + (tr.vx < -(cur.v + 3) ? 1 : tr.vx > -(cur.v * 0.5) ? -1 : 0)));
       tr.x = o[1]; tr.y = o[2]; tr.t = t; tr.n++; tr.lead = o[3] ? 1 : 0; tr.cls[o[0]] = (tr.cls[o[0]] || 0) + 1; tr.miss = 0;
     } else tr.miss++;
   }
@@ -226,7 +230,10 @@ function step(dt) {
     const dE = Math.min(Math.abs(y10 - e0), Math.abs(y10 - e1));
     const inside = y10 > e0 - 0.4 && y10 < e1 + 0.4;
     lines[k].visible = cur.lp[k] > (k === 1 || k === 2 ? 0.25 : 0.4) && inside;
-    const solid = dE < 0.9; if ((lines[k].material.alphaMap === null) !== solid) { lines[k].material.alphaMap = solid ? null : dashTex; lines[k].material.needsUpdate = true; }
+    // duong 2 chieu (thay xe nguoc chieu ben trai trong 5 s): vach trai lan minh = vach tim vang lien
+    const center = k === 1 && t - oncAt < 5;
+    lines[k].material.color.setHex(center ? (theme === 'night' ? 0xffc21a : 0xe2a400) : T.line);
+    const solid = dE < 0.9 || center; if ((lines[k].material.alphaMap === null) !== solid) { lines[k].material.alphaMap = solid ? null : dashTex; lines[k].material.needsUpdate = true; }
     lines[k].material.opacity = Math.min(1, 0.35 + cur.lp[k]);
     const w = (k === 1 || k === 2) ? 0.09 : 0.075;
     setRibbon(lines[k], Y.map(v => v - w), Y.map(v => v + w), odo);
@@ -244,6 +251,8 @@ function step(dt) {
   // xe
   const centerAt = x => (at(cur.ln[1], x) + at(cur.ln[2], x)) / 2;
   let leadInfo = null; glow.visible = false;
+  const placed = [];   // chan cac xe chong len nhau (xe may xep hang 2 ben truoc day bi ve thanh 1 cuc)
+  tracks.sort((p, q) => p.sx - q.sx);
   for (const tr of tracks) {
     if (tr.n < 2 && t - tr.born < 0.25) continue;            // 1 lan nhan thoang qua: chua ve
     const tx = tr.x + tr.vx * Math.min(0.6, t - tr.t), ty = tr.y + tr.vy * Math.min(0.6, t - tr.t);
@@ -256,10 +265,17 @@ function step(dt) {
       const mat = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.15, transparent: true });
       tr.obj = { grp: makeCar(KIND[c] || 'car', mat), mat, kind: KIND[c] }; scene.add(tr.obj.grp);
     }
-    const ob = tr.obj, L = ob.grp.userData.L, x = tr.sx, y = tr.sy;
+    const ob = tr.obj, L = ob.grp.userData.L, y = tr.sy, Wd = WID[ob.kind] || 1.8;
+    let x = tr.sx;
+    for (let it = 0; it < 6; it++) {
+      const hit = placed.find(p => Math.abs(p.y - y) < (p.w + Wd) / 2 * 0.9 && x < p.x + p.l + 0.4 && x + L > p.x - 0.4);
+      if (!hit) break; x = hit.x + hit.l + 0.6;
+    }
+    placed.push({ x, y, l: L, w: Wd });
     const xc = x + (ob.kind === 'person' ? 0 : L / 2);
     ob.grp.position.set(y, 0, -xc);
-    const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6); ob.grp.rotation.y = -yaw;
+    if ((tr.onc || 0) >= 3 && y < centerAt(xc)) oncAt = t;
+    const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6); ob.grp.rotation.y = -yaw + ((tr.onc || 0) >= 3 ? Math.PI : 0);
     const fade = Math.min(tr.a, fadeOut, x > 70 ? Math.max(0, (95 - x) / 25) : 1);
     let col = T.car;
     if (tr.lead && d.ld) {
