@@ -232,6 +232,7 @@ class MainActivity : Activity() {
                 if (prefs.camSrc != "phone") S("Độ phân giải", "720p mát, mượt, đỡ trễ · AI tự thu nhỏ ảnh nên 720p không giảm độ chính xác", listOf("720p", "1080p"), { if (prefs.camHd) 1 else 0 }, { k -> val hd = k == 1; if (hd != prefs.camHd) { prefs.camHd = hd; svc?.restartCam(); toast(if (hd) "1080p: nét hơn, nóng & trễ hơn" else "720p: mát, mượt, đỡ trễ") } }, true) else null,
                 if (prefs.camSrc != "phone") T("Làm nét vật cản", "tăng nét viền xe/vật phía trước, giảm mờ xung quanh", { prefs.camSharpen }, { b -> prefs.camSharpen = b }, true) else null,
                 if (prefs.camSrc != "phone") T("Cân màu tự động", "chống ám/bệt màu, màu trung thực hơn", { prefs.camColor }, { b -> prefs.camColor = b }, true) else null,
+                if (prefs.camSrc != "phone") T("Tự nối Wi-Fi cam", "app tự giữ Wi-Fi cam (mật khẩu 12345678) để không bị rớt · lần đầu Android hỏi, bấm Đồng ý", { prefs.camAutoWifi }, { b -> prefs.camAutoWifi = b; svc?.restartCam(); toast(if (b) "Sẽ tự nối Wi-Fi cam; lần đầu bấm Đồng ý khi Android hỏi" else "Tắt tự nối; anh tự chọn Wi-Fi cam") }, true) else null,
                 H("Hiệu chỉnh"),
                 T("Tự hiệu chỉnh", svc?.calibInfo()?.lineSequence()?.firstOrNull() ?: "bật lại = học lại từ đầu", { prefs.autoCalib }, { b -> svc?.setAuto(b); if (b) toast("Học lại từ đầu: chạy thẳng 1–2 phút trên đường có vạch để app tự học"); refreshSettings() }, false),
                 A("Chỉnh tay (kéo điểm tụ)", null, null) { closeSettings(); startCalib() },

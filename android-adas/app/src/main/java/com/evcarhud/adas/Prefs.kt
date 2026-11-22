@@ -61,6 +61,11 @@ class Prefs(ctx: Context) {
     var camColor: Boolean
         get() = p.getBoolean("camcolor", true)
         set(v) = p.edit().putBoolean("camcolor", v).apply()
+    /** Tu noi Wi-Fi cam (WifiNetworkSpecifier, mat khau 12345678): app tu nam + giu chat ket noi Wi-Fi
+     *  cam de Android khong ngat (tranh rot ENONET). Lan dau Android hoi 1 lan. Mac dinh TAT. */
+    var camAutoWifi: Boolean
+        get() = p.getBoolean("camautowifi", false)
+        set(v) = p.edit().putBoolean("camautowifi", v).apply()
     var showDbg: Boolean
         get() = p.getBoolean("dbg", false)
         set(v) = p.edit().putBoolean("dbg", v).apply()
