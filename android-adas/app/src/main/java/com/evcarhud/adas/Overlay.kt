@@ -287,16 +287,28 @@ class Overlay(ctx: Context) : View(ctx) {
         // 2 dong log (trang thai AI + thong bao) dua len GIUA-TREN, can giua man, ngang hang bien/chip.
         // Nam gon giua bien (trai) va cum chip (phai); dai qua thi nen chu (textScaleX) cho vua, khong de len.
         val cx0 = width / 2f
-        val maxW = width * 0.48f
+        val maxW = width * 0.5f
         val st = sn?.stat ?: ""   // dong test AI; AdasService chi dat khi bat "Hien so lieu" (Ky thuat)
+        var yCur = top + 0.7f * u
         if (st.isNotEmpty()) {
-            txt.typeface = fSemi; txt.textSize = 1.15f * u; txt.textScaleX = 1f; txt.textAlign = Paint.Align.CENTER
-            val tw = txt.measureText(st); if (tw > maxW) txt.textScaleX = maxW / tw
-            val w = minOf(tw, maxW) + 1.4f * u
+            txt.typeface = fSemi; txt.textSize = 1.25f * u; txt.textScaleX = 1f; txt.textAlign = Paint.Align.CENTER
+            // Dai hon khe giua -> XUONG 2 DONG (cat o " · " gan giua), de doc, KHONG nen chu cho bo hep.
+            val lines = if (txt.measureText(st) <= maxW) listOf(st) else {
+                val parts = st.split(" · ")
+                if (parts.size < 2) listOf(st) else {
+                    val mid = st.length / 2; var best = 1; var bestD = Int.MAX_VALUE; var acc = 0
+                    for (i in 0 until parts.size - 1) { acc += parts[i].length + 3; val d = abs(acc - mid); if (d < bestD) { bestD = d; best = i + 1 } }
+                    listOf(parts.subList(0, best).joinToString(" · "), parts.subList(best, parts.size).joinToString(" · "))
+                }
+            }
+            var wmax = 0f; for (ln in lines) wmax = maxOf(wmax, txt.measureText(ln))
+            if (wmax > maxW) { txt.textScaleX = maxW / wmax; wmax = maxW }
+            val lh = 1.75f * u; val boxH = lines.size * lh + 0.5f * u
             fill.color = Color.argb(140, 0, 0, 0)
-            cv.drawRoundRect(RectF(cx0 - w / 2, top + 0.7f * u, cx0 + w / 2, top + 2.6f * u), 0.8f * u, 0.8f * u, fill)
+            cv.drawRoundRect(RectF(cx0 - wmax / 2 - 0.8f * u, yCur, cx0 + wmax / 2 + 0.8f * u, yCur + boxH), 0.8f * u, 0.8f * u, fill)
             txt.color = Color.argb(238, 255, 255, 255)
-            cv.drawText(st, cx0, top + 2.05f * u, txt); txt.textScaleX = 1f
+            for ((i, ln) in lines.withIndex()) cv.drawText(ln, cx0, yCur + 1.35f * u + i * lh, txt)
+            txt.textScaleX = 1f; yCur += boxH + 0.3f * u
         }
         // dong thong bao trang thai (xe do / may nong / dang hieu chinh...) nam duoi dong test (hoac len tren khi tat test)
         val msg = sn?.msg ?: ""
@@ -304,11 +316,10 @@ class Overlay(ctx: Context) : View(ctx) {
             txt.typeface = fBold; txt.textSize = 1.3f * u; txt.textScaleX = 1f; txt.textAlign = Paint.Align.CENTER
             val tw = txt.measureText(msg); if (tw > maxW) txt.textScaleX = maxW / tw
             val mw = minOf(tw, maxW) + 1.6f * u
-            val my = if (st.isNotEmpty()) top + 2.95f * u else top + 0.7f * u
             fill.color = Color.argb(170, 150, 24, 24)
-            cv.drawRoundRect(RectF(cx0 - mw / 2, my, cx0 + mw / 2, my + 1.9f * u), 0.9f * u, 0.9f * u, fill)
+            cv.drawRoundRect(RectF(cx0 - mw / 2, yCur, cx0 + mw / 2, yCur + 1.9f * u), 0.9f * u, 0.9f * u, fill)
             txt.color = Color.argb(245, 255, 226, 160)
-            cv.drawText(msg, cx0, my + 1.45f * u, txt); txt.textScaleX = 1f; txt.typeface = fSemi
+            cv.drawText(msg, cx0, yCur + 1.45f * u, txt); txt.textScaleX = 1f; txt.typeface = fSemi
         }
         txt.textAlign = Paint.Align.LEFT
 
