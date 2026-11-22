@@ -114,8 +114,8 @@ class Scene3D(ctx: Context) : WebView(ctx) {
             val gx = (r[0] * t).toFloat(); val gy = (r[1] * t).toFloat()
             if (gx < 1.5f || gx > 110f) continue
             var cc = c
-            if ((c == "truck" || c == "bus") && b.y2 * cam.h < hoodPx - 4) {
-                // xe tai/buyt thap hon 2,4 m thuc ra la SUV / ban tai
+            if (c == "truck" || c == "bus") {
+                // xe tai/buyt thap hon 2,4 m thuc ra la SUV / ban tai (xe sat capo: khoang cach bi kep -> chieu cao nho, nghieng ve "o to")
                 val rt = ray(u, b.y1 * cam.h); val sc = gx / maxOf(rt[0], 1e-3)
                 if (sn.camH - rt[2] * sc < 2.4) cc = "car"
             }
