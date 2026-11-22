@@ -237,11 +237,13 @@ class MirrorCam(
             startKeep(net)
             log("${if (is70) "70mai" else "cam gương"} mở: $info")
 
-            // REALTIME: cam guong uu tien UDP (bo goi cu -> tre co dinh thap, giong app hang). TCP khong
-            // mat goi nhung neu giai ma khong kip thi don lai -> tre tang dan toi vai PHUT. 70mai TCP truoc.
-            val useGood = is70 && goodPath >= 0
-            val udp = when { useGood -> goodUdp == true; is70 -> retry % 2 == 1; else -> retry % 2 == 0 }
-            val pathIdx = if (useGood) goodPath else (retry / 2) % paths70.size
+            // REALTIME: dung UDP (bo goi cu -> tre co dinh thap, giong app hang). TCP khong mat goi nhung
+            // neu giai ma khong kip thi don lai -> tre tang dan toi vai PHUT, va 70mai TCP chay ~6s roi
+            // DUNG HAN (log 22/11: lap mo-treo moi 16s). 70mai CHI chay UDP /livestream/12 that su (da xac
+            // nhan chay muot 7 phut o 0.1.95). => 70mai ep UDP + /12 luon; cam guong uu tien UDP (2/3 lan),
+            // thinh thoang thu TCP phong UDP bi chan.
+            val udp = if (is70) true else (retry % 3 != 2)
+            val pathIdx = 0                                   // 70mai: /livestream/12 (duy nhat chay)
             curUdp = udp; curPath = pathIdx
             val url = "rtsp://$HOST:554" + (if (is70) paths70[pathIdx] else "")
             status = "mở ffmpeg ${if (udp) "UDP" else "TCP"} $url"
@@ -255,15 +257,21 @@ class MirrorCam(
                     setOption("rtsp_transport", if (udp) "udp" else "tcp")
                     // KHONG set rtsp_flags="" (rong) -> avformat_open_input tra -22 EINVAL. Chi set khi co gia tri.
                     setOption("timeout", "8000000")       // timeout socket (us) cho rtsp (ffmpeg 6)
-                    setOption("max_delay", "0")           // KHONG cho tre do sap xep goi -> realtime nhat
                     setOption("buffer_size", "1048576")
                     setOption("fflags", "nobuffer")       // khong don khung -> khong tre dan (realtime)
                     setOption("flags", "low_delay")
-                    // Giam tre "load video" (Sinjet trễ ~2s): mo luong nhanh, khong phan tich lau, khong dem reorder.
-                    setOption("probesize", "500000")      // ~500KB (mac dinh 5MB) -> mo luong nhanh hon, van du doc codec
-                    setOption("analyzeduration", "500000") // phan tich toi da 0.5s (mac dinh ~5s) truoc khi ra khung
-                    setOption("reorder_queue_size", "0")  // UDP: khong cho sap xep lai goi -> bot tre dong
-                    setOption("rtbufsize", "256000")      // bo dem thoi gian thuc nho -> khong don tre
+                    if (is70) {
+                        // 70mai: giu cau hinh ON DINH nhu 0.1.95 (da chay muot 7 phut). Cac option giam tre
+                        // ganh (max_delay=0/reorder=0/rtbufsize nho) lam luong UDP 70mai RUNG/RƠT -> khong dung.
+                        setOption("max_delay", "100000")  // 0.1s
+                    } else {
+                        // Cam guong (Sinjet) trễ ~2s LUC CHAY: ep realtime manh de bot tre dong.
+                        setOption("max_delay", "0")           // khong cho tre do sap xep goi
+                        setOption("reorder_queue_size", "0")  // UDP: khong cho sap xep lai goi -> bot tre
+                        setOption("rtbufsize", "256000")      // bo dem thoi gian thuc nho
+                        setOption("probesize", "500000")      // mo luong nhanh hon (mac dinh 5MB)
+                        setOption("analyzeduration", "500000") // phan tich toi da 0.5s truoc khi ra khung
+                    }
                     imageMode = FrameGrabber.ImageMode.COLOR
                     // Lay thang YUV420P (I420) tu ffmpeg -> KHONG phai doi mau BGR->YUV tung diem tren Kotlin
                     // (vong lap 2M diem/khung = nang, tre + nong). Chi can chep khoi -> nhanh hon nhieu.
