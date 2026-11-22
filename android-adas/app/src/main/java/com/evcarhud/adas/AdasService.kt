@@ -299,22 +299,35 @@ class AdasService : Service() {
         } catch (e: Exception) { loadMsg = "Không có camera: ${e.message}" }
     }
 
+    private var pendingCam: Runnable? = null
+
+    /** Tat DUT cam cu roi moi mo cam moi. Neu cam cu la cam Wi-Fi (MirrorCam) thi cho 2s cho luong+mang cu
+     *  dut han (bao "Dang ngat ket noi cu, cho 2s") -> cam moi noi SACH, khong bi 2 cam giành mang. */
+    private fun rebuildCamGuarded() {
+        val wifiOld = cam is MirrorCam
+        cam?.release(); cam = null
+        pendingCam?.let { main.removeCallbacks(it) }
+        val go = Runnable { pendingCam = null; loadMsg = ""; makeCam(); rebuildGeom(); applyRate() }
+        if (wifiOld) {
+            loadMsg = "Đang ngắt kết nối cũ, chờ 2s…"; publishIdle()
+            pendingCam = go; main.postDelayed(go, 2000)
+        } else { loadMsg = ""; go.run() }
+    }
+
     /** Doi nguon camera (dien thoai <-> cam guong Wi-Fi). */
     fun switchCam() {
-        cam?.release(); cam = null; loadMsg = ""
         // cam guong: goc lap tu 3 clip 17/11 (cui -0,04, lech 0,09); tu hieu chinh yaw chay tiep. Dien thoai: lay lai tu trong luc
         if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = 0.0; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; gP = Double.NaN }
         prefs.calibrated = false; yawGood = 0
         saveCalib()
-        makeCam(); rebuildGeom(); applyRate()
+        rebuildCamGuarded()
         clog?.line("nguon camera: ${prefs.camSrc}")
     }
 
     /** Mo lai camera (vd. doi do phan giai 720p/1080p) KHONG dong lai hieu chinh nhu switchCam. */
     fun restartCam() {
         if (prefs.camSrc == "phone") return
-        cam?.release(); cam = null; loadMsg = ""
-        makeCam(); rebuildGeom(); applyRate()
+        rebuildCamGuarded()
         clog?.line("mo lai cam: ${prefs.camSrc} ${if (prefs.camHd) "1080p" else "720p"}")
     }
 
