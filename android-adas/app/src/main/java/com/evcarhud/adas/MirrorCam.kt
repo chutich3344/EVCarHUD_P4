@@ -100,6 +100,9 @@ class MirrorCam(
     /** Ten Wi-Fi cam (tien to) de app TU NOI khi bat camAutoWifi (WifiNetworkSpecifier, mat khau 12345678). */
     private val wifiPrefix = if (is70) "70mai" else "mirror_wifi"
     private val wifiPass = "12345678"
+    // IP may khi noi dung cam: 70mai -> 192.168.0.x, cam guong -> 192.168.5.x. Chi bam mang DUNG subnet nay,
+    // bo qua mang khac (vd 172.23.x cua 4G/Wi-Fi khac) de khong bi day sang mang sai -> rot ket noi cam.
+    private val ipPrefix = HOST.substringBeforeLast('.') + "."
 
     /** Xin mang Wi-Fi cam (khong internet), cho co mang <=timeoutMs, bam tien trinh. Tra Network hoac null.
      *  autoWifi: dung WifiNetworkSpecifier => app TU NOI toi AP cam + GIU CHAT (Android khong ngat), lan dau
@@ -126,9 +129,13 @@ class MirrorCam(
             }
             val cb = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(n: Network) {
+                    // Chi bam mang DUNG subnet cam (vd 192.168.0.x). Bo qua mang khac (4G/Wi-Fi khac, 172.x…)
+                    // de khong bi day process sang mang sai -> mat ket noi cam (rot ENONET/SocketTimeout).
+                    val ip = myIp(n)
+                    if (ip != null && !ip.startsWith(ipPrefix)) { log("bỏ mạng không phải cam ($ip, cần $ipPrefix*)"); return }
                     synchronized(netLock) {
                         camNet = n
-                        try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam (${if (useSpec) "tự nối" else "requestNetwork"})") }
+                        try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam (${if (useSpec) "tự nối" else "requestNetwork"}) ip=$ip") }
                         catch (e: Exception) { log("bind net lỗi ${e.javaClass.simpleName}") }
                         netLock.notifyAll()
                     }

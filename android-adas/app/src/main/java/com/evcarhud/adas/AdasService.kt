@@ -1101,10 +1101,10 @@ class AdasService : Service() {
         private const val CH = "adas"
         private const val NID = 7
         const val ACTION_STOP = "stop"
-        const val PW = 640
+        const val PW = 960            // anh xem (preview) ve 960x540 thay vi 640x360 -> net hon khi phong len man rong (bot nhoe)
         const val HOOD_R = 72
         const val HOOD_C = 48
-        const val PH = 360
+        const val PH = 540
 
         fun start(ctx: Context) {
             val i = Intent(ctx, AdasService::class.java)
