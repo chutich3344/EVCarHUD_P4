@@ -60,6 +60,8 @@ jobs:
           ./gradlew --no-daemon assembleRelease
           # ten de nho (yeu cau 19/11): lan-<phien ban>-<ngay>.apk, vd lan-0.1.49-20261119.apk (phien ban hien trong Cai dat > Thong tin)
           SHORT="0.1.${GITHUB_RUN_NUMBER}-$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)"
+          # nhanh man 3D (gkxbgj) dat ten rieng lan-3d-... de khong lan voi ban chinh
+          if [ "$GITHUB_REF_NAME" = "claude/project-thread-gkxbgj" ]; then SHORT="3d-$SHORT"; fi
           cp app/build/outputs/apk/release/app-release.apk "../lan-$SHORT.apk"
           echo "SHORT=$SHORT" >> "$GITHUB_ENV"
           echo "SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
@@ -75,7 +77,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # moi nhanh 1 ban phat hanh rieng: ugakxl -> app-lan-thu, a7qrzx (dan duong PiP) -> app-lan-pip-thu
-          if [ "$GITHUB_REF_NAME" = "claude/project-thread-ugakxl" ]; then TAG=app-lan-thu; else TAG=app-lan-pip-thu; fi
+          if [ "$GITHUB_REF_NAME" = "claude/project-thread-ugakxl" ]; then TAG=app-lan-thu
+          elif [ "$GITHUB_REF_NAME" = "claude/project-thread-gkxbgj" ]; then TAG=app-lan-3d-thu
+          else TAG=app-lan-pip-thu; fi
           gh release delete $TAG --yes --cleanup-tag || true
           gh release create $TAG "lan-$SHORT.apk" --target "$GITHUB_SHA" \
             --title "App EVCarHUD Làn $SHORT" \

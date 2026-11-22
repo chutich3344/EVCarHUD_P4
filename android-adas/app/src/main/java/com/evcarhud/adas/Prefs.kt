@@ -50,6 +50,18 @@ class Prefs(ctx: Context) {
     var splitScreen: Boolean
         get() = p.getBoolean("split", false)
         set(v) = p.edit().putBoolean("split", v).apply()
+    /** Man canh lai 3D kieu Tesla: 0 tat, 1 toan man (camera thanh cua so goc), 2 thay cho ban do (nua phai khi chia doi). Mac dinh TAT. */
+    var scene3d: Int
+        get() = p.getInt("scene3d", 0)
+        set(v) = p.edit().putInt("scene3d", v).apply()
+    /** Lan bat gan nhat cua nut 3D (1 hoac 2) de nut tren man bat lai dung kieu. */
+    var scene3dLast: Int
+        get() = p.getInt("scene3dlast", 1)
+        set(v) = p.edit().putInt("scene3dlast", v).apply()
+    /** Goc nhin canh 3D: false sau xe, true tren cao. */
+    var scene3dHigh: Boolean
+        get() = p.getBoolean("scene3dhigh", false)
+        set(v) = p.edit().putBoolean("scene3dhigh", v).apply()
     /** Cong tac tat NHANH het cua so noi (PiP: ban do + o nhiet) de xem camera gon. Mac dinh TAT (van hien PiP). */
     var hidePip: Boolean
         get() = p.getBoolean("hidepip", false)

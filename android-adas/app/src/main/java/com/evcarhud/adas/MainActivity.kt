@@ -31,6 +31,8 @@ class MainActivity : Activity() {
     private lateinit var temp: TempPip
     private lateinit var map: TileMap
     private var svc: AdasService? = null
+    private var scene: Scene3D? = null          // man canh 3D (tao khi bat lan dau)
+    private lateinit var btn3d: android.widget.TextView
     private var started = false
 
     private val conn = object : ServiceConnection {
@@ -38,9 +40,10 @@ class MainActivity : Activity() {
             val s = (b as AdasService.LocalBinder).service
             svc = s
             s.camInfo()?.let { overlay.imgW = it.size.width; overlay.imgH = it.size.height }
-            s.onSnap = { sn -> overlay.snap = sn; temp.snap = sn; if (map.visibility == View.VISIBLE) map.update(sn) }
+            s.onSnap = { sn -> overlay.snap = sn; temp.snap = sn; if (map.visibility == View.VISIBLE) map.update(sn); scene?.update(sn) }
             s.onPreview = { bm -> overlay.frame = bm }
             s.uiVisible = started
+            s.scene3d = scene?.visibility == View.VISIBLE
         }
         override fun onServiceDisconnected(n: ComponentName?) { svc = null }
     }
@@ -61,6 +64,13 @@ class MainActivity : Activity() {
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         root.addView(temp, FrameLayout.LayoutParams(1, 1))
         root.addView(map, FrameLayout.LayoutParams(1, 1))
+        btn3d = android.widget.TextView(this).apply {
+            text = "3D"; textSize = 15f; setTextColor(android.graphics.Color.WHITE); gravity = android.view.Gravity.CENTER
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 999f; setColor(0xcc141b25.toInt()); setStroke(3, 0x66ffffff) }
+            setOnClickListener { toggle3d() }
+        }
+        root.addView(btn3d, FrameLayout.LayoutParams(1, 1))
         setContentView(root)
         root.addOnLayoutChangeListener { _, l, t, r, btm, ol, ot, orr, ob ->
             if (r - l != orr - ol || btm - t != ob - ot) sizePips(r - l)
@@ -109,10 +119,12 @@ class MainActivity : Activity() {
 
     private fun sizePips(w: Int) {
         if (w <= 0) return
+        place3dBtn(w)
+        if (prefs.scene3d == 1 && !overlay.calib) { applyScene(w); return }
         if (prefs.splitScreen) { applySplit(w); return }
         val u = w / 100f
         // thoat che do chia doi: tra camera ve toan man, ban do ve cua so goc
-        overlay.layoutParams = FrameLayout.LayoutParams(-1, -1).also { overlay.x = 0f }
+        overlay.layoutParams = FrameLayout.LayoutParams(-1, -1).also { overlay.x = 0f; overlay.y = 0f }
         val topMin = { 2.2f * u + 4.6f * u + 1.2f * u + 6f * u }   // duoi hang thong so + so toc do
         temp.layoutParams = FrameLayout.LayoutParams((27 * u).toInt(), (6.2f * u).toInt())
         map.layoutParams = FrameLayout.LayoutParams((26 * u).toInt(), (19.5f * u).toInt())
@@ -133,20 +145,78 @@ class MainActivity : Activity() {
         val c = overlay.calib
         temp.visibility = View.GONE
         map.visibility = if (c) View.GONE else View.VISIBLE
+        // canh 3D thay ban do: nam dung cho nua phai
+        if (prefs.scene3d == 2 && !c) { map.visibility = View.GONE; showScene(half.toFloat(), 0f, w - half, -1) } else hideScene()
         overlay.invalidate()
     }
 
+    // ---------------- canh 3D kieu Tesla ----------------
+    private fun ensureScene(): Scene3D = scene ?: Scene3D(this).also { sc ->
+        scene = sc
+        sc.view = if (prefs.scene3dHigh) "high" else "chase"
+        root.addView(sc, root.indexOfChild(overlay) + 1, FrameLayout.LayoutParams(1, 1))
+    }
+
+    private fun showScene(x: Float, y: Float, w: Int, h: Int) {
+        val sc = ensureScene()
+        sc.layoutParams = FrameLayout.LayoutParams(w, h); sc.x = x; sc.y = y
+        if (sc.visibility != View.VISIBLE) { sc.visibility = View.VISIBLE; sc.resume() }
+        svc?.scene3d = true
+        btn3d.bringToFront()
+    }
+
+    private fun hideScene() {
+        val sc = scene ?: return
+        if (sc.visibility == View.VISIBLE) { sc.visibility = View.GONE; sc.pause() }
+        svc?.scene3d = false
+    }
+
+    /** Toan man 3D: camera thu nho thanh cua so goc tren-phai (cham van vao nut cai dat / chia doi duoc). */
+    private fun applyScene(w: Int) {
+        val u = w / 100f
+        showScene(0f, 0f, -1, -1)
+        val pw = (34 * u).toInt(); val ph = pw * 9 / 16
+        overlay.setOnTouchListener(null)
+        overlay.layoutParams = FrameLayout.LayoutParams(pw, ph); overlay.x = w - pw - 1.6f * u; overlay.y = 1.6f * u
+        overlay.bringToFront(); btn3d.bringToFront()
+        temp.visibility = View.GONE; map.visibility = View.GONE
+        overlay.requestLayout(); overlay.invalidate()
+    }
+
+    private fun place3dBtn(w: Int) {
+        val u = w / 100f; val s = (5.2f * u).toInt()
+        btn3d.layoutParams = FrameLayout.LayoutParams(s, s)
+        btn3d.x = 1.8f * u; btn3d.y = root.height * 0.52f
+        btn3d.background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 999f
+            setColor(if (prefs.scene3d != 0) 0xee1e9e5a.toInt() else 0xcc141b25.toInt()); setStroke(3, 0x66ffffff) }
+        btn3d.bringToFront()
+    }
+
+    /** Nut 3D tren man: tat <-> kieu bat gan nhat (toan man hoac thay ban do). */
+    private fun toggle3d() {
+        if (prefs.scene3d != 0) { prefs.scene3d = 0; toast("Tắt cảnh 3D") }
+        else { prefs.scene3d = prefs.scene3dLast.coerceIn(1, 2); toast(if (prefs.scene3d == 1) "Cảnh 3D toàn màn · camera ở góc" else "Cảnh 3D thay bản đồ") }
+        sizePips(root.width)
+    }
+
     private fun showPips() {
+        if (prefs.scene3d == 1 && !overlay.calib) { applyScene(root.width); return }
+        // dang chinh tay diem tu trong che do 3D toan man: tra camera ve toan man de keo
+        if (prefs.scene3d == 1 && overlay.calib) { hideScene(); if (!prefs.splitScreen && overlay.layoutParams.width != -1) { sizePips(root.width); return } }
         if (prefs.splitScreen) { applySplit(root.width); return }
         val c = overlay.calib || prefs.hidePip      // hidePip = tat nhanh het cua so noi
         temp.visibility = if (prefs.showTemp && !c) View.VISIBLE else View.GONE
         map.visibility = if (prefs.showMap && !c) View.VISIBLE else View.GONE
+        // canh 3D thay ban do (khong chia doi): nam dung o cua so ban do
+        if (prefs.scene3d == 2 && !overlay.calib && map.width > 1) { map.visibility = View.GONE; showScene(map.x, map.y, map.width, map.height) }
+        else if (prefs.scene3d != 1) hideScene()
     }
 
     override fun onStart() {
         super.onStart()
         started = true
         svc?.uiVisible = true
+        if (scene?.visibility == View.VISIBLE) scene?.resume()
     }
 
     override fun onStop() {
@@ -154,6 +224,7 @@ class MainActivity : Activity() {
         // ra nen: bo ve camera, AI van chay trong dich vu
         svc?.uiVisible = false
         overlay.frame = null
+        scene?.pause()
         super.onStop()
     }
 
@@ -264,6 +335,8 @@ class MainActivity : Activity() {
             ) },
             SettingsView.Cat("hien", "Hiển thị", { if (prefs.hidePip) "ẩn PiP" else listOfNotNull(if (prefs.showMap) "bản đồ" else null, if (prefs.showTemp) "nhiệt" else null).joinToString(" · ").ifEmpty { "gọn" } }) { listOf(
                 T("Chia đôi màn (camera | bản đồ)", "trái camera + ADAS, phải bản đồ · bật nhanh bằng nút ◫ trên màn", { prefs.splitScreen }, { b -> prefs.splitScreen = b; overlay.split = b; sizePips(root.width) }, true),
+                S("Cảnh lái 3D (kiểu Tesla)", "vẽ lại lane, đường đi, xe xung quanh từ AI · bật nhanh bằng nút 3D trên màn", listOf("Tắt", "Toàn màn", "Thay bản đồ"), { prefs.scene3d.coerceIn(0, 2) }, { k -> prefs.scene3d = k; if (k != 0) prefs.scene3dLast = k; sizePips(root.width) }, true),
+                S("Góc nhìn cảnh 3D", null, listOf("Sau xe", "Trên cao"), { if (prefs.scene3dHigh) 1 else 0 }, { k -> prefs.scene3dHigh = k == 1; scene?.view = if (k == 1) "high" else "chase" }, true),
                 T("Ẩn cửa sổ nổi (PiP)", "ẩn nhanh bản đồ + ô nhiệt để xem camera gọn", { prefs.hidePip }, { b -> prefs.hidePip = b; showPips() }, false),
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),
                 S("Nguồn bản đồ", null, listOf("Google tối", "OpenStreetMap"), { if (prefs.mapSrc == "osm") 1 else 0 }, { k -> prefs.mapSrc = if (k == 1) "osm" else "google"; map.source = prefs.mapSrc }, false),
@@ -377,7 +450,7 @@ class MainActivity : Activity() {
     companion object {
         private const val ABOUT = "Nhận diện làn đường, mép đường, xe phía trước và đường đi dùng mô hình openpilot " +
             "(driving_vision, driving_policy v0.10.3) của comma.ai, giấy phép MIT.\n\n" +
-            "Đọc biển giao thông: mô hình YOLO11n 56 loại biển Việt Nam (github.com/Namvipcf/vietnamese-traffic-sign-yolo11, giấy phép MIT).\nHình biển mẫu: gói @road-signs/vn (github.com/karlnorling/road-signs, giấy phép MIT).\nNhận loại xe: YOLOX-Nano (Megvii, giấy phép Apache-2.0). Font Be Vietnam Pro (SIL OFL 1.1).\n\n" +
+            "Đọc biển giao thông: mô hình YOLO11n 56 loại biển Việt Nam (github.com/Namvipcf/vietnamese-traffic-sign-yolo11, giấy phép MIT).\nHình biển mẫu: gói @road-signs/vn (github.com/karlnorling/road-signs, giấy phép MIT).\nNhận loại xe: YOLOX-Nano (Megvii, giấy phép Apache-2.0). Cảnh 3D: Three.js (giấy phép MIT). Font Be Vietnam Pro (SIL OFL 1.1).\n\n" +
             "Chỉ hỗ trợ cảnh báo, không thay người lái. Bản đồ © OpenStreetMap contributors.\n\n" +
             "Chống nóng máy: AI chạy 5–20 lần/giây theo tốc độ, dừng khi xe đỗ hoặc máy quá nóng. " +
             "Nên gắn điện thoại chỗ cửa gió điều hoà, sạc 18–20 W."

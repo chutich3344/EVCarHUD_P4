@@ -1,0 +1,149 @@
+package com.evcarhud.adas
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Color
+import android.os.SystemClock
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+/**
+ * Man canh lai 3D kieu Tesla (22/11): ve lai the gioi quanh xe tu dung nhung gi AI thay.
+ * Trang assets/scene3d/index.html (Three.js r128, MIT) tu ve 60 khung/giay; moi lan AI chay ta goi feed(json):
+ *  - vach lane, mep duong, duong di: openpilot (Snap.out)
+ *  - xe/nguoi: YOLOX (VehDet toan khung khi bat 3D, khong co thi vung quanh xe truoc), chieu chan hop xuong mat duong
+ *  - xe truoc: khoang cach openpilot (chuan hon chieu hop)
+ * Nhe: canh it tam giac, WebView dung GPU; khi an thi khong goi feed va tam dung ve.
+ */
+@SuppressLint("SetJavaScriptEnabled", "ViewConstructor")
+class Scene3D(ctx: Context) : WebView(ctx) {
+    private var ready = false
+    private var lastFeed = 0L
+    /** "chase" (sau xe) | "high" (tren cao) */
+    var view = "chase"
+        set(v) { field = v; sentView = "" }
+    private var sentView = ""
+    /** Che do ngay/dem: 0 tu dong theo mat troi, 1 luon dem, 2 luon ngay. */
+    var themeMode = 0
+
+    init {
+        setBackgroundColor(Color.rgb(21, 24, 29))
+        settings.javaScriptEnabled = true
+        settings.allowFileAccess = true
+        settings.mediaPlaybackRequiresUserGesture = true
+        isVerticalScrollBarEnabled = false; isHorizontalScrollBarEnabled = false
+        webViewClient = object : WebViewClient() {
+            override fun onPageFinished(v: WebView?, url: String?) { ready = true }
+        }
+        loadUrl("file:///android_asset/scene3d/index.html")
+    }
+
+    fun pause() { onPause() }
+    fun resume() { onResume() }
+
+    /** Goi tren luong giao dien moi Snap. Gioi han 20 lan/giay. */
+    fun update(sn: Snap) {
+        if (!ready || visibility != VISIBLE) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastFeed < 45) return
+        lastFeed = now
+        val js = json(sn) ?: return
+        evaluateJavascript("feed($js)", null)
+    }
+
+    private fun f(v: Float, d: Int = 2): String {
+        if (v.isNaN() || v.isInfinite()) return "0"
+        val m = when (d) { 1 -> 10f; else -> 100f }
+        return ((v * m).roundToInt() / m).toString()
+    }
+
+    private fun json(sn: Snap): String? {
+        val o = sn.out ?: return null
+        val sb = StringBuilder(2600)
+        sb.append("{\"v\":").append(f(sn.vKmh / 3.6f))
+        sb.append(",\"th\":\"").append(if (isNight(sn)) "night" else "day").append('"')
+        if (sentView != view) { sb.append(",\"view\":\"").append(view).append('"'); sentView = view }
+        sb.append(",\"ln\":[")
+        for (i in 0..3) { if (i > 0) sb.append(','); arr(sb, o.laneY[i]) }
+        sb.append("],\"lp\":[")
+        for (i in 0..3) { if (i > 0) sb.append(','); sb.append(f(o.laneProb[i])) }
+        sb.append("],\"ed\":[")
+        arr(sb, o.edgeY[0]); sb.append(','); arr(sb, o.edgeY[1]); sb.append(']')
+        if (o.planOk) {
+            sb.append(",\"pl\":[")
+            for (k in 0 until Op.N) { if (k > 0) sb.append(','); sb.append('[').append(f(o.planX[k], 1)).append(',').append(f(o.planY[k])).append(']') }
+            sb.append(']')
+        }
+        val leadOk = o.leadProb > 0.5f
+        if (leadOk) sb.append(",\"ld\":{\"p\":").append(f(o.leadProb)).append(",\"x\":").append(f(o.leadX, 1))
+            .append(",\"y\":").append(f(o.leadY)).append(",\"v\":").append(f(o.leadV)).append('}')
+        sb.append(",\"ldw\":\"").append(sn.ldw).append('"')
+        if (sn.offCm != null) sb.append(",\"off\":").append(sn.offCm)
+        sb.append(",\"ob\":[")
+        objs(sn, o, leadOk).forEachIndexed { i, b -> if (i > 0) sb.append(','); sb.append("[\"").append(b.c).append("\",").append(f(b.x, 1)).append(',').append(f(b.y)).append(',').append(if (b.lead) 1 else 0).append(']') }
+        sb.append("]}")
+        return sb.toString()
+    }
+
+    private fun arr(sb: StringBuilder, a: FloatArray) { sb.append('['); for (k in a.indices) { if (k > 0) sb.append(','); sb.append(f(a[k])) }; sb.append(']') }
+
+    private class G(var c: String, var x: Float, var y: Float, var lead: Boolean)
+
+    /** Hop xe (toa do chuan hoa anh) -> diem tren mat duong (x truoc, y phai, m). */
+    private fun objs(sn: Snap, o: Op.Out, leadOk: Boolean): List<G> {
+        val cam = sn.cam ?: return emptyList()
+        val src = sn.wide ?: sn.objs ?: emptyList()
+        val m = cam.viewFromCalib
+        fun ray(u: Float, v: Float): DoubleArray {
+            val vx = (u - cam.cx) / cam.f; val vy = (v - cam.cy) / cam.f; val vz = 1.0
+            // calib = M^T * view
+            return doubleArrayOf(m[0] * vx + m[3] * vy + m[6] * vz, m[1] * vx + m[4] * vy + m[7] * vz, m[2] * vx + m[5] * vy + m[8] * vz)
+        }
+        val res = ArrayList<G>()
+        val hoodPx = (if (sn.hood in 0.3f..1f) sn.hood else 1f) * cam.h
+        for (b in src) {
+            val c = when (b.cls) { 0 -> "person"; 1 -> "bike"; 2 -> "car"; 3 -> "moto"; 5 -> "bus"; 7 -> "truck"; else -> continue }
+            val u = (b.x1 + b.x2) / 2 * cam.w
+            val vb = minOf(b.y2 * cam.h, hoodPx - 2)
+            val r = ray(u, vb)
+            if (r[2] <= 0.004) continue
+            val t = sn.camH / r[2]
+            val gx = (r[0] * t).toFloat(); val gy = (r[1] * t).toFloat()
+            if (gx < 1.5f || gx > 110f) continue
+            var cc = c
+            if ((c == "truck" || c == "bus") && b.y2 * cam.h < hoodPx - 4) {
+                // xe tai/buyt thap hon 2,4 m thuc ra la SUV / ban tai
+                val rt = ray(u, b.y1 * cam.h); val sc = gx / maxOf(rt[0], 1e-3)
+                if (sn.camH - rt[2] * sc < 2.4) cc = "car"
+            }
+            res += G(cc, gx, gy, false)
+        }
+        if (leadOk) {
+            var best: G? = null
+            for (g in res) if ((g.c == "car" || g.c == "truck" || g.c == "bus") && abs(g.y - o.leadY) < 2f && abs(g.x - o.leadX) < 0.3f * o.leadX + 5f)
+                if (best == null || abs(g.x - o.leadX) < abs(best.x - o.leadX)) best = g
+            if (best != null) { best.x = o.leadX; best.y = o.leadY; best.lead = true }
+            else if (o.leadProb > 0.7f) res += G("car", o.leadX, o.leadY, true)
+        }
+        return res
+    }
+
+    private fun isNight(sn: Snap): Boolean {
+        if (themeMode == 1) return true
+        if (themeMode == 2) return false
+        val cal = java.util.Calendar.getInstance()
+        val h = cal.get(java.util.Calendar.HOUR_OF_DAY) + cal.get(java.util.Calendar.MINUTE) / 60.0
+        if (!sn.hasFix) return h !in 6.0..18.0
+        // goc cao mat troi > -6 do = ngay (cung cach ban do Google tu ngay/dem)
+        val doy = cal.get(java.util.Calendar.DAY_OF_YEAR)
+        val decl = Math.toRadians(23.45) * Math.sin(2 * PI * (284 + doy) / 365.0)
+        val tz = (cal.get(java.util.Calendar.ZONE_OFFSET) + cal.get(java.util.Calendar.DST_OFFSET)) / 3_600_000.0
+        val hAng = Math.toRadians(15.0 * (h - tz + sn.lon / 15.0 - 12))
+        val latR = Math.toRadians(sn.lat)
+        val sinElev = Math.sin(latR) * Math.sin(decl) + Math.cos(latR) * Math.cos(decl) * Math.cos(hAng)
+        return sinElev <= Math.sin(Math.toRadians(-6.0))
+    }
+}

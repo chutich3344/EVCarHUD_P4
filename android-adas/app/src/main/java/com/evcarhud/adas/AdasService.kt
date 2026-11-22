@@ -72,6 +72,7 @@ class Snap(
     /** Bien toc do dang ap dung (camera doc), bien vua qua (anh that + bien phu), dang vuot toc do. */
     var limit: Int? = null
     var objs: List<SignDet.Obj>? = null   // xe/nguoi YOLOX (de ghi loai xe truoc)
+    var wide: List<SignDet.Obj>? = null   // xe/nguoi TOAN KHUNG (VehDet) khi man canh 3D dang bat
     var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
     var camM: Int? = null
     var limitSrc: String? = null   // bien lay tu app dan duong: "Waze" / "GOFA"
@@ -171,6 +172,11 @@ class AdasService : Service() {
     private var camLat = 0.0
     private var camLon = 0.0
     private var objsAt = 0L
+    // man canh 3D (Scene3D): nhan xe toan khung chi khi man 3D dang hien
+    private var vehDet: VehDet? = null
+    @Volatile var scene3d = false
+    private var wide: List<SignDet.Obj>? = null
+    private var wideAt = 0L
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
@@ -238,6 +244,7 @@ class AdasService : Service() {
         signDb = SignDb(this); camDb = CamDb(this); road = RoadInfo { m -> clog?.line(m) }
         waze = WazeModLink(this, { m -> clog?.line(m) }) { b -> onWaze(b) }.also { it.start() }
         signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
+        vehDet = VehDet(this) { ob -> main.post { wide = ob; wideAt = SystemClock.elapsedRealtime() } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
             it.onCam = { m -> onCam(m) }
@@ -277,7 +284,7 @@ class AdasService : Service() {
         Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
-        waze?.stop(); signDet?.release(); road?.release(); signDb?.flush(); camDb?.flush()
+        waze?.stop(); signDet?.release(); vehDet?.release(); road?.release(); signDb?.flush(); camDb?.flush()
         clog?.line("dung app"); clog?.close()
         super.onDestroy()
     }
@@ -544,6 +551,12 @@ class AdasService : Service() {
             // pin nong: doc bien thua hon, bo nhan loai xe (19/11: pin 43 do khi chay pho)
             sd.objsOn = true   // nhan loai xe gio chi tren vung quanh xe truoc (192x192), du nhe de luon bat
             sd.offer(im, cam?.flip == true, (if (prefs.perf == 0) 2L else 1L) * when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
+        }
+        // man 3D: nhan xe toan khung 4 lan/giay (may am 2, nong thi dung)
+        if (scene3d && uiVisible && hot < 2) vehDet?.let { vd ->
+            val g = geom; val p = FloatArray(2)
+            val top = if (g != null && g.project(1000f, 0f, 0f, p, 0)) ((p[1] - 0.06f * g.w) / g.h) else 0.3f
+            vd.offer(im, cam?.flip == true, top, if (hot == 0) 250L else 500L)
         }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
@@ -959,6 +972,7 @@ class AdasService : Service() {
         if (limit != null && now - limitAt > 15 * 60_000L) limit = null
         s.limit = limit
         if (now - objsAt < 1500) s.objs = objs
+        if (scene3d && now - wideAt < 1200) s.wide = wide
         val ct = camType
         if (ct != null && prefs.camAlert && now - camAt < 30_000) {
             // dem lui theo quang duong da di tu luc HUD bao (duong thang, du dung cho vai tram met)
