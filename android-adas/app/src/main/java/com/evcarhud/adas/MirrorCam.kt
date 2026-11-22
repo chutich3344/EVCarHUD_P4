@@ -106,7 +106,7 @@ class MirrorCam(
                 override fun onAvailable(n: Network) {
                     synchronized(netLock) {
                         camNet = n
-                        try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam (requestNetwork) ip=${myIp(n)}") }
+                        try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam ip=${myIp(n)} ${wifiInfo(n)}") }
                         catch (e: Exception) { log("bind net lỗi ${e.javaClass.simpleName}") }
                         netLock.notifyAll()
                     }
@@ -164,6 +164,14 @@ class MirrorCam(
         val b = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText().replace('\n', ' ').take(160) } ?: ""
         c.disconnect(); "$code $b"
     } catch (e: Exception) { "lỗi ${e.javaClass.simpleName} ${e.message?.take(80) ?: ""}" }
+
+    /** Ghi SSID/BSSID/RSSI cua mang dang bam -> phan biet cam TU NHA LAI IP MOI (cung AP, cung BSSID) vs
+     *  may NHAY sang AP KHAC (Wi-Fi nha, khac BSSID). Can quyen vi tri (app da co cho GPS). */
+    private fun wifiInfo(net: Network): String = try {
+        val caps = cm.getNetworkCapabilities(net)
+        val wi = caps?.transportInfo as? android.net.wifi.WifiInfo
+        if (wi != null) "SSID=${wi.ssid} BSSID=${wi.bssid} RSSI=${wi.rssi}dBm" else "wifi?"
+    } catch (e: Exception) { "wifi lỗi ${e.javaClass.simpleName}" }
 
     private fun myIp(net: Network): String? {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
