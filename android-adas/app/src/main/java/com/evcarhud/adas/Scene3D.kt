@@ -69,11 +69,15 @@ class Scene3D(ctx: Context) : WebView(ctx) {
     fun resume() { onResume() }
 
     /** Goi tren luong giao dien moi Snap. Gioi han 20 lan/giay. */
+    private var sentTl = ""
     fun update(sn: Snap) {
         if (!ready || visibility != VISIBLE) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastFeed < 45) return
         lastFeed = now
+        // den giao thong + so giay: goi rieng, chay ca khi AI dang nghi (xe do / dung den do lau, khong co sn.out)
+        val tk = (sn.tl?.toString() ?: "-") + (sn.tlSec ?: -1)
+        if (tk != sentTl) { sentTl = tk; evaluateJavascript("window.setTl && setTl(${sn.tl?.let { "'$it'" } ?: "null"}, ${sn.tlSec ?: "null"})", null) }
         val js = json(sn) ?: return
         evaluateJavascript("feed($js)", null)
     }

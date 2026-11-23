@@ -171,6 +171,7 @@ class AdasService : Service() {
     private var tlight: TLight? = null
     private val tlTrack = TLight.Track()
     private var tlResAt = 0L
+    private var tlLogAt = 0L
     private var signDb: SignDb? = null
     private var road: RoadInfo? = null
     private var objs: List<SignDet.Obj>? = null
@@ -1015,6 +1016,13 @@ class AdasService : Service() {
         val before = tlTrack.col
         tlTrack.update(r, now)
         val col = tlTrack.col
+        // log tung lan quet (toi da 1 dong / 1,5 s) khi thay den: mau, tin cay %, tam x,y %, rong x cao % -> doi chieu loi tu xa
+        if (r.lamps.isNotEmpty() && now - tlLogAt > 1500) {
+            tlLogAt = now
+            fun p(x: Float) = (x * 100).roundToInt()
+            clog?.line("DENQ hien ${col ?: '-'} chon ${tlTrack.want ?: '-'} quet ${r.col ?: '-'}${r.sec?.let { "/$it" } ?: ""} · " +
+                r.lamps.joinToString(" · ") { l -> "${l.col}${p(l.conf)} @${p((l.x1 + l.x2) / 2)},${p((l.y1 + l.y2) / 2)} ${p(l.x2 - l.x1)}x${p(l.y2 - l.y1)}${l.sec?.let { " so $it" } ?: ""}" })
+        }
         if (col != before) {
             clog?.line("DEN ${before ?: '-'} -> ${col ?: '-'}${tlTrack.cur(now)?.let { " con $it s" } ?: ""}")
             val v = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh

@@ -22,12 +22,19 @@ body.day { --ink: #16191e; --sub: #3d4550; --chip: rgba(0,0,0,.08); background: 
 .vbtn { position: absolute; right: 2.5vw; bottom: 4vh; font-weight: 700; font-size: 2.6vh; padding: 1.2vh 2.2vh; border-radius: 99px;
   background: var(--chip); color: var(--ink); border: 0; -webkit-tap-highlight-color: transparent; backdrop-filter: blur(6px); }
 .vbtn:active { transform: scale(.95); }
+.tl { position: absolute; left: 50%; top: 2.2vh; transform: translateX(-50%); display: none; align-items: center; gap: 1.6vh;
+  padding: 1.2vh 2.2vh; border-radius: 2.4vh; background: rgba(10,12,16,.86); color: #fff; font-weight: 700; }
+.tl .dots { display: flex; flex-direction: column; gap: .6vh; }
+.tl .dot { width: 2.4vh; height: 2.4vh; border-radius: 50%; background: #373a40; }
+.tl .lb { font-size: 2.6vh; line-height: 1.1; } .tl .lb small { display: block; font-size: 1.9vh; color: #c8c8cd; font-weight: 600; }
+.tl .sec { font-size: 7vh; line-height: 1; font-variant-numeric: tabular-nums; min-width: 1ch; text-align: right; }
 .wait { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); font-weight: 700; font-size: 3vh; color: var(--sub); }
 </style>
 </head>
 <body class="night">
 <div class="hud"><div class="spd" id="spd">0</div><div class="unit">km/h</div><div class="chips" id="chips"></div></div>
 <button class="vbtn" id="vbtn">🎥 Sau xe</button>
+<div class="tl" id="tl"><div class="dots"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><div class="lb" id="tlLb"></div><div class="sec" id="tlSec"></div></div>
 <div class="wait" id="wait">Đang chờ AI…</div>
 <script src="three.min.js"></script>
 <script src="GLTFLoader.js"></script>
@@ -534,6 +541,17 @@ function step(dt) {
   renderer.render(scene, cam);
 }
 window.step = step;
+// den giao thong tu app (TLight): c = 'R' / 'Y' / 'G' / null, s = so giay con lai hoac null
+window.setTl = function (c, s) {
+  const el = document.getElementById('tl');
+  if (!c) { el.style.display = 'none'; return; }
+  const col = { R: '#ff3b30', Y: '#ffcc00', G: '#30d158' }[c];
+  el.style.display = 'flex';
+  el.querySelectorAll('.dot').forEach((d, i) => { d.style.background = 'RYG'[i] === c ? col : '#373a40'; });
+  const lb = document.getElementById('tlLb'); lb.style.color = col;
+  lb.innerHTML = { R: 'ĐÈN ĐỎ', Y: 'ĐÈN VÀNG', G: 'ĐÈN XANH' }[c] + `<small>${s != null ? 'còn' : 'chưa thấy số đếm'}</small>`;
+  const se = document.getElementById('tlSec'); se.style.color = col; se.textContent = s != null ? s : '';
+};
 
 applyTheme('night'); setView('chase'); resize();
 if (!window.SIM) { let last = performance.now(); const loop = (ts) => { const dt = Math.min(0.1, (ts - last) / 1000); last = ts; step(dt); requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
