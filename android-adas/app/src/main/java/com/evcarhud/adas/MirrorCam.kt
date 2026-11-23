@@ -369,7 +369,7 @@ class MirrorCam(
                     // CAM GUONG: cat tre ~2s = khung bi DON HANG (giai ma/TCP cham hon luc toi) -> grabImage luon tra
                     // khung CU. Khac phuc chac (khong ep max_delay=0 gay rung): VOT bo khung ton dong, chi giu khung
                     // MOI NHAT. Grab lien tiep: tra ngay (<12ms) = con hang ton -> bo, lay tiep; grab cho lau = da bat
-                    // kip luong truc tiep -> dung. 70mai GIU NGUYEN (vua on dinh, day theo dot, khong co van de tre).
+                    // kip luong truc tiep -> dung. 23/11: AP DUNG CA 70mai (Kevin bao 70mai van tre 2s).
                     var cur = f
                     run {
                         // Phan biet "con hang ton" vs "da bat kip live" KHONG dua vao thoi gian giai ma mot khung
@@ -402,7 +402,7 @@ class MirrorCam(
                     lastFrameAt = now                           // luong con song (watchdog theo doi)
                     if (now - lastDeliver < (if (is70) 70 else 55)) continue   // ~14fps 70mai / ~18fps cam gương
                     lastDeliver = now
-                    deliver(cur)
+                    deliver(cur ?: continue)        // cur luon non-null (f non-null + vot chi gan khung that), guard cho chac
                 }
             } catch (e: Throwable) {
                 status = "lỗi ffmpeg ${if (udp) "UDP" else "TCP"}"
