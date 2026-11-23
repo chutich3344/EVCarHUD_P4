@@ -124,6 +124,7 @@ class Overlay(ctx: Context) : View(ctx) {
         }
         drawTop(cv, sn, u)
         if (sn != null && !calib) drawSigns(cv, sn, u)
+        if (sn != null && !calib && sn.tl != null) drawTLight(cv, sn, u)
         sn?.dbg?.let { drawDbg(cv, it, u) }
         if (sn != null && !calib) drawWarn(cv, sn, u)
         if (calib) drawCalib(cv, u)   // thong bao (msg) da ve o giua-tren trong drawTop, bo pill trung o duoi
@@ -375,6 +376,41 @@ class Overlay(ctx: Context) : View(ctx) {
     }
 
     /** Cot bien ben phai (kieu PiP VietMap): bien toc do / bien vua qua (hinh mau) + bien phu (anh that). */
+    /** Den giao thong: khung den + bang dem tren anh (lan quet moi) va the giua-tren: 3 bong, ten den, so giay lon cung mau. */
+    private fun drawTLight(cv: Canvas, sn: Snap, u: Float) {
+        val col = sn.tl ?: return
+        val c = when (col) { 'R' -> Color.rgb(255, 59, 48); 'Y' -> Color.rgb(255, 204, 0); else -> Color.rgb(48, 209, 88) }
+        val lamps = sn.tlLamps
+        if (lamps != null && frame != null) {
+            val sw = imgW * s; val sh = imgH * s
+            line.style = Paint.Style.STROKE
+            for (l in lamps) {
+                line.strokeWidth = 0.35f * u
+                line.color = when (l.col) { 'R' -> Color.rgb(255, 59, 48); 'Y' -> Color.rgb(255, 204, 0); else -> Color.rgb(48, 209, 88) }
+                cv.drawRect(ox + l.x1 * sw, oy + l.y1 * sh, ox + l.x2 * sw, oy + l.y2 * sh, line)
+                if (l.sec != null && l.cx2 > l.cx1) { line.color = Color.WHITE; line.strokeWidth = 0.25f * u; cv.drawRect(ox + l.cx1 * sw - 0.3f * u, oy + l.cy1 * sh - 0.3f * u, ox + l.cx2 * sw + 0.3f * u, oy + l.cy2 * sh + 0.3f * u, line) }
+            }
+        }
+        // the giua-tren, duoi 2 dong log
+        val sec = sn.tlSec
+        val w = 21f * u; val hgt = 7f * u; val x0 = width / 2f - w / 2; val y0 = 6.8f * u
+        fill.color = Color.argb(215, 10, 12, 16); cv.drawRoundRect(x0, y0, x0 + w, y0 + hgt, 1.5f * u, 1.5f * u, fill)
+        for ((i, k) in "RYG".withIndex()) {
+            fill.color = if (k == col) c else Color.rgb(55, 58, 64)
+            cv.drawCircle(x0 + 2.4f * u, y0 + 1.45f * u + i * 2.05f * u, 0.85f * u, fill)
+        }
+        txt.clearShadowLayer(); txt.textAlign = Paint.Align.LEFT
+        txt.typeface = fBold; txt.textSize = 1.7f * u; txt.color = c
+        cv.drawText(when (col) { 'R' -> "ĐÈN ĐỎ"; 'Y' -> "ĐÈN VÀNG"; else -> "ĐÈN XANH" }, x0 + 4.6f * u, y0 + 2.7f * u, txt)
+        txt.typeface = fSemi; txt.textSize = 1.3f * u; txt.color = Color.rgb(200, 200, 205)
+        cv.drawText(if (sec != null) "còn" else "chưa thấy số đếm", x0 + 4.6f * u, y0 + 5.0f * u, txt)
+        if (sec != null) {
+            txt.typeface = fBold; txt.textSize = 5.2f * u; txt.color = c; txt.textAlign = Paint.Align.RIGHT
+            cv.drawText("$sec", x0 + w - 1.4f * u, y0 + 5.6f * u, txt)
+            txt.textAlign = Paint.Align.LEFT
+        }
+    }
+
     private fun drawSigns(cv: Canvas, sn: Snap, u: Float) {
         // cot doc ben phai, to hon ban dau (11u ngang); thieu cho (ban do goc che) thi thu nho dan, toi thieu bo the camera roi the bien
         val x1 = width - 2f * u; val top = 2.2f * u + 3.4f * u

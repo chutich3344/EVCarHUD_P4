@@ -110,6 +110,10 @@ class Prefs(ctx: Context) {
     var signs: Boolean
         get() = p.getBoolean("signs", true)
         set(v) = p.edit().putBoolean("signs", v).apply()
+    /** Den giao thong + dem giay (quet khi xe cham/dung gan giao lo; AI openpilot nghi bot khi dung den do). */
+    var tlight: Boolean
+        get() = p.getBoolean("tlight", true)
+        set(v) = p.edit().putBoolean("tlight", v).apply()
     var beep: Boolean
         get() = p.getBoolean("beep", true)
         set(v) = p.edit().putBoolean("beep", v).apply()
