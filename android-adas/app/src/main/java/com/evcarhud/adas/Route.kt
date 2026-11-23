@@ -65,7 +65,20 @@ object Nav {
     private var lastBearing = -1f
     private var hasFix = false
     private var hereKey = ""
+    /** "fast" nhanh nhat (mac dinh) / "short" ngan nhat. */
+    var mode = "fast"
     private var appCtx: Context? = null
+    // vi tri xe da bam vao tuyen (ve PiP cho sat vach) + huong cua doan tuyen dang di
+    var snapLat = 0.0; private set
+    var snapLon = 0.0; private set
+    var snapBearing = -1f; private set
+    var onRoute = false; private set
+    var rerouting = false; private set
+    private var headOff = 0
+    /** Luc vua doi tuyen (tim lai / doi duong nhanh hon): PiP hien chip thong bao vai giay. */
+    var noteAt = 0L; private set
+    fun noteFresh() = SystemClock.elapsedRealtime() - noteAt < 6000
+    private var lastCheckAt = 0L
     val listeners = ArrayList<() -> Unit>()
 
     val active get() = dest != null
@@ -73,9 +86,10 @@ object Nav {
     /** Vi tri GPS gan nhat (de tim dia diem theo ten gan xe). */
     fun here(): Pair<Double, Double>? = if (hasFix) lastLat to lastLon else null
 
-    fun start(ctx: Context, d: Dest, key: String) {
+    fun start(ctx: Context, d: Dest, key: String, routeMode: String = mode) {
         appCtx = ctx.applicationContext
         hereKey = key.trim()
+        mode = routeMode
         dest = d; route = null; along = 0.0; seg = 0; offCount = 0; arrived = false; arrivedAt = 0L
         gen++
         msg = "Đang tìm đường tới ${d.name}…"
@@ -99,19 +113,29 @@ object Nav {
         val d = dest ?: return
         val r = route
         if (r == null) { if (!routing) reroute(); return }
-        // bam vao tuyen: tim doan gan nhat quanh doan dang di
+        // bam vao tuyen: tim doan gan nhat quanh doan dang di (them 1 vong tim ca tuyen neu lac xa)
         var best = Double.MAX_VALUE; var bestI = seg; var bestT = 0.0
-        val from = max(0, seg - 8); val to = minOf(r.lat.size - 2, seg + 80)
-        for (i in from..to) {
-            val (dd, t) = projDist(lat, lon, r.lat[i], r.lon[i], r.lat[i + 1], r.lon[i + 1])
-            if (dd < best) { best = dd; bestI = i; bestT = t }
+        fun scan(a: Int, b: Int) {
+            for (i in a..b) {
+                val (dd, t) = projDist(lat, lon, r.lat[i], r.lon[i], r.lat[i + 1], r.lon[i + 1])
+                if (dd < best) { best = dd; bestI = i; bestT = t }
+            }
         }
-        val tol = max(45.0, acc * 1.5)
-        if (best > tol) {
+        scan(max(0, seg - 8), minOf(r.lat.size - 2, seg + 80))
+        if (best > 60) scan(0, r.lat.size - 2)
+        val segBr = this.bearing(r.lat[bestI], r.lon[bestI], r.lat[bestI + 1], r.lon[bestI + 1]).toFloat()
+        // 23/11: truoc 45 m + 3 lan -> pho song song cach < 45 m khong bao gio tinh lai. Nay 30 m (GPS kem thi theo do chinh xac)
+        val tol = max(30.0, acc * 1.2)
+        // chay nguoc huong doan tuyen > 70 do khi xe dang chay: cung la di lech (re nham vao hem cat ngang)
+        val wrongHead = speedMs > 4f && bearing != null && angDiff(bearing.toDouble(), segBr.toDouble()) > 70
+        headOff = if (wrongHead && best > 12) headOff + 1 else 0
+        if (best > tol || headOff >= 3) {
             offCount++
-            // sai duong 3 lan GPS lien tiep: tinh lai (toi thieu 8 giay/lan)
-            if (offCount >= 3 && !routing && SystemClock.elapsedRealtime() - lastRouteAt > 8000) {
+            onRoute = false
+            // lech 2 lan GPS lien tiep (hoac nguoc huong 3 giay): tinh lai ngay, toi thieu 5 giay/lan
+            if ((offCount >= 2 || headOff >= 3) && !routing && SystemClock.elapsedRealtime() - lastRouteAt > 5000) {
                 msg = "Đi khác tuyến, đang tìm đường lại…"
+                rerouting = true
                 reroute()
             }
         } else {
@@ -119,6 +143,15 @@ object Nav {
             seg = bestI
             val segLen = r.cum[bestI + 1] - r.cum[bestI]
             along = (r.cum[bestI] + bestT * segLen).coerceAtMost(r.total)
+            snapLat = r.lat[bestI] + bestT * (r.lat[bestI + 1] - r.lat[bestI])
+            snapLon = r.lon[bestI] + bestT * (r.lon[bestI + 1] - r.lon[bestI])
+            snapBearing = segBr
+            onRoute = true
+        }
+        // 3 phut tinh lai 1 lan (co khoa HERE: theo ket xe) - nhanh hon >= 1 phut / ngan hon >= 5% thi doi tuyen
+        if (onRoute && !routing && SystemClock.elapsedRealtime() - lastCheckAt > 180_000 && r.total - along > 1500) {
+            lastCheckAt = SystemClock.elapsedRealtime()
+            reroute(better = true)
         }
         val left = r.total - along
         val direct = dist(lat, lon, d.lat, d.lon)
@@ -169,11 +202,12 @@ object Nav {
 
     private fun clean(s: String, n: Int) = s.replace('|', '/').replace('\n', ' ').trim().take(n)
 
-    private fun reroute() {
+    private fun reroute(better: Boolean = false) {
         val d = dest ?: return
         val ctx = appCtx ?: return
         routing = true
-        lastRouteAt = SystemClock.elapsedRealtime()
+        if (!better) { lastRouteAt = SystemClock.elapsedRealtime(); lastCheckAt = lastRouteAt }
+        val md = mode
         val g = gen
         val fLat = lastLat; val fLon = lastLon; val br = lastBearing; val key = hereKey
         changed()
@@ -181,19 +215,36 @@ object Nav {
             var r: Route? = null
             var err = ""
             if (key.isNotEmpty()) {
-                try { r = here(ctx, fLat, fLon, d, br, key) } catch (e: Exception) { err = "HERE: ${e.message}"; Log.w(TAG, "here", e) }
+                try { r = here(ctx, fLat, fLon, d, br, key, md) } catch (e: Exception) { err = "HERE: ${e.message}"; Log.w(TAG, "here", e) }
             }
             if (r == null) {
                 for (base in OSRM) {
-                    try { r = osrm(ctx, base, fLat, fLon, d, br); break } catch (e: Exception) { err = "OSRM: ${e.message}"; Log.w(TAG, "osrm $base", e) }
+                    try { r = osrm(ctx, base, fLat, fLon, d, br, md); break } catch (e: Exception) { err = "OSRM: ${e.message}"; Log.w(TAG, "osrm $base", e) }
                 }
             }
             main.post {
                 routing = false
                 if (g != gen) return@post
+                if (better) {
+                    // kiem tra dinh ky: chi doi khi that su tot hon, khong thi giu tuyen cu (khong bao gi)
+                    val cur = route
+                    if (r != null && cur != null && onRoute) {
+                        val gain = if (md == "short") (cur.total - along) - r.total else remainS() - r.totalS
+                        if ((md == "short" && gain > 0.05 * r.total) || (md != "short" && gain > 60)) {
+                            route = r; along = 0.0; seg = 0; offCount = 0
+                            msg = if (md == "short") "Đã đổi sang đường ngắn hơn" else "Đã đổi sang đường nhanh hơn ${(gain / 60).roundToInt()} phút"
+                            noteAt = SystemClock.elapsedRealtime()
+                            changed()
+                        }
+                    }
+                    return@post
+                }
+                val wasRe = rerouting
+                rerouting = false
                 if (r != null) {
-                    route = r; along = 0.0; seg = 0; offCount = 0
-                    msg = "Dẫn đường tới ${d.name}"
+                    route = r; along = 0.0; seg = 0; offCount = 0; headOff = 0
+                    msg = if (wasRe) "Đã tìm đường mới" else "Dẫn đường tới ${d.name}"
+                    if (wasRe) noteAt = SystemClock.elapsedRealtime()
                 } else msg = "Không tìm được đường ($err), thử lại…"
                 changed()
                 if (r == null) main.postDelayed({ if (g == gen && route == null && !routing) reroute() }, 15_000)
@@ -204,12 +255,17 @@ object Nav {
     // ---------------- dich vu tinh tuyen ----------------
     private val OSRM = listOf("https://router.project-osrm.org", "https://routing.openstreetmap.de/routed-car")
 
-    private fun osrm(ctx: Context, base: String, aLat: Double, aLon: Double, d: Dest, br: Float): Route {
+    private fun osrm(ctx: Context, base: String, aLat: Double, aLon: Double, d: Dest, br: Float, md: String): Route {
         val bear = if (br >= 0) "&bearings=${br.roundToInt() % 360},60;" else ""
-        val u = "$base/route/v1/driving/$aLon,$aLat;${d.lon},${d.lat}?overview=full&geometries=polyline6&steps=true$bear"
+        val alt = if (md == "short") "&alternatives=3" else ""
+        val u = "$base/route/v1/driving/$aLon,$aLat;${d.lon},${d.lat}?overview=full&geometries=polyline6&steps=true$bear$alt"
         val j = JSONObject(get(ctx, u))
         if (j.optString("code") != "Ok") throw Exception(j.optString("code", "lỗi"))
-        val rt = j.getJSONArray("routes").getJSONObject(0)
+        val rs = j.getJSONArray("routes")
+        // ngan nhat: OSRM khong co che do nay -> xin them tuyen thay the roi chon tuyen it km nhat
+        var bi = 0
+        if (md == "short") for (i in 1 until rs.length()) if (rs.getJSONObject(i).optDouble("distance") < rs.getJSONObject(bi).optDouble("distance")) bi = i
+        val rt = rs.getJSONObject(bi)
         val pts = polyline(rt.getString("geometry"), 1e6)
         val steps = ArrayList<Step>()
         var acc = 0.0
@@ -252,10 +308,10 @@ object Nav {
         }
     }
 
-    private fun here(ctx: Context, aLat: Double, aLon: Double, d: Dest, br: Float, key: String): Route {
+    private fun here(ctx: Context, aLat: Double, aLon: Double, d: Dest, br: Float, key: String, md: String): Route {
         val crs = if (br >= 0) ";course=${br.roundToInt() % 360}" else ""
         val u = "https://router.hereapi.com/v8/routes?transportMode=car&origin=$aLat,$aLon$crs&destination=${d.lat},${d.lon}" +
-            "&return=polyline,turnByTurnActions,summary&lang=vi-VN&apiKey=" + URLEncoder.encode(key, "UTF-8")
+            "&return=polyline,turnByTurnActions,summary&lang=vi-VN&routingMode=${if (md == "short") "short" else "fast"}&apiKey=" + URLEncoder.encode(key, "UTF-8")
         val j = JSONObject(get(ctx, u))
         val routes = j.optJSONArray("routes")
         if (routes == null || routes.length() == 0) throw Exception(j.optString("title", "không có tuyến"))
@@ -414,6 +470,8 @@ object Nav {
         }
         return out.toDoubleArray()
     }
+
+    fun angDiff(a: Double, b: Double) = kotlin.math.abs(((a - b + 540) % 360) - 180)
 
     /** Huong (do, 0 = bac) tu A toi B. */
     fun bearing(a: Double, b: Double, c: Double, d: Double): Double {
