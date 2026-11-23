@@ -35,6 +35,10 @@ typedef struct {
 } phone_nav_t;
 bool phone_nav_parse(const char *s, size_t n, phone_nav_t *p);
 
+/* Goi T1 (den giao thong app LANE doc tu camera, 1 goi/giay khi thay den va ngay khi doi mau / doi so, ghi co phan hoi):
+ *   T1|mau|giay   mau R do / Y vang / G xanh; giay = so dem nguoc tren bang LED, "-" = khong doc duoc.  "T1|-" = het den.
+ *   HUD ve trong o duoi bien (obstacle_ui_tlight), tu bo sau 3 s khong co goi. */
+
 /* ble_link.c goi tu task host NimBLE khi app ghi 4556d005. */
 void phone_adas_on_write(const char *s, size_t n);
 
