@@ -105,6 +105,12 @@ const shadowTex = canvasTex(64, 128, (x, w, h) => { const g = x.createRadialGrad
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshBasicMaterial({ color: 0x222222 }));
 ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; scene.add(ground);
 const road = ribbon(0x333333, 1, 0.0);
+// 23/11: giao lo - thay xe chay NGANG phia truoc -> ve duong cat ngang + vach dung
+const cross = new THREE.Mesh(new THREE.PlaneGeometry(90, 1), new THREE.MeshBasicMaterial({ color: 0x333333, transparent: true }));
+cross.rotation.x = -Math.PI / 2; cross.position.y = 0.003; cross.visible = false; scene.add(cross);
+const stopLn = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.4), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true }));
+stopLn.rotation.x = -Math.PI / 2; stopLn.position.y = 0.014; stopLn.visible = false; scene.add(stopLn);
+let crossAt = -99, crossX = 15, oIdxPrev = null, inOppPrev = false;
 const shoulderL = ribbon(0x777777, 1, 0.005), shoulderR = ribbon(0x777777, 1, 0.005);
 const lines = [0, 1, 2, 3].map(() => { const m = ribbon(0xffffff, 1, 0.012, 12); m.material.alphaMap = dashTex; m.material.transparent = true; m.material.depthWrite = false; return m; });
 const path = ribbon(0x3e8bff, 0.9, 0.02); path.material.alphaMap = pathTex; path.material.transparent = true; path.material.depthWrite = false;
@@ -343,7 +349,7 @@ window.feed = function (j) {
     const px = tr.x + tr.vx * (tm - tr.t), py = tr.y + tr.vy * (tm - tr.t);
     let bi = -1, bd = 1;
     (d.ob || []).forEach((o, i) => { if (used.has(i) || GRP[o[0]] !== tr.g) return;
-      const dd = ((o[1] - px) / (0.15 * Math.abs(px) + 3)) ** 2 + ((o[2] - py) / 1.6) ** 2; if (dd < bd) { bd = dd; bi = i; } });
+      const dd = ((o[1] - px) / (0.15 * Math.abs(px) + 3)) ** 2 + ((o[2] - py) / (2.2 + 0.3 * Math.abs(tr.vy))) ** 2; if (dd < bd) { bd = dd; bi = i; } });
     if (bi >= 0) { const o = d.ob[bi]; used.add(bi);
       // van toc tuong doi: hoi quy tuyen tinh tren ~1,5 s lich su (YOLO 4 lan/giay, xe xa nhay vi tri -> sai phep tru 2 diem)
       (tr.h = tr.h || []).push([tm, o[1], o[2]]); while (tr.h.length > 2 && tm - tr.h[0][0] > 1.5) tr.h.shift();
@@ -387,6 +393,18 @@ function step(dt) {
   cur.ed = (cur.ed || [null, null]).map((c, k) => ema(c, d.ed[k], aE));
   if (d.pl) { cur.px = d.pl.map(p => p[0]); cur.py = ema(cur.py, d.pl.map(p => p[1]), aL || a); }
   odo += Math.max(0, cur.v) * dt;
+  {  // giao lo: xe minh chay toi thi duong ngang lui ve (giu toa do the gioi trong 6 s)
+    const on = t - crossAt < 6; crossX -= Math.max(0, cur.v) * dt;
+    cross.visible = on && crossX > -10; stopLn.visible = cross.visible && crossX > 6;
+    if (cross.visible) {
+      const fa = Math.min(1, (6 - (t - crossAt)) / 1.5), w = 8;
+      cross.material.color.setHex(THEMES[theme].road); cross.material.opacity = fa;
+      cross.scale.set(1, w, 1); cross.position.set(0, 0.003, -crossX);
+      const eL0 = interp(X_IDX, cur.ed[0], Math.max(0, crossX - w / 2 - 1)), eR0 = interp(X_IDX, cur.ed[1], Math.max(0, crossX - w / 2 - 1));
+      const yC = oIdxPrev !== null ? interp(X_IDX, cur.ln[oIdxPrev], Math.max(0, crossX - w / 2 - 1)) : eL0;
+      stopLn.scale.set(Math.max(1, eR0 - Math.max(eL0, yC)), 1, 1); stopLn.position.set((Math.max(eL0, yC) + eR0) / 2, 0.014, -(crossX - w / 2 - 1)); stopLn.material.opacity = fa;
+    }
+  }
   const at = (arr, x) => interp(X_IDX, arr, Math.max(0, x)), sample = arr => XS.map(x => at(arr, x));
   const eL = sample(cur.ed[0]), eR = sample(cur.ed[1]);
   setRibbon(road, eL.map(v => v - 0.3), eR.map(v => v + 0.3));
@@ -404,11 +422,12 @@ function step(dt) {
   const yel = cen >= 0 && t - yAt < 3;            // thay vach vang tim duong
   const oneWay = lmOn && t - yAt > 10 && t - oncAt > 10 && t - oppAt > 10;   // khong vang + khong xe nguoc chieu lau = 1 chieu
   const oIdx = yel ? cen : 1;                      // vach chia 2 chieu
+  oIdxPrev = (yel || inOppPrev) ? oIdx : null;
   const gapL = at(cur.ln[1], 10) - at(cur.ed[0], 10);
   // co tre: xe to che mep duong lam mep trai nhay vao trong -> giu che do 2 lan them 4 s
   if ((gapL > 2.5 && cur.lp[1] > 0.25 && !oneWay) || (yel && at(cur.ln[cen], 10) - at(cur.ed[0], 10) > 2.3)) inOppAt = t;
   inOpp = cur.v * 3.6 < 60 && (t - sameAt > 10 || yel) && (t - inOppAt < 0.5 || (inOpp && t - inOppAt < 4));
-  const two = oppW > 0.4 && !inOpp;
+  const two = oppW > 0.4 && !inOpp; inOppPrev = inOpp;
   // con luon: phan duong nguoc chieu nam ngoai mep trai ma vach doc (co du lieu) khong thay vang
   const mT = two && lmOn && t - yAt > 6 && cur.v * 3.6 <= 60 ? 1.1 : 0; medW += (mT - medW) * (1 - Math.exp(-dt / 0.6));
   [oppRoad, oppEdge, yelA, yelB, wallO, walkL].forEach(m => m.visible = two);
@@ -520,7 +539,19 @@ function step(dt) {
     const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6); ob.grp.rotation.y = -yaw + (faceUs ? Math.PI : 0);
     // 23/11: xe chay NGANG (nga tu, minh dung cho): quay theo huong di that
     const wx = tr.vx + cur.v, wy = tr.vy;
-    if (ob.kind !== 'person' && tr.n > 5 && Math.abs(wy) > 1.5 && Math.abs(wy) > 0.8 * Math.abs(wx)) ob.grp.rotation.y = -Math.atan2(wy, wx);
+    let ry = ob.grp.rotation.y;
+    const hh = tr.h || [], latD = hh.length > 2 ? Math.abs(hh[hh.length - 1][2] - hh[0][2]) : 0, latT = hh.length > 2 ? hh[hh.length - 1][0] - hh[0][0] : 0;
+    // chay ngang that: van toc ngang ro + da dich ngang > 2,5 m trong lich su (khong phai nhieu vi tri cua xe dau)
+    if (ob.kind !== 'person' && tr.n > 3 && latT > 0.6 && latD > 2.5 && Math.abs(wy) > 1.5 && Math.abs(wy) > 0.8 * Math.abs(wx)) {
+      ry = -Math.atan2(wy, wx);
+      if (x > 3 && x < 45) { crossX = crossAt < t - 6 ? x : crossX + (x - crossX) * 0.1; crossAt = t; }
+    } else if (ob.kind !== 'person' && t - crossAt < 6 && Math.abs(x - crossX) < 6 && (y < eLx - 1.5 || y > eRx + 1.5) && latD < 2.5 && !(tr.park >= 3)) {
+      ry = y < 0 ? -Math.PI / 2 : Math.PI / 2;   // dang o hai ben duong ngang, chua ro huong: coi nhu dang di vao giao lo
+    }
+    // quay muot (khong giat 90 do moi khung khi van toc nhieu)
+    if (tr.ry === undefined) tr.ry = ry;
+    const dr = Math.atan2(Math.sin(ry - tr.ry), Math.cos(ry - tr.ry)); tr.ry += dr * Math.min(1, dt / 0.25);
+    ob.grp.rotation.y = tr.ry;
     const fade = Math.min(tr.a, fadeOut, x > 70 ? Math.max(0, (95 - x) / 25) : 1);
     let col = parked ? T.park : faceUs && ob.kind !== 'person' ? T.onc : T.car;
     if (parked) nPark++;
