@@ -78,8 +78,11 @@ class MirrorCam(
     private var bufI = 0
 
     override val size: Size get() = Size(W, H)
-    override val focalPx: Double get() = (if (is70) 450.0 else 520.0) * W / 1280.0
-    override val focalSrc = if (is70) "cam 70mai Wi-Fi" else "cam gương Wi-Fi"
+    // 70mai: ong kinh mat ca goc rong -> tieu cu equidistant (f = 1262 px o ngang 2880 = 0.438*W,
+    //   kiem bang openpilot tren clip 70mai that: pose/cu ly ve dung). Cam guong: pinhole ~520 px o 1280.
+    override val focalPx: Double get() = (if (is70) 561.0 else 520.0) * W / 1280.0
+    override val fisheye: Boolean get() = is70
+    override val focalSrc = if (is70) "cam 70mai mắt cá" else "cam gương Wi-Fi"
     override val flip = false
     override val isOpen get() = want
     @Volatile var status = "chưa mở"

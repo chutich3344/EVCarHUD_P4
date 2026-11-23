@@ -29,6 +29,8 @@ import kotlin.math.max
 interface FrameSource {
     val size: Size
     val focalPx: Double
+    /** Ong kinh mat ca (equidistant) thay vi pinhole: true cho cam 70mai goc rong. */
+    val fisheye: Boolean get() = false
     val focalSrc: String
     val flip: Boolean
     val isOpen: Boolean
