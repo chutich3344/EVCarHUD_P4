@@ -265,7 +265,8 @@ class AdasService : Service() {
         signDb = SignDb(this); camDb = CamDb(this); road = RoadInfo { m -> clog?.line(m) }
         waze = WazeModLink(this, { m -> clog?.line(m) }) { b -> onWaze(b) }.also { it.start() }
         signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
-        vehDet = VehDet(this) { ob, lm -> main.post { wide = ob; wideAt = SystemClock.elapsedRealtime(); if (lm != null) { laneMk = lm; laneMkAt = wideAt } } }
+        vehDet = VehDet(this) { ob, lm -> main.post { wide = ob; wideAt = SystemClock.elapsedRealtime(); if (lm != null) { laneMk = lm; laneMkAt = wideAt }
+            if (targetHz == 0 && scene3d) publishScene() } }   // 23/11: AI nghi (xe dung lau) van day xe YOLO len canh 3D
         tlight = TLight(this) { r -> main.post { onTLight(r) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
@@ -1081,6 +1082,11 @@ class AdasService : Service() {
 
     private fun publishIdle() {
         logTick(null, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, null)
+        publishScene()
+    }
+
+    /** Snap khong co ket qua openpilot (AI dang nghi): thong so + xe YOLO cho man 3D / lop ve. */
+    private fun publishScene() {
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
             if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
             .also { it.hood = prefs.hood; it.stat = if (prefs.showDbg) statLine(null) else ""; signSnap(it, it.vKmh); if (prefs.showDbg) it.dbg = calibInfo() })

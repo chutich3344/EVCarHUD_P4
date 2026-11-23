@@ -42,6 +42,9 @@ class Overlay(ctx: Context) : View(ctx) {
     var onCalibDone: (Boolean) -> Unit = {}
     /** Bam nut chia doi man (camera | ban do) tren hang chip. */
     var onSplit: () -> Unit = {}
+    /** Cham vao cua so camera (dang la o PiP tren man 3D): doi cho camera <-> canh 3D. null = tat. */
+    var onTap: (() -> Unit)? = null
+    private var tapX = 0f; private var tapY = 0f
     /** Trang thai chia doi hien tai (de to mau nut). */
     var split = false
         set(v) { field = v; invalidate() }
@@ -573,10 +576,12 @@ class Overlay(ctx: Context) : View(ctx) {
             }
             return true
         }
-        if (e.action == MotionEvent.ACTION_DOWN) return gearHit.contains(e.x, e.y) || splitHit.contains(e.x, e.y)
+        if (e.action == MotionEvent.ACTION_DOWN) { tapX = e.x; tapY = e.y; return gearHit.contains(e.x, e.y) || splitHit.contains(e.x, e.y) || onTap != null }
         if (e.action == MotionEvent.ACTION_UP) {
             if (gearHit.contains(e.x, e.y)) { onGear(); return true }
             if (splitHit.contains(e.x, e.y)) { onSplit(); return true }
+            val t = onTap
+            if (t != null && Math.hypot((e.x - tapX).toDouble(), (e.y - tapY).toDouble()) < 24 * resources.displayMetrics.density) { t(); return true }
         }
         return false
     }

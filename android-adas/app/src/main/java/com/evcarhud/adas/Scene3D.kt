@@ -88,8 +88,19 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         return ((v * m).roundToInt() / m).toString()
     }
 
+    /** 23/11: xe dung lau (AI openpilot nghi cho mat may) Snap khong co out -> giu hinh duong lan cuoi (hoac duong thang mac dinh)
+     *  de xe YOLO quanh xe (xe chay ngang, xe dau) van hien khi minh dung yen. */
+    private var lastOut: Op.Out? = null
+    private val defOut: Op.Out by lazy { Op.Out().also { d ->
+        val ys = floatArrayOf(-5.4f, -1.8f, 1.8f, 5.4f); val ps = floatArrayOf(0.2f, 0.6f, 0.6f, 0.2f)
+        for (i in 0..3) { d.laneY[i].fill(ys[i]); d.laneProb[i] = ps[i] }
+        d.edgeY[0].fill(-5.6f); d.edgeY[1].fill(2.9f)
+    } }
+
     private fun json(sn: Snap): String? {
-        val o = sn.out ?: return null
+        sn.out?.let { lastOut = it }
+        val live = sn.out != null
+        val o = sn.out ?: lastOut ?: defOut
         val sb = StringBuilder(2600)
         sb.append("{\"v\":").append(f(sn.vKmh / 3.6f))
         sb.append(",\"th\":\"").append(if (isNight(sn)) "night" else "day").append('"')
@@ -100,12 +111,12 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         for (i in 0..3) { if (i > 0) sb.append(','); sb.append(f(o.laneProb[i])) }
         sb.append("],\"ed\":[")
         arr(sb, o.edgeY[0]); sb.append(','); arr(sb, o.edgeY[1]); sb.append(']')
-        if (o.planOk) {
+        if (live && o.planOk) {
             sb.append(",\"pl\":[")
             for (k in 0 until Op.N) { if (k > 0) sb.append(','); sb.append('[').append(f(o.planX[k], 1)).append(',').append(f(o.planY[k])).append(']') }
             sb.append(']')
         }
-        val leadOk = o.leadProb > 0.5f
+        val leadOk = live && o.leadProb > 0.5f
         if (leadOk) sb.append(",\"ld\":{\"p\":").append(f(o.leadProb)).append(",\"x\":").append(f(o.leadX, 1))
             .append(",\"y\":").append(f(o.leadY)).append(",\"v\":").append(f(o.leadV)).append('}')
         sn.lm?.let { m -> sb.append(",\"lm\":[").append(m.joinToString(",")).append(']') }

@@ -123,6 +123,7 @@ class MainActivity : Activity() {
         if (prefs.scene3d == 1 && !overlay.calib) { applyScene(w); return }
         if (prefs.splitScreen) { applySplit(w); return }
         val u = w / 100f
+        overlay.onTap = null; scene?.setOnTouchListener(null)
         // thoat che do chia doi: tra camera ve toan man, ban do ve cua so goc
         overlay.layoutParams = FrameLayout.LayoutParams(-1, -1).also { overlay.x = 0f; overlay.y = 0f }
         val topMin = { 2.2f * u + 4.6f * u + 1.2f * u + 6f * u }   // duoi hang thong so + so toc do
@@ -138,6 +139,7 @@ class MainActivity : Activity() {
     private fun applySplit(w: Int) {
         val half = w / 2
         overlay.setOnTouchListener(null)            // dam bao overlay nhan cham nut chip o nua trai
+        overlay.onTap = null; scene?.setOnTouchListener(null)
         overlay.layoutParams = FrameLayout.LayoutParams(half, -1).also { overlay.x = 0f; overlay.y = 0f }
         map.setOnTouchListener(null)                // ban do co dinh nua phai, khong keo
         map.layoutParams = FrameLayout.LayoutParams(w - half, -1).also { map.x = half.toFloat(); map.y = 0f }
@@ -173,14 +175,34 @@ class MainActivity : Activity() {
         svc?.scene3d = false
     }
 
+    /** 23/11: cham o PiP tren man 3D -> doi cho: camera toan man, 3D thu vao PiP; cham lai PiP 3D -> doi nguoc. */
+    private var swap3d = false
+
     /** Toan man 3D: camera thu nho thanh cua so goc tren-phai (cham van vao nut cai dat / chia doi duoc). */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
     private fun applyScene(w: Int) {
         val u = w / 100f
-        showScene(0f, 0f, -1, -1)
-        val pw = (34 * u).toInt(); val ph = pw * 9 / 16
+        val pw = (34 * u).toInt(); val ph = pw * 9 / 16; val px = w - pw - 1.6f * u; val py = 1.6f * u
         overlay.setOnTouchListener(null)
-        overlay.layoutParams = FrameLayout.LayoutParams(pw, ph); overlay.x = w - pw - 1.6f * u; overlay.y = 1.6f * u
-        overlay.bringToFront(); btn3d.bringToFront()
+        if (!swap3d) {
+            showScene(0f, 0f, -1, -1)
+            scene?.setOnTouchListener(null)
+            overlay.layoutParams = FrameLayout.LayoutParams(pw, ph); overlay.x = px; overlay.y = py
+            overlay.onTap = { swap3d = true; sizePips(root.width) }
+            overlay.bringToFront()
+        } else {
+            overlay.onTap = null
+            overlay.layoutParams = FrameLayout.LayoutParams(-1, -1); overlay.x = 0f; overlay.y = 0f
+            showScene(px, py, pw, ph)
+            var dx = 0f; var dy = 0f
+            scene?.setOnTouchListener { _, e ->   // PiP 3D: khong xoay, cham = doi lai
+                if (e.action == android.view.MotionEvent.ACTION_DOWN) { dx = e.x; dy = e.y }
+                if (e.action == android.view.MotionEvent.ACTION_UP && Math.hypot((e.x - dx).toDouble(), (e.y - dy).toDouble()) < 24 * resources.displayMetrics.density) { swap3d = false; sizePips(root.width) }
+                true
+            }
+            scene?.bringToFront()
+        }
+        btn3d.bringToFront()
         temp.visibility = View.GONE; map.visibility = View.GONE
         overlay.requestLayout(); overlay.invalidate()
     }
@@ -196,6 +218,7 @@ class MainActivity : Activity() {
 
     /** Nut 3D tren man: tat <-> kieu bat gan nhat (toan man hoac thay ban do). */
     private fun toggle3d() {
+        swap3d = false
         if (prefs.scene3d != 0) { prefs.scene3d = 0; toast("Tắt cảnh 3D") }
         else { prefs.scene3d = prefs.scene3dLast.coerceIn(1, 2); toast(if (prefs.scene3d == 1) "Cảnh 3D toàn màn · camera ở góc" else "Cảnh 3D thay bản đồ") }
         sizePips(root.width)
