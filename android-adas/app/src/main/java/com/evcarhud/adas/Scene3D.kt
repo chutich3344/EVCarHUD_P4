@@ -138,8 +138,9 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         val cam = sn.cam ?: return emptyList()
         val raw = sn.wide ?: sn.objs ?: emptyList()
         val m = cam.viewFromCalib
-        val fish = 2 * Math.atan(cam.w / 2.0 / cam.f) > Math.toRadians(100.0)
-        val fEq = cam.f * 561.0 / 450.0          // 70mai: r = f*theta (do tu video goc 2880: f=1262)
+        // 23/11: Op.Cam co co fisheye (70mai khu meo equidistant, f = tieu cu equidistant 561 px @1280) -> dung thang f
+        val fish = cam.fisheye || 2 * Math.atan(cam.w / 2.0 / cam.f) > Math.toRadians(100.0)
+        val fEq = if (cam.fisheye) cam.f else cam.f * 561.0 / 450.0          // 70mai: r = f*theta (do tu video goc 2880: f=1262)
         fun ray(u: Float, v: Float, dp: Double = dPitch): DoubleArray {
             var vx: Double; var vy: Double; var vz: Double
             if (fish) {
