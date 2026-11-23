@@ -136,6 +136,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         if (sn.wide != null) sb.append(",\"os\":").append(sn.wideSeq).append(",\"oa\":").append(sn.wideAge)
         if (!sn.cal) sb.append(",\"cal\":0")
         if (deco) sb.append(",\"deco\":1")
+        tlPos(sn)?.let { sb.append(",\"tlx\":[").append(f(it[0], 1)).append(',').append(f(it[1], 1)).append(']') }
         if (live) sb.append(",\"wz\":").append(f(o.poseRz))   // 23/11 toi: toc do quay xe minh (rad/s) -> biet dang re
         // tuoi vach (ms): goi khong co ket qua AI moi thi bao vach dang dung la ket qua cu bao lau (man 3D lam mo vach > 1,5 s)
         if (!live) sb.append(",\"la\":").append(if (outAt > 0) SystemClock.elapsedRealtime() - outAt else 99999)
@@ -163,6 +164,33 @@ class Scene3D(ctx: Context) : WebView(ctx) {
      * (2) cam mat ca (goc ngang > 100 do, 70mai) dung chieu equidistant de xe hai ben khong bi ep vao giua;
      * (3) bo hop "nguoi" dang ngoi tren xe may / xe dap (truoc ve ca nguoi lan xe thanh 1 dong).
      */
+    /** 23/11 toi: vi tri den giao thong tren mat duong (x truoc, y phai, m) tu hop den -> dung nga tu DUNG cho cot den.
+     *  Ket hop 2 cach: goc ngang len (den cao ~5 m) va co hop (vo den ~0,4 m); lay trung binh nhan. */
+    private fun tlPos(sn: Snap): FloatArray? {
+        val cam = sn.cam ?: return null
+        val col = sn.tl ?: return null
+        val l = sn.tlLamps?.filter { it.col == col }?.maxByOrNull { it.conf } ?: return null
+        val m = cam.viewFromCalib
+        val fish = cam.fisheye || 2 * Math.atan(cam.w / 2.0 / cam.f) > Math.toRadians(100.0)
+        val fEq = if (cam.fisheye) cam.f else cam.f * 561.0 / 450.0
+        val u = (l.x1 + l.x2) / 2 * cam.w; val v = (l.y1 + l.y2) / 2 * cam.h
+        var vx: Double; var vy: Double; var vz: Double
+        if (fish) { val dx = u - cam.cx; val dy = v - cam.cy; val r = Math.hypot(dx, dy) + 1e-9; val th = r / fEq
+            vx = Math.sin(th) * dx / r; vy = Math.sin(th) * dy / r; vz = Math.cos(th) }
+        else { vx = (u - cam.cx) / cam.f; vy = (v - cam.cy) / cam.f; vz = 1.0 }
+        val c = Math.cos(dPitch); val sn2 = Math.sin(dPitch)
+        val y2 = vy * c - vz * sn2; val z2 = vy * sn2 + vz * c; vy = y2; vz = z2
+        val rx = m[0] * vx + m[3] * vy + m[6] * vz; val ry = m[1] * vx + m[4] * vy + m[7] * vz; val rz = m[2] * vx + m[5] * vy + m[8] * vz
+        if (rx <= 0.05) return null
+        val fwd = Math.hypot(rx, ry)
+        val dEl = if (rz < -0.01) (5.0 - sn.camH) * fwd / -rz else Double.NaN          // z xuong: den o tren -> rz < 0
+        val side = minOf((l.x2 - l.x1) * cam.w, (l.y2 - l.y1) * cam.h).toDouble()
+        val fpx = if (fish) fEq else cam.f
+        val dSz = if (side > 2) 0.4 * fpx / side else Double.NaN
+        val d = when { !dEl.isNaN() && !dSz.isNaN() -> Math.sqrt(dEl * dSz); !dEl.isNaN() -> dEl; !dSz.isNaN() -> dSz; else -> return null }.coerceIn(6.0, 90.0)
+        return floatArrayOf((d * rx / fwd).toFloat(), (d * ry / fwd).toFloat())
+    }
+
     private fun objs(sn: Snap, o: Op.Out, leadOk: Boolean): List<G> {
         val cam = sn.cam ?: return emptyList()
         val raw = sn.wide ?: sn.objs ?: emptyList()

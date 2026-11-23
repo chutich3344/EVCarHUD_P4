@@ -130,7 +130,7 @@ const tlLamp = [];
     l.position.set(-3.1, 5.0 - i * 0.45, 0.19); tlG.add(l); tlLamp.push(l); }
   const halo = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), new THREE.MeshBasicMaterial({ color: 0xff3b30, transparent: true, opacity: 0.28, depthWrite: false }));
   tlG.add(halo); tlG.userData.halo = halo; }
-let turnAt = -99, crossAt = -99, crossX = 15, oIdxPrev = null, inOppPrev = false, jOn = false, jW = 9, jEndAt = -99, tlJ = false, tlC = null;
+let tlP = null, tlLastD = null, turnAt = -99, crossAt = -99, crossX = 15, oIdxPrev = null, inOppPrev = false, jOn = false, jW = 9, jEndAt = -99, tlJ = false, tlC = null;
 const shoulderL = ribbon(0x777777, 1, 0.005), shoulderR = ribbon(0x777777, 1, 0.005);
 // 23/11 (V14 Lite, sua 1 lan -> 3 lan): openpilot luon cho 4 vach. Duong 1 lan, vach ngoai (0/3) hay nam cach vach trong chi 1,5–2,3 m
 // (vach le / mep nhua) voi xac suat 0,3–0,5 -> truoc day ve thanh them 1 lan. Nay vach ngoai chi la vach chia lan khi tin cay (> 0,55, giu > 0,4)
@@ -494,6 +494,16 @@ function step(dt) {
     // Giu toi khi xe minh qua giao lo, sau do 10 s moi dat lai (den van con trong khung khi vua qua).
     // 23/11 toi (Reality): den giao thong KHONG tu dung nga tu nua (truoc day dat cach 25 m). Nga tu chi bat khi co xe cat ngang
     // that (giu >= 0,6 s, di vao long duong); dang co nga tu that ma van thay den thi giu nga tu.
+    // 23/11 toi (Kevin): CO den tin hieu = CO giao cat. Dung nga tu tai DUNG cho cot den do duoc tu anh (d.tlx, Kotlin tinh tu goc + co hop den);
+    // cot den o goc gan, duong cat ngang ngay sau. Khong do duoc vi tri (den qua nho) -> sau xe truoc dang dung, khong thi ~25 m.
+    if (d !== tlLastD) { tlLastD = d;
+      if (d.tlx) { if (!tlP || Math.abs(d.tlx[0] - tlP.x) > 15) tlP = { x: d.tlx[0], y: d.tlx[1] }; else { tlP.x += (d.tlx[0] - tlP.x) * 0.3; tlP.y += (d.tlx[1] - tlP.y) * 0.3; } tlP.at = t; } }
+    if (tlP) { tlP.x -= Math.max(0, cur.v) * dt; if (t - tlP.at > 6 || tlP.x < -8) tlP = null; }
+    if (tlC && !jOn && t - jEndAt > 10) {
+      const lx = d.ld && d.ld.p > 0.5 && d.ld.v < 3 && d.ld.x < 45 ? d.ld.x : -1;
+      crossX = tlP ? tlP.x + jW / 2 + 1.5 : lx > 0 ? lx + 4.6 + 1.6 + 3.4 + jW / 2 : 25; crossAt = t; tlJ = true;
+    }
+    if (tlJ && jOn && tlP && t - tlP.at < 0.5) crossX += (tlP.x + jW / 2 + 1.5 - crossX) * Math.min(1, dt / 0.8);   // bam theo lan do moi
     if (tlC && jOn) crossAt = t;
     // be ngang duong cat ngang ~ be ngang duong chinh (7–14 m), chot luc bat dau giao lo
     if (!jOn && cur.ed) jW = Math.max(7, Math.min(14, interp(X_IDX, cur.ed[1], 12) - interp(X_IDX, cur.ed[0], 12) + 0.6 + (oppW > 0.4 && !inOppPrev ? oppW + medW : 0)));
@@ -524,7 +534,8 @@ function step(dt) {
       jStop.material.color.setHex(tlC === 'R' ? 0xff3b30 : 0xffffff);   // den do: vach dung to do
       tlG.visible = !!tlC;
       if (tlC) {
-        tlG.position.set(eR0 + 0.9, 0, -(xa - 0.8));
+        // cot den: dung vi tri do duoc (den o dau can vuon 3,1 m sang trai), khong thi goc phai truoc vach di bo
+        if (tlP) tlG.position.set(Math.max(eR0 + 0.9, tlP.y + 3.1), 0, -Math.max(1, tlP.x)); else tlG.position.set(eR0 + 0.9, 0, -(xa - 0.8));
         const on = { R: 0, Y: 1, G: 2 }[tlC], cs = [0xff3b30, 0xffcc00, 0x30d158];
         tlLamp.forEach((l, i) => l.material.color.setHex(i === on ? cs[i] : 0x2a2d31));
         const h = tlG.userData.halo; h.material.color.setHex(cs[on]); h.position.copy(tlLamp[on].position);
