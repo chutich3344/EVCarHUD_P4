@@ -122,6 +122,9 @@ class AdasService : Service() {
     private val prevBmp = Array(2) { Bitmap.createBitmap(PW, PH, Bitmap.Config.ARGB_8888) }
     private val prevPx = IntArray(PW * PH)
     private val sharpPx = IntArray(PW * PH)      // bo dem lam net preview (unsharp nhe)
+    // 23/11 toi: 70mai xem o DUNG do phan giai luong (1280x720, 1:1 khong lay mau thua) -> het rang cua/nhoe;
+    // tao luoi khi can lan dau (chi khi nguon = 70mai)
+    private var hdBmp: Array<Bitmap>? = null; private var hdPx: IntArray? = null; private var hdSharp: IntArray? = null
     private var prevI = 0
     private var lastPrev = 0L
     @Volatile var bright = -1
@@ -654,7 +657,12 @@ class AdasService : Service() {
         val uvRow = p[1].rowStride; val uvPix = p[1].pixelStride
         val w = im.width; val h = im.height
         val flip = cam?.flip == true
-        val sx = w / PW.toFloat(); val sy = h / PH.toFloat()
+        // 70mai (luong 1280x720 nen manh): ve 1:1 o 1280x720 khi may mat (hot == 0); cam khac giu 960x540
+        val hd = prefs.camSrc == "70mai" && w == HW && h == HH && hot == 0
+        if (hd && hdPx == null) { hdBmp = Array(2) { Bitmap.createBitmap(HW, HH, Bitmap.Config.ARGB_8888) }; hdPx = IntArray(HW * HH); hdSharp = IntArray(HW * HH) }
+        val pw = if (hd) HW else PW; val ph = if (hd) HH else PH
+        val px = if (hd) hdPx!! else prevPx
+        val sx = w / pw.toFloat(); val sy = h / ph.toFloat()
         val ny = yb.limit(); val nu = minOf(ub.limit(), vb.limit())
         // Cam Wi-Fi hay bi nhat mau / toi: can mau tu dong gian dai Y (limited 16-235 -> full 0-255)
         // + tang bao hoa mau. Chi ap cho cam Wi-Fi va chi anh HIEN (preview), KHONG dung cho AI.
@@ -662,12 +670,12 @@ class AdasService : Service() {
         val colOn = wifi && prefs.camColor
         val sat = if (colOn) 1.30f else 1f
         var sum = 0L
-        for (y in 0 until PH) {
+        for (y in 0 until ph) {
             val iy0 = (y * sy).toInt().coerceAtMost(h - 1)
             val iy = if (flip) h - 1 - iy0 else iy0
             val yo = iy * yRow; val uo = (iy / 2) * uvRow
-            val row = y * PW
-            for (x in 0 until PW) {
+            val row = y * pw
+            for (x in 0 until pw) {
                 val ix0 = (x * sx).toInt().coerceAtMost(w - 1)
                 val ix = if (flip) w - 1 - ix0 else ix0
                 val yi = yo + ix * yPix
@@ -681,19 +689,45 @@ class AdasService : Service() {
                 val r = (Yf + 1.402f * Vf).toInt().coerceIn(0, 255)
                 val g = (Yf - 0.344f * Uf - 0.714f * Vf).toInt().coerceIn(0, 255)
                 val b = (Yf + 1.772f * Uf).toInt().coerceIn(0, 255)
-                prevPx[row + x] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
+                px[row + x] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
-        bright = (sum / (PW * PH)).toInt()
+        bright = (sum / (pw * ph)).toInt()
         // Lam net: unsharp nhe (net vien xe/vat phia truoc, bot mo xung quanh). Chi cam Wi-Fi, chi preview.
-        val out = if (wifi && prefs.camSharpen) sharpen(prevPx) else prevPx
-        val bm = prevBmp[prevI]; prevI = 1 - prevI
-        bm.setPixels(out, 0, PW, 0, 0, PW, PH)
+        // 70mai: lam net CO NGUONG (chi net vien that, vung phang/khoi nen thi lam muot) -> khong thoi phong o vuong vo khoi
+        val out = if (wifi && prefs.camSharpen) { if (prefs.camSrc == "70mai") sharpenCore(px, if (hd) hdSharp!! else sharpPx, pw, ph) else sharpen(px) } else px
+        val bm = if (hd) hdBmp!![prevI] else prevBmp[prevI]; prevI = 1 - prevI
+        bm.setPixels(out, 0, pw, 0, 0, pw, ph)
         main.post { cb(bm) }
     }
 
     /** Unsharp nhe tren preview PWxPH: moi diem = tam*(1+4a) - a*(tren+duoi+trai+phai), tung kenh.
      *  Preview nho (640x360) + chay <=10 lan/giay nen nhe may. Ket qua vao sharpPx. */
+    /** Lam net co nguong cho 70mai: chenh lech voi trung binh 4 lan can (theo do sang) nho (< T, la nhieu / bien o
+     *  vuong do nen) -> keo ve trung binh (muot); lon (vien that: xe, vach, chu) -> unsharp nhu thuong. */
+    private fun sharpenCore(src: IntArray, dst: IntArray, pw: Int, ph: Int): IntArray {
+        val a = 0.45f; val t = 10; val ks = 0.5f
+        for (y in 0 until ph) {
+            val row = y * pw
+            for (x in 0 until pw) {
+                val i = row + x
+                if (x == 0 || y == 0 || x == pw - 1 || y == ph - 1) { dst[i] = src[i]; continue }
+                val c = src[i]; val up = src[i - pw]; val dn = src[i + pw]; val lf = src[i - 1]; val rt = src[i + 1]
+                val cr = (c shr 16) and 0xff; val cg = (c shr 8) and 0xff; val cb = c and 0xff
+                val mr = (((up shr 16) and 0xff) + ((dn shr 16) and 0xff) + ((lf shr 16) and 0xff) + ((rt shr 16) and 0xff)) / 4
+                val mg = (((up shr 8) and 0xff) + ((dn shr 8) and 0xff) + ((lf shr 8) and 0xff) + ((rt shr 8) and 0xff)) / 4
+                val mb = ((up and 0xff) + (dn and 0xff) + (lf and 0xff) + (rt and 0xff)) / 4
+                val d = kotlin.math.abs((cr + 2 * cg + cb) - (mr + 2 * mg + mb)) / 4
+                val k = if (d < t) -ks else 4 * a      // am = keo ve trung binh (muot), duong = day ra (net)
+                val sr = (cr + k * (cr - mr)).toInt().coerceIn(0, 255)
+                val sg = (cg + k * (cg - mg)).toInt().coerceIn(0, 255)
+                val sb = (cb + k * (cb - mb)).toInt().coerceIn(0, 255)
+                dst[i] = (0xff shl 24) or (sr shl 16) or (sg shl 8) or sb
+            }
+        }
+        return dst
+    }
+
     private fun sharpen(src: IntArray): IntArray {
         val a = 0.35f
         for (y in 0 until PH) {
@@ -1320,6 +1354,7 @@ class AdasService : Service() {
         const val HOOD_R = 72
         const val HOOD_C = 48
         const val PH = 540
+        const val HW = 1280; const val HH = 720   // 70mai: preview dung do phan giai luong
 
         fun start(ctx: Context) {
             val i = Intent(ctx, AdasService::class.java)
