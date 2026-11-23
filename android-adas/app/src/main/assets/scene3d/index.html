@@ -44,10 +44,10 @@ const N = 33, X_IDX = []; for (let i = 0; i < N; i++) X_IDX.push(192 * (i / 32) 
 const THEMES = {
   night: { bg: 0x15181d, fog: [30, 140], ground: 0x1b1f25, road: 0x2b3038, line: 0xdfe4ea, edge: 0x6d7682, wall: 0x3a414b,
            car: 0x8d96a1, ego: 0xf2f4f6, glass: 0x1a1f26, lead: 0xdde6f3, shadow: 0.55, hemi: [0xcfd8e6, 0x15181d, 0.75], sun: 0.85,
-           opp: 0x262b33, walk: 0x343a43, yel: 0xffc21a, onc: 0xa39a8c, park: 0x5f6772, med: 0x2f4a34 },
+           opp: 0x262b33, walk: 0x343a43, shd: 0x3d434d, tree: [0x2f5d3c, 0x3a6b45, 0x284f33], trunk: 0x4a3b2c, house: [0x3a414b, 0x434b56, 0x353c45, 0x4b535e], yel: 0xffc21a, onc: 0xa39a8c, park: 0x5f6772, med: 0x2f4a34 },
   day:   { bg: 0xe4e7eb, fog: [30, 150], ground: 0xd9dce1, road: 0xbfc4cb, line: 0xffffff, edge: 0x8d949d, wall: 0xa9afb7,
            car: 0x7b838d, ego: 0xffffff, glass: 0x2a313a, lead: 0x4b5566, shadow: 0.28, hemi: [0xffffff, 0xb9bec5, 0.85], sun: 0.75,
-           opp: 0xb3b8c0, walk: 0xcdd1d6, yel: 0xe2a400, onc: 0x8a8173, park: 0x9aa1aa, med: 0x8fb08f },
+           opp: 0xb3b8c0, walk: 0xcdd1d6, shd: 0xd5d8dd, tree: [0x7fb27a, 0x6fa86b, 0x8cbf86], trunk: 0x7a6450, house: [0xeef0f3, 0xe3e7ec, 0xf4f5f7, 0xd9dee5], yel: 0xe2a400, onc: 0x8a8173, park: 0x9aa1aa, med: 0x8fb08f },
 };
 let theme = 'night';
 
@@ -89,7 +89,7 @@ function wallMesh() {
 }
 function setWall(mesh, Y, hgt) {
   const p = mesh.geometry.attributes.position.array;
-  for (let i = 0; i < XS.length; i++) { const cut = jOn && Math.abs(XS[i] - crossX) < jW / 2 + 0.6;   // giao lo: khong co tuong / dai phan cach
+  for (let i = 0; i < XS.length; i++) { const cut = jOn && Math.abs(XS[i] - crossX) < jW / 2 + 12;   // giao lo: khong co tuong / dai phan cach
     p[i * 6] = Y[i]; p[i * 6 + 1] = 0; p[i * 6 + 2] = -XS[i]; p[i * 6 + 3] = Y[i]; p[i * 6 + 4] = cut ? 0 : hgt; p[i * 6 + 5] = -XS[i]; }
   mesh.geometry.attributes.position.needsUpdate = true;
 }
@@ -119,8 +119,13 @@ function put(m, y0, y1, x0, x1) { m.scale.set(Math.max(0.01, y1 - y0), Math.max(
 const jAsph = flat(0x333333, 0.017);
 const jEdge = [0, 1, 2, 3].map(() => flat(0xffffff, 0.019)), jCen = [0, 1].map(() => flat(0xffc21a, 0.019));
 const jZeb = [0, 1].map(() => flat(0xffffff, 0.019, zebraTex)), jStop = flat(0xffffff, 0.019);
-let crossAt = -99, crossX = 15, oIdxPrev = null, inOppPrev = false, jOn = false, jW = 9;
+let crossAt = -99, crossX = 15, oIdxPrev = null, inOppPrev = false, jOn = false, jW = 9, jEndAt = -99, tlJ = false, tlC = null;
 const shoulderL = ribbon(0x777777, 1, 0.005), shoulderR = ribbon(0x777777, 1, 0.005);
+// 23/11 (V14 Lite, sua 1 lan -> 3 lan): openpilot luon cho 4 vach. Duong 1 lan, vach ngoai (0/3) hay nam cach vach trong chi 1,5–2,3 m
+// (vach le / mep nhua) voi xac suat 0,3–0,5 -> truoc day ve thanh them 1 lan. Nay vach ngoai chi la vach chia lan khi tin cay (> 0,55, giu > 0,4)
+// va cach vach trong 2,5–4,8 m (dung be rong 1 lan), on dinh 0,5 s moi bat / 1 s moi tat. Le hep (< 2,8 m) ngoai vach cuoi to mau le, vach cuoi ve lien.
+const shdL = ribbon(0x555555, 1, 0.003), shdR = ribbon(0x555555, 1, 0.003);
+const acc = [false, true, true, false], accT = [0, 1, 1, 0]; let shLon = false, shRon = false;
 const lines = [0, 1, 2, 3].map(() => { const m = ribbon(0xffffff, 1, 0.012, 12); m.material.alphaMap = dashTex; m.material.transparent = true; m.material.depthWrite = false; return m; });
 const path = ribbon(0x3e8bff, 0.9, 0.02); path.material.alphaMap = pathTex; path.material.transparent = true; path.material.depthWrite = false;
 const wallL = wallMesh(), wallR = wallMesh();
@@ -186,6 +191,15 @@ function makeCar(kind, bodyMat) {
     L = 0.6; W = 0.6;
     const t = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 1.2, 10), bodyMat); t.position.y = 0.9; grp.add(t);
     const hd = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), bodyMat); hd.position.y = 1.65; grp.add(hd);
+  }
+  // 23/11 (V14 Lite): den hau / den phanh (mo khi chay, sang do khi phanh hoac dung cho trong long duong)
+  if (kind !== 'ego' && kind !== 'person') {
+    const tm = new THREE.MeshBasicMaterial({ color: 0x5a1414, transparent: true });
+    const tg = new THREE.BoxGeometry(kind === 'moto' ? 0.18 : 0.38, 0.13, 0.05);
+    const pos = kind === 'moto' ? [[0, 0.88, 0.82]] : kind === 'big' ? [[-W / 2 + 0.25, 0.75, L / 2 + 0.03], [W / 2 - 0.25, 0.75, L / 2 + 0.03]]
+                                                      : [[-W / 2 + 0.3, 0.86, L / 2 + 0.02], [W / 2 - 0.3, 0.86, L / 2 + 0.02]];
+    pos.forEach(q => { const m = new THREE.Mesh(tg, tm); m.position.set(q[0], q[1], q[2]); grp.add(m); });
+    grp.userData.tail = tm;
   }
   addShadow(grp, L, W); grp.userData.L = L; return grp;
 }
@@ -270,6 +284,48 @@ const GRP = { car: 'v', bus: 'v', truck: 'v', moto: 'm', bike: 'm', person: 'p' 
 const WID = { car: 1.86, big: 2.45, moto: 0.75, person: 0.6 };
 let oncAt = -99;   // lan cuoi thay xe chay nguoc chieu ben trai -> duong 2 chieu, ve vach tim vang
 
+// ---- 23/11 (V14 Lite): canh vat 2 ben duong - cay + nha low-poly, InstancedMesh (3 lan ve cho ca dai), truot theo quang duong ----
+const SCN = { span: 160, nT: 16, nH: 8 };
+const trunkG = new THREE.CylinderGeometry(0.12, 0.18, 1.6, 5); trunkG.translate(0, 0.8, 0);
+const crownG = new THREE.IcosahedronGeometry(1.3, 0); crownG.scale(1, 1.25, 1); crownG.translate(0, 2.7, 0);
+const houseG = new THREE.BoxGeometry(1, 1, 1); houseG.translate(0, 0.5, 0);
+const trunkI = new THREE.InstancedMesh(trunkG, new THREE.MeshLambertMaterial({ color: 0xffffff }), SCN.nT * 2);
+const crownI = new THREE.InstancedMesh(crownG, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), SCN.nT * 2);
+const houseI = new THREE.InstancedMesh(houseG, new THREE.MeshLambertMaterial({ color: 0xffffff }), SCN.nH * 2);
+[trunkI, crownI, houseI].forEach(m => { m.frustumCulled = false; scene.add(m); });
+const hsh = i => { const v = Math.sin(i * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
+const dmy = new THREE.Object3D(), tmpC = new THREE.Color();
+function paintScenery(T) {
+  for (let i = 0; i < SCN.nT * 2; i++) { crownI.setColorAt(i, tmpC.setHex(T.tree[i % 3])); trunkI.setColorAt(i, tmpC.setHex(T.trunk)); }
+  for (let i = 0; i < SCN.nH * 2; i++) houseI.setColorAt(i, tmpC.setHex(T.house[i % 4]));
+  [trunkI, crownI, houseI].forEach(m => { m.instanceColor.needsUpdate = true; });
+}
+// outL(x) / outR(x): mep ngoai cung (tuong / via he) 2 ben tai x; an trong giao lo
+function placeScenery(outL, outR, hw) {
+  const off = odo % SCN.span;
+  const put1 = (inst, i, x, y, sx, sy, sz, ry) => { dmy.position.set(y, 0, -x); dmy.rotation.set(0, ry, 0); dmy.scale.set(sx, sy, sz); dmy.updateMatrix(); inst.setMatrixAt(i, dmy.matrix); };
+  for (let i = 0; i < SCN.nT * 2; i++) {
+    const side = i & 1 ? 1 : -1; let x = ((i >> 1) + 0.6 * hsh(i)) * SCN.span / SCN.nT - off; if (x < -14) x += SCN.span;
+    const hide = x > 150 || (jOn && Math.abs(x - crossX) < jW / 2 + 5);
+    const y = side < 0 ? outL(x) - 1.4 - 1.8 * hsh(i + 50) : outR(x) + 1.4 + 1.8 * hsh(i + 50), k = hide ? 1e-4 : 0.7 + 0.4 * hsh(i + 90);
+    put1(trunkI, i, x, y, k, k, k, i); put1(crownI, i, x, y, k, k, k, i);
+  }
+  for (let i = 0; i < SCN.nH * 2; i++) {
+    const side = i & 1 ? 1 : -1; let x = ((i >> 1) + 0.3 + 0.4 * hsh(i + 7)) * SCN.span / SCN.nH - off; if (x < -16) x += SCN.span;
+    const w = 6 + 4 * hsh(i + 11), h = 3.5 + 5 * hsh(i + 13), dz = 7 + 4 * hsh(i + 17);
+    const hide = hw || x > 150 || (jOn && Math.abs(x - crossX) < jW / 2 + dz / 2 + 4);
+    const y = side < 0 ? outL(x) - 9 - 4 * hsh(i + 19) - w / 2 : outR(x) + 9 + 4 * hsh(i + 19) + w / 2;
+    put1(houseI, i, x, y, w, hide ? 1e-4 : h, dz, 0);
+  }
+  [trunkI, crownI, houseI].forEach(m => { m.instanceMatrix.needsUpdate = true; });
+}
+// ---- via he 4 goc giao lo, bo tron mep (ban kinh 3,5 m), dai 4 m chay theo ca 2 duong ----
+const cornerG = (() => { const R = 3.5, B = 4, s = new THREE.Shape();
+  s.moveTo(0, 12); s.lineTo(0, R); s.absarc(R, R, R, Math.PI, 1.5 * Math.PI, false); s.lineTo(40, 0); s.lineTo(40, B); s.lineTo(B, B); s.lineTo(B, 12); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: 0.16, bevelEnabled: false, curveSegments: 8 }); g.rotateX(-Math.PI / 2); return g; })();
+const cornerMat = new THREE.MeshLambertMaterial({ color: 0x555555, side: THREE.DoubleSide });
+const corners = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => { const m = new THREE.Mesh(cornerG, cornerMat); m.scale.set(sx, 1, sz); m.userData.s = [sx, sz]; junc.add(m); return m; });
+
 function applyTheme(t) {
   theme = t; const T = THEMES[t];
   scene.background = new THREE.Color(T.bg); scene.fog = new THREE.Fog(T.bg, T.fog[0], T.fog[1]);
@@ -278,7 +334,8 @@ function applyTheme(t) {
   lines.forEach(l => l.material.color.setHex(T.line)); [wallL, wallR, wallO].forEach(w => w.material.color.setHex(T.wall));
   med.material.color.setHex(T.med); [medWallA, medWallB].forEach(w => w.material.color.setHex(T.edge));
   oppRoad.material.color.setHex(T.opp); oppEdge.material.color.setHex(T.edge); oppLine.material.color.setHex(T.line);
-  yelA.material.color.setHex(T.yel); yelB.material.color.setHex(T.yel); walkR.material.color.setHex(T.walk); walkL.material.color.setHex(T.walk);
+  yelA.material.color.setHex(T.yel); yelB.material.color.setHex(T.yel); walkR.material.color.setHex(T.walk); walkL.material.color.setHex(T.walk); shdL.material.color.setHex(T.shd); shdR.material.color.setHex(T.shd);
+  paintScenery(T);
   hemi.color.setHex(T.hemi[0]); hemi.groundColor.setHex(T.hemi[1]); hemi.intensity = T.hemi[2]; sun.intensity = T.sun;
   MATS.ego.color.setHex(T.ego); MATS.glass.color.setHex(T.glass);
   egoBasic.userData.shadow.material.opacity = T.shadow; egoVf7.userData.shadow.material.opacity = T.shadow;
@@ -296,9 +353,16 @@ const PRESET = { chase: { fz: 22, fy: 0.8, az: 0, el: 7, r: 35.8, fov: 46 },
 const orb = { dAz: 0, dEl: 0, kR: 1 };
 function placeCam() {
   const P = PRESET[curView], az = (P.az + orb.dAz) * Math.PI / 180, el = Math.max(3, Math.min(80, P.el + orb.dEl)) * Math.PI / 180, r = P.r * orb.kR;
-  cam.fov = P.fov;
-  cam.position.set(-Math.sin(az) * Math.cos(el) * r, P.fy + Math.sin(el) * r, -P.fz + Math.cos(az) * Math.cos(el) * r);
-  cam.lookAt(0, P.fy, -P.fz); cam.updateProjectionMatrix();
+  // 23/11 (V14 Lite): chi dat DICH; camStep() truot camera toi dich moi khung (doi goc nhin / keo xoay muot, khong giat)
+  camD.fov = P.fov; camD.t.set(0, P.fy, -P.fz);
+  camD.p.set(-Math.sin(az) * Math.cos(el) * r, P.fy + Math.sin(el) * r, -P.fz + Math.cos(az) * Math.cos(el) * r);
+  if (!camD.init) { camD.init = true; camStep(1); }
+}
+const camD = { p: new THREE.Vector3(), t: new THREE.Vector3(), fov: 46, init: false }, camT = new THREE.Vector3();
+function camStep(dt) {
+  const k = dt >= 1 ? 1 : 1 - Math.exp(-dt * 7);
+  cam.position.lerp(camD.p, k); camT.lerp(camD.t, k); cam.fov += (camD.fov - cam.fov) * k;
+  cam.lookAt(camT); cam.updateProjectionMatrix();
 }
 function setView(v) {
   if (!VIEWS[v]) v = 'chase'; curView = v; orb.dAz = 0; orb.dEl = 0; orb.kR = 1;
@@ -313,7 +377,7 @@ function setView(v) {
     if (pts.size === 1) { const t = performance.now(); if (t - lastTap < 300) { orb.dAz = 0; orb.dEl = 0; orb.kR = 1; placeCam(); } lastTap = t; } });
   el.addEventListener('pointermove', e => { const p = pts.get(e.pointerId); if (!p) return;
     if (pts.size === 1) { orb.dAz += (e.clientX - p[0]) * 180 / innerWidth; orb.dEl += (e.clientY - p[1]) * 90 / innerHeight;
-      orb.dAz = Math.max(-170, Math.min(170, orb.dAz)); }
+      orb.dAz = Math.max(-170, Math.min(170, orb.dAz)); orb.dEl = Math.max(-25, Math.min(45, orb.dEl)); }
     pts.set(e.pointerId, [e.clientX, e.clientY]);
     if (pts.size === 2 && pinch0 > 0) { const [a, b] = [...pts.values()]; orb.kR = Math.max(0.35, Math.min(2.2, k0 * pinch0 / Math.max(20, Math.hypot(a[0] - b[0], a[1] - b[1])))); }
     placeCam(); });
@@ -389,6 +453,7 @@ const ttSafe = vk => vk >= 60 ? (vk < 80 ? 55 : vk < 100 ? 70 : 100) : Math.max(
 /** Ve 1 khung, dt giay tu khung truoc. */
 function step(dt) {
   if (window.SIM) simNow += dt;
+  camStep(dt);
   if (!tgt) { renderer.render(scene, cam); return; }
   const T = THEMES[theme], d = tgt, a = 1 - Math.exp(-dt / 0.12), t = now();
   cur.v += ((d.v || 0) - cur.v) * a;
@@ -404,7 +469,18 @@ function step(dt) {
   odo += Math.max(0, cur.v) * dt;
   {  // giao lo: xe minh chay toi thi duong ngang lui ve (giu toa do the gioi trong 6 s)
     crossX -= Math.max(0, cur.v) * dt;
+    // 23/11 (V14 Lite): dang thay den giao thong ma chua co xe chay ngang -> van dung giao lo phia truoc: ngay sau xe truoc dang dung, khong thi ~25 m.
+    // Giu toi khi xe minh qua giao lo, sau do 10 s moi dat lai (den van con trong khung khi vua qua).
+    if (tlC && !jOn && t - jEndAt > 10) {
+      const lx = d.ld && d.ld.p > 0.5 && d.ld.v < 3 && d.ld.x < 45 ? d.ld.x : -1;
+      crossX = lx > 0 ? lx + 4.6 + 1.6 + 3.4 + jW / 2 : 25; crossAt = t; tlJ = true;
+    }
+    if (tlC && tlJ && jOn) crossAt = t;
+    // be ngang duong cat ngang ~ be ngang duong chinh (7–14 m), chot luc bat dau giao lo
+    if (!jOn && cur.ed) jW = Math.max(7, Math.min(14, interp(X_IDX, cur.ed[1], 12) - interp(X_IDX, cur.ed[0], 12) + 0.6 + (oppW > 0.4 && !inOppPrev ? oppW + medW : 0)));
+    const jWas = jOn;
     jOn = t - crossAt < 8 && crossX > -jW;
+    if (jWas && !jOn) { jEndAt = t; tlJ = false; }
     junc.visible = jOn;
     if (jOn) {
       const T0 = THEMES[theme], w = jW, xa = crossX - w / 2 - 3.4;          // vach di bo rong 3 m truoc giao lo
@@ -426,10 +502,20 @@ function step(dt) {
       const yC = oIdxPrev !== null ? interp(X_IDX, cur.ln[oIdxPrev], xr) : eL0;
       put(jStop, Math.max(eL0, yC) + 0.1, eR0, xa - 1.0, xa - 0.6);
       jStop.visible = jStop.visible && xa - 1 > 2;
+      // via he bo tron 4 goc
+      cornerMat.color.setHex(T0.walk);
+      corners.forEach(m => { const [sx, sz] = m.userData.s; m.position.set(sx < 0 ? rL : rR, 0, -(crossX + sz * w / 2)); });
     }
   }
   const at = (arr, x) => interp(X_IDX, arr, Math.max(0, x)), sample = arr => XS.map(x => at(arr, x));
   const eL = sample(cur.ed[0]), eR = sample(cur.ed[1]);
+  for (const k of [0, 3]) {   // vach ngoai: co phai vach chia lan that? (xem ghi chu o shdL)
+    const yk = at(cur.ln[k], 12), sp = Math.abs(yk - at(cur.ln[k ? 2 : 1], 12)), e = at(cur.ed[k ? 1 : 0], 12);
+    const ok = (k ? yk < e + 0.4 : yk > e - 0.4) && sp > 2.5 && sp < 4.8 && cur.lp[k] > (acc[k] ? 0.4 : 0.55);
+    accT[k] = Math.max(0, Math.min(1, accT[k] + (ok ? dt / 0.5 : -dt / 1.0)));
+    acc[k] = acc[k] ? accT[k] > 0 : accT[k] >= 1;
+  }
+  acc[1] = cur.lp[1] > 0.25; acc[2] = cur.lp[2] > 0.25;
   setRibbon(road, eL.map(v => v - 0.3), eR.map(v => v + 0.3));
   setRibbon(shoulderL, eL.map(v => v - 0.3), eL.map(v => v - 0.12));
   setRibbon(shoulderR, eR.map(v => v + 0.12), eR.map(v => v + 0.3));
@@ -451,6 +537,14 @@ function step(dt) {
   if ((gapL > 2.5 && cur.lp[1] > 0.25 && !oneWay) || (yel && at(cur.ln[cen], 10) - at(cur.ed[0], 10) > 2.3)) inOppAt = t;
   inOpp = cur.v * 3.6 < 60 && (t - sameAt > 10 || yel) && (t - inOppAt < 0.5 || (inOpp && t - inOppAt < 4));
   const two = oppW > 0.4 && !inOpp; inOppPrev = inOpp;
+  {  // le duong chieu minh: phan hep ngoai vach cuoi cung (khong du 1 lan) -> mau le, khong ve thanh lan
+    const gR = at(cur.ed[1], 12) - at(cur.ln[2], 12), gL = at(cur.ln[1], 12) - at(cur.ed[0], 12);
+    shRon = !acc[3] && acc[2] && gR > 0.6 && gR < (shRon ? 3.0 : 2.6);
+    shLon = !acc[0] && acc[1] && !inOpp && !yel && gL > 0.6 && gL < (shLon ? 2.5 : 2.3);
+    shdR.visible = shRon; shdL.visible = shLon;
+    if (shRon) setRibbon(shdR, sample(cur.ln[2]).map(v => v + 0.1), eR.map(v => v + 0.3));
+    if (shLon) setRibbon(shdL, eL.map(v => v - 0.3), sample(cur.ln[1]).map(v => v - 0.1));
+  }
   // con luon: phan duong nguoc chieu nam ngoai mep trai ma vach doc (co du lieu) khong thay vang
   const mT = two && lmOn && t - yAt > 6 && cur.v * 3.6 <= 60 ? 1.1 : 0; medW += (mT - medW) * (1 - Math.exp(-dt / 0.6));
   [oppRoad, oppEdge, yelA, yelB, wallO, walkL].forEach(m => m.visible = two);
@@ -476,11 +570,12 @@ function step(dt) {
   if (medW > 0.3) { const a0 = eL.map(v => v - 0.3), a1 = a0.map(v => v - medW); setRibbon(med, a1, a0); setWall(medWallA, a0, 0.16); setWall(medWallB, a1, 0.16); }
   wallL.visible = !two || hw; wallR.visible = true;
   setWall(wallL, eL.map(v => v - 0.45), 0.7); setWall(wallR, eR.map(v => v + 0.45 + parkW), 0.7);
+  placeScenery(x => at(cur.ed[0], x) - 0.45 - (two ? medW + oppW + 3.3 : inOpp ? 4.2 : 0), x => at(cur.ed[1], x) + 0.45 + parkW, hw);
   for (let k = 0; k < 4; k++) {
     const ln = cur.ln[k], Y = sample(ln), y10 = at(ln, 10), e0 = at(cur.ed[0], 10), e1 = at(cur.ed[1], 10);
     const dE = Math.min(Math.abs(y10 - e0), Math.abs(y10 - e1));
     const inside = y10 > e0 - 0.4 && y10 < e1 + 0.4;
-    lines[k].visible = cur.lp[k] > (k === 1 || k === 2 ? 0.25 : 0.4) && inside;
+    lines[k].visible = acc[k] && inside;
     const mk = lmOn && lm ? lm[k] : 0;
     let isY, solid, dbl = false;
     if (mk > 0) {          // doc duoc tu anh: dung dung mau / kieu
@@ -489,7 +584,7 @@ function step(dt) {
       // duong 2 lan: vach ngoai lan nguoc chieu chi la vach le -> ve lien, khong ve them 1 lan
       const shoulder = inOpp && k < oIdx;
       const center = k === oIdx && ((t - oncAt < 5 && !two && !oneWay) || inOpp);
-      isY = center; solid = dE < 0.9 || center || shoulder;
+      isY = center; solid = dE < 0.9 || center || shoulder || (k === 2 && shRon) || (k === 1 && shLon);
     }
     const yc = theme === 'night' ? 0xffc21a : 0xe2a400;
     lines[k].material.color.setHex(isY ? yc : T.line);
@@ -509,7 +604,7 @@ function step(dt) {
     let pmax = Math.max(12, Math.min(60, cur.px[cur.px.length - 1]));
     if (d.ld && d.ld.p > 0.5) pmax = Math.max(4, Math.min(pmax, d.ld.x + 0.5));
     const PY = XS.map(x => interp(cur.px, cur.py, Math.min(Math.max(x, 0), pmax)));
-    const pw = j => (XS[j] < 1.9 || XS[j] > pmax) ? 0 : 0.95;
+    const pw = j => (XS[j] < 1.9 || XS[j] > pmax) ? 0 : 0.95 * (1 - 0.45 * Math.min(1, (XS[j] - 1.9) / Math.max(1, pmax - 1.9)));   // thon dan ve xa
     setRibbon(path, PY.map((v, j) => v - pw(j)), PY.map((v, j) => v + pw(j)), 0, x => Math.max(0, Math.min(1, (x - 1.9) / (pmax - 1.9))));
   }
   // xe
@@ -575,10 +670,25 @@ function step(dt) {
     } else if (ob.kind !== 'person' && t - crossAt < 6 && Math.abs(x - crossX) < 6 && (y < eLx - 1.5 || y > eRx + 1.5) && latD < 2.5 && !(tr.park >= 3)) {
       ry = y < 0 ? -Math.PI / 2 : Math.PI / 2;   // dang o hai ben duong ngang, chua ro huong: coi nhu dang di vao giao lo
     }
+    // 23/11 (V14 Lite): xe dung yen (toc do that < 0,8 m/s) giu huong cu, khong xoay theo nhieu vi tri
+    const wsp = Math.hypot(wx, wy);
+    if (tr.ry !== undefined && tr.n > 6 && wsp < 0.8 && Math.abs(ry - tr.ry) < 2.5) ry = tr.ry;
     // quay muot (khong giat 90 do moi khung khi van toc nhieu)
     if (tr.ry === undefined) tr.ry = ry;
-    const dr = Math.atan2(Math.sin(ry - tr.ry), Math.cos(ry - tr.ry)); tr.ry += dr * Math.min(1, dt / 0.25);
+    const dr = Math.atan2(Math.sin(ry - tr.ry), Math.cos(ry - tr.ry)), dry = dr * Math.min(1, dt / 0.25); tr.ry += dry;
     ob.grp.rotation.y = tr.ry;
+    if (ob.kind === 'moto') {   // xe may nghieng khi re
+      const ln = Math.max(-0.35, Math.min(0.35, -(dry / Math.max(dt, 1e-3)) * 0.35 * Math.min(1, wsp / 4)));
+      tr.lean = (tr.lean || 0) + (ln - (tr.lean || 0)) * Math.min(1, dt / 0.2); ob.grp.rotation.z = tr.lean;
+    }
+    {  // den phanh: toc do that giam > 1,3 m/s2 (xe truoc dung toc do openpilot) hoac dang dung cho trong long duong
+      const ws = tr.lead && d.ld ? d.ld.v : wsp;
+      if (tr.wsF === undefined) tr.wsF = ws;
+      const wsN = tr.wsF + (ws - tr.wsF) * Math.min(1, dt / 0.4); tr.acc = ((tr.acc || 0) * 0.85) + 0.15 * (wsN - tr.wsF) / Math.max(dt, 1e-3); tr.wsF = wsN;
+      const onRoad = y > eLx - 0.3 - (two ? oppW : 0) && y < eRx + 0.2;
+      tr.brk = !parked && onRoad && (tr.acc < -1.3 || (wsN < 0.6 && cur.v < 2.5 && tr.n > 4));
+      if (ob.grp.userData.tail) ob.grp.userData.tail.color.setHex(tr.brk ? 0xff2a2a : 0x5a1414);
+    }
     const fade = Math.min(tr.a, fadeOut, x > 70 ? Math.max(0, (95 - x) / 25) : 1);
     let col = parked ? T.park : faceUs && ob.kind !== 'person' ? T.onc : T.car;
     if (parked) nPark++;
@@ -590,7 +700,7 @@ function step(dt) {
       glow.visible = true; glow.position.set(y, 0.03, -xc); glow.rotation.z = yaw;
       glow.material.color.setHex(col === T.lead ? 0x3e8bff : col); glow.material.opacity = 0.95 * fade;
     }
-    ob.mat.color.setHex(col); ob.mat.opacity = fade; ob.mat.depthWrite = fade > 0.95;
+    ob.mat.color.setHex(col); ob.mat.opacity = fade; ob.mat.depthWrite = fade > 0.95; if (ob.grp.userData.tail) ob.grp.userData.tail.opacity = fade;
     ob.grp.userData.shadow.material.opacity = T.shadow * fade;
     ob.grp.visible = fade > 0.02;
   }
@@ -600,10 +710,11 @@ function step(dt) {
   {  // LANE x/y: so lan cung chieu tu vach chia 2 chieu (hoac mep trai) toi mep phai
     const e0 = at(cur.ed[0], 10), e1 = at(cur.ed[1], 10);
     const leftB = yel ? at(cur.ln[cen], 10) : inOpp ? at(cur.ln[1], 10) : e0;
-    const vs = k => cur.lp[k] > (k === 1 || k === 2 ? 0.25 : 0.4);
+    const vs = k => acc[k];
     let lane = 1, tot = 0;
-    for (const k of [0, 1]) if (vs(k) && at(cur.ln[k], 10) > leftB + 0.6 && at(cur.ln[k], 10) > e0 + 0.6) lane++;
-    tot = lane; for (const k of [2, 3]) if (vs(k) && at(cur.ln[k], 10) < e1 - 0.6) tot++;
+    // vach cuoi cung ma ben ngoai chi la le (shL/shR) thi khong tinh them lan
+    for (const k of [0, 1]) if (vs(k) && !(k === 1 && shLon) && at(cur.ln[k], 10) > leftB + 0.6 && at(cur.ln[k], 10) > e0 + 0.6) lane++;
+    tot = lane; for (const k of [2, 3]) if (vs(k) && !(k === 2 && shRon) && at(cur.ln[k], 10) < e1 - 0.6) tot++;
     if (tot >= 2) chips.push(`<span class="chip">LANE ${lane}/${tot}</span>`);
     if (yel || inOpp || two) chips.push(`<span class="chip">2 chiều${medW > 0.3 ? ' · dải phân cách' : ''}</span>`);
     else if (oneWay) chips.push('<span class="chip">1 chiều</span>');
@@ -617,6 +728,7 @@ function step(dt) {
 window.step = step;
 // den giao thong tu app (TLight): c = 'R' / 'Y' / 'G' / null, s = so giay con lai hoac null
 window.setTl = function (c, s) {
+  tlC = c || null;
   const el = document.getElementById('tl');
   if (!c) { el.style.display = 'none'; return; }
   const col = { R: '#ff3b30', Y: '#ffcc00', G: '#30d158' }[c];
