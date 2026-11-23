@@ -57,7 +57,7 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
     }
 
     private fun fetch(lat: Double, lon: Double) {
-        val q = "[out:json][timeout:12];way(around:400,%.6f,%.6f)[highway~\"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|road)(_link)?$\"];out tags geom;"
+        val q = "[out:json][timeout:12];way(around:400,%.6f,%.6f)[highway~\"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|road|service)(_link)?$\"][service!~\"parking_aisle|drive-through\"];out tags geom;"
             .format(java.util.Locale.US, lat, lon)
         val body = "data=" + URLEncoder.encode(q, "UTF-8")
         var err: Exception? = null
@@ -100,7 +100,7 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
     /** Duong gan nhat (< 25 m), uu tien cung huong. */
     private fun match(lat: Double, lon: Double, brg: Float, kmh: Float): Way? {
         var best: Way? = null; var bs = 1e9
-        for (w in ways) for (k in 0 until w.lat.size - 1) {
+        for (w in ways) if (w.hw != "service") for (k in 0 until w.lat.size - 1) {   // duong phu (service) chi de ve loi re, khong khop toc do
             val (d, segB) = segDist(lat, lon, w.lat[k], w.lon[k], w.lat[k + 1], w.lon[k + 1])
             if (d > 25) continue
             var da = abs(((segB - brg) % 360 + 360) % 360); if (da > 180) da = 360 - da
@@ -157,7 +157,7 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
                 val ex = la.last(); val ey = lo.last()
                 val pb = bearingOf(la[la.size - 2], lo[lo.size - 2], ex, ey)
                 var best: Way? = null; var bf = true; var bs = 1e9
-                for (o in ws) if (o !== w) {
+                for (o in ws) if (o !== w && o.hw != "service") {
                     val n = o.lat.size
                     if (dist(o.lat[0], o.lon[0], ex, ey) < 3) { val b = bearingOf(o.lat[0], o.lon[0], o.lat[1], o.lon[1]); val da = angDiff(b, pb); if (da < bs) { bs = da; best = o; bf = true } }
                     if (o.oneway == 0 && dist(o.lat[n - 1], o.lon[n - 1], ex, ey) < 3) { val b = bearingOf(o.lat[n - 1], o.lon[n - 1], o.lat[n - 2], o.lon[n - 2]); val da = angDiff(b, pb); if (da < bs) { bs = da; best = o; bf = false } }
@@ -176,6 +176,52 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
             i += if (fwd) 1 else -1
         }
         return if (la.size >= 2) la.toDoubleArray() to lo.toDoubleArray() else null
+    }
+
+    /**
+     * 23/11 toi: duong nhanh / duong cat ngang phia truoc theo ban do (OSM), de canh 3D ve loi re / nga tu DUNG cho.
+     * Tra ve moi nhanh: [khoang cach doc duong m, ben (-1 trai, 1 phai, 2 cat ngang ca 2 ben), goc so voi huong di (do, 0 = vuong goc ve phia truoc)].
+     * Nut giao: duong khac co dinh trung (< 4 m) voi duong minh se di (ahead). Duong dang di + duong noi tiep bo qua.
+     */
+    fun branches(lat: Double, lon: Double, brg: Float, maxM: Int = 90): List<FloatArray> {
+        val ws = ways; if (ws.isEmpty()) return emptyList()
+        val me = match(lat, lon, brg, 30f) ?: return emptyList()
+        val (pa, po) = ahead(lat, lon, brg, maxM) ?: return emptyList()
+        val k0 = cos(Math.toRadians(lat)) * 111320.0
+        fun ex(la: Double, lo: Double) = doubleArrayOf((lo - lon) * k0, (la - lat) * 110540.0)   // dong, bac (m)
+        val P = pa.indices.map { ex(pa[it], po[it]) }
+        val cum = DoubleArray(P.size); for (i in 1 until P.size) cum[i] = cum[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1])
+        val out = ArrayList<FloatArray>()
+        for (w in ws) {
+            if (w === me) continue
+            for (j in w.lat.indices) {
+                val q = ex(w.lat[j], w.lon[j])
+                // diem gan nhat tren duong di
+                var bd = 1e9; var bs = 0.0; var bi = 0
+                for (i in 0 until P.size - 1) {
+                    val ax = P[i][0]; val ay = P[i][1]; val dx = P[i + 1][0] - ax; val dy = P[i + 1][1] - ay; val L2 = dx * dx + dy * dy + 1e-9
+                    val t = (((q[0] - ax) * dx + (q[1] - ay) * dy) / L2).coerceIn(0.0, 1.0)
+                    val d = Math.hypot(ax + t * dx - q[0], ay + t * dy - q[1])
+                    if (d < bd) { bd = d; bs = cum[i] + t * Math.sqrt(L2); bi = i }
+                }
+                if (bd > 4 || bs < 4 || bs > maxM - 2) continue
+                val dx = P[bi + 1][0] - P[bi][0]; val dy = P[bi + 1][1] - P[bi][1]; val dl = Math.hypot(dx, dy) + 1e-9
+                var l = false; var r = false; var ang = 0.0
+                for (nb in intArrayOf(j - 1, j + 1)) {
+                    if (nb < 0 || nb >= w.lat.size) continue
+                    val n = ex(w.lat[nb], w.lon[nb]); val vx = n[0] - q[0]; val vy = n[1] - q[1]; val vl = Math.hypot(vx, vy) + 1e-9
+                    val cr = (dx * vy - dy * vx) / (dl * vl)        // > 0: ben trai (huong bac-dong)
+                    val dot = (dx * vx + dy * vy) / (dl * vl)
+                    if (abs(cr) < 0.35) continue                     // gan nhu song song = duong noi tiep / trung duong minh
+                    if (cr > 0) l = true else r = true
+                    ang = Math.toDegrees(Math.asin(dot.coerceIn(-1.0, 1.0)))
+                }
+                if (!l && !r) continue
+                if (out.any { abs(it[0] - bs) < 8 }) continue
+                out += floatArrayOf(bs.toFloat(), if (l && r) 2f else if (l) -1f else 1f, ang.toFloat())
+            }
+        }
+        return out.sortedBy { it[0] }.take(4)
     }
 
     private fun bearingOf(a1: Double, o1: Double, a2: Double, o2: Double): Float {

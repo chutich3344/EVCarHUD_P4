@@ -80,6 +80,8 @@ class Snap(
     var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
     /** 23/11 toi: nguon camera dang dung (70Mai / Sinjet / Phone) + kieu ket noi, hien duoi dong lech lan (khi tat log van biet cam nao). */
     var camTag = ""
+    var br: List<FloatArray>? = null   // duong nhanh theo ban do: [cach m, ben, goc]
+    var brAt = 0L
     var camLive = false
     var camM: Int? = null
     var limitSrc: String? = null   // bien lay tu app dan duong: "Waze" / "GOFA"
@@ -187,6 +189,9 @@ class AdasService : Service() {
     private var tlLogAt = 0L
     private var signDb: SignDb? = null
     private var road: RoadInfo? = null
+    /** 23/11 toi: duong nhanh / cat ngang phia truoc tu ban do (cho canh 3D). */
+    @Volatile private var branches: List<FloatArray> = emptyList()
+    @Volatile private var branchesAt = 0L
     private var objs: List<SignDet.Obj>? = null
     private var camDb: CamDb? = null
     private var camType: Char? = null
@@ -1135,6 +1140,7 @@ class AdasService : Service() {
     }
 
     private fun camTag(s: Snap) {
+        if (SystemClock.elapsedRealtime() - branchesAt < 3000) { s.br = branches; s.brAt = branchesAt }
         s.camTag = when (prefs.camSrc) { "70mai" -> "70Mai · Wi-Fi"; "mirror" -> "Sinjet · Wi-Fi"; else -> "Phone · camera sau" }
         s.camLive = lastFrameAt > 0 && SystemClock.elapsedRealtime() - lastFrameAt < 2000
     }
@@ -1253,6 +1259,7 @@ class AdasService : Service() {
         lat = l.latitude; lon = l.longitude
         if (l.hasBearing() && l.speed > 1.5f) bearing = l.bearing
         road?.onFix(lat, lon, bearing, gpsKmh)
+        if (scene3d) { branches = road?.branches(lat, lon, bearing) ?: emptyList(); branchesAt = SystemClock.elapsedRealtime() }
         Nav.onFix(l.latitude, l.longitude, l.speed, if (l.hasBearing()) l.bearing else null, if (l.hasAccuracy()) l.accuracy else 20f)
     }
 

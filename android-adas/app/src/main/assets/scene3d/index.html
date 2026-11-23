@@ -87,9 +87,9 @@ function wallMesh() {
   const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }));
   mesh.frustumCulled = false; scene.add(mesh); return mesh;
 }
-function setWall(mesh, Y, hgt) {
+function setWall(mesh, Y, hgt, side) {
   const p = mesh.geometry.attributes.position.array;
-  for (let i = 0; i < XS.length; i++) { const cut = jOn && Math.abs(XS[i] - crossX) < jW / 2 + 12;   // giao lo: khong co tuong / dai phan cach
+  for (let i = 0; i < XS.length; i++) { const cut = (jOn && Math.abs(XS[i] - crossX) < jW / 2 + 12) || (side && brs.some(b => (b.side === side || b.side === 2) && Math.abs(XS[i] - b.x) < 5));   // giao lo / loi re: khong co tuong
     p[i * 6] = Y[i]; p[i * 6 + 1] = 0; p[i * 6 + 2] = -XS[i]; p[i * 6 + 3] = Y[i]; p[i * 6 + 4] = cut ? 0 : hgt; p[i * 6 + 5] = -XS[i]; }
   mesh.geometry.attributes.position.needsUpdate = true;
 }
@@ -120,7 +120,12 @@ const jAsph = flat(0x333333, 0.017);
 const jEdge = [0, 1, 2, 3].map(() => flat(0xffffff, 0.019)), jCen = [0, 1].map(() => flat(0xffc21a, 0.019));
 const jZeb = [0, 1].map(() => flat(0xffffff, 0.019, zebraTex)), jStop = flat(0xffffff, 0.019);
 // 23/11 toi: cot den giao thong 3D o vach dung (ben phai, can vuon ra long duong): den sang dung mau app doc duoc
-const tlG = new THREE.Group(); junc.add(tlG);
+const tlG = new THREE.Group(); scene.add(tlG); tlG.visible = false;
+// 23/11 toi: duong nhanh theo ban do OSM (d.br): mat duong + 2 mep trang, tu mep duong minh ra ngoai 30 m, dung goc
+let brs = [], brA = null;
+const brG = [0, 1, 2, 3].map(() => { const g = new THREE.Group(); g.visible = false; scene.add(g);
+  const mk = (c, w, h) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c })); m.rotation.x = -Math.PI / 2; m.position.y = h; g.add(m); return m; };
+  g.userData.a = mk(0x333333, 1, 0.026); g.userData.e1 = mk(0xffffff, 1, 0.03); g.userData.e2 = mk(0xffffff, 1, 0.03); return g; });
 const tlLamp = [];
 { const gm = new THREE.MeshLambertMaterial({ color: 0x5a6068 }), bm = new THREE.MeshLambertMaterial({ color: 0x15181c });
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 5.4, 10), gm); pole.position.set(0, 2.7, 0); tlG.add(pole);
@@ -505,12 +510,28 @@ function step(dt) {
     }
     if (tlJ && jOn && tlP && t - tlP.at < 0.5) crossX += (tlP.x + jW / 2 + 1.5 - crossX) * Math.min(1, dt / 0.8);   // bam theo lan do moi
     if (tlC && jOn) crossAt = t;
+    // duong nhanh / cat ngang theo ban do: moi lan GPS (d.bra doi) nap lai, giua 2 lan tru theo quang duong
+    if (d.bra !== undefined && d.bra !== brA) { brA = d.bra; brs = (d.br || []).map(b => ({ x: b[0], side: b[1], ang: b[2] })); }
+    brs.forEach(b => b.x -= Math.max(0, cur.v) * dt); brs = brs.filter(b => b.x > -12);
+    { const cx = brs.find(b => b.side === 2 && b.x > 8 && b.x < 70);   // duong cat ngang ca 2 ben = nga tu (ban do)
+      if (cx && !jOn && t - jEndAt > 10) { crossX = cx.x; crossAt = t; }
+      if (cx && jOn && Math.abs(cx.x - crossX) < 15) crossAt = t; }
     // be ngang duong cat ngang ~ be ngang duong chinh (7–14 m), chot luc bat dau giao lo
     if (!jOn && cur.ed) jW = Math.max(7, Math.min(14, interp(X_IDX, cur.ed[1], 12) - interp(X_IDX, cur.ed[0], 12) + 0.6 + (oppW > 0.4 && !inOppPrev ? oppW + medW : 0)));
     const jWas = jOn;
     jOn = t - crossAt < 8 && crossX > -jW;
     if (jWas && !jOn) { jEndAt = t; tlJ = false; }
-    junc.visible = jOn;
+    junc.visible = jOn; if (!jOn) tlG.visible = false;
+    {  // ve duong nhanh (ban do)
+      const list = []; brs.forEach(b => { if (b.side === 2) { if (!jOn || Math.abs(b.x - crossX) > 15) list.push({ ...b, side: -1 }, { ...b, side: 1 }); } else list.push(b); });
+      const Tb = THEMES[theme];
+      brG.forEach((g, i) => { const b = list[i]; g.visible = !!b && b.x > -6 && b.x < 90 && !!cur.ed;
+        if (!g.visible) return;
+        const yE = b.side > 0 ? interp(X_IDX, cur.ed[1], Math.max(0, b.x)) + 0.3 : interp(X_IDX, cur.ed[0], Math.max(0, b.x)) - 0.3;
+        g.position.set(yE, 0, -b.x); g.rotation.y = b.side * Math.max(-50, Math.min(50, b.ang)) * Math.PI / 180;
+        const u = g.userData; u.a.material.color.setHex(Tb.road); u.a.scale.set(30, 6, 1); u.a.position.set(b.side * 15, 0.026, 0);
+        [u.e1, u.e2].forEach((e, k) => { e.material.color.setHex(Tb.line); e.scale.set(29, 0.14, 1); e.position.set(b.side * 15.5, 0.03, k ? 2.9 : -2.9); }); });
+    }
     if (jOn) {
       const T0 = THEMES[theme], w = jW, xa = crossX - w / 2 - 3.4;          // vach di bo rong 3 m truoc giao lo
       jAsph.material.color.setHex(T0.road); jCen.forEach(m => m.material.color.setHex(T0.yel));
@@ -540,7 +561,7 @@ function step(dt) {
         tlLamp.forEach((l, i) => l.material.color.setHex(i === on ? cs[i] : 0x2a2d31));
         const h = tlG.userData.halo; h.material.color.setHex(cs[on]); h.position.copy(tlLamp[on].position);
       }
-      // via he bo tron 4 goc
+      // via he bo tron 4 goc (tlG dung trong canh, khong theo nhom giao lo)
       cornerMat.color.setHex(T0.walk);
       corners.forEach(m => { const [sx, sz] = m.userData.s; m.position.set(sx < 0 ? rL : rR, 0, -(crossX + sz * w / 2)); });
     }
@@ -607,7 +628,7 @@ function step(dt) {
   [med, medWallA, medWallB].forEach(m => m.visible = medW > 0.3);
   if (medW > 0.3) { const a0 = eL.map(v => v - 0.3), a1 = a0.map(v => v - medW); setRibbon(med, a1, a0); setWall(medWallA, a0, 0.16); setWall(medWallB, a1, 0.16); }
   wallL.visible = !two || hw; wallR.visible = true;
-  setWall(wallL, eL.map(v => v - 0.45), 0.7); setWall(wallR, eR.map(v => v + 0.45 + parkW), 0.7);
+  setWall(wallL, eL.map(v => v - 0.45), 0.7, -1); setWall(wallR, eR.map(v => v + 0.45 + parkW), 0.7, 1);
   // 23/11 toi: cay/nha chi la trang tri, khong co du lieu that -> chi ve khi bat trong Cai dat (d.deco)
   [trunkI, crownI, houseI].forEach(m => { m.visible = !!d.deco; });
   if (d.deco) placeScenery(x => at(cur.ed[0], x) - 0.45 - (two ? medW + oppW + 3.3 : inOpp ? 4.2 : 0), x => at(cur.ed[1], x) + 0.45 + parkW, hw);
