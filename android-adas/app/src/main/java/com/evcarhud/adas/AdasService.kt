@@ -73,6 +73,9 @@ class Snap(
     var limit: Int? = null
     var objs: List<SignDet.Obj>? = null   // xe/nguoi YOLOX (de ghi loai xe truoc)
     var wide: List<SignDet.Obj>? = null   // xe/nguoi TOAN KHUNG (VehDet) khi man canh 3D dang bat
+    var wideSeq = 0L   // moc lan nhan (de canh 3D chi cap nhat vet khi co lan nhan MOI, khong lap lai list cu 20 lan/giay)
+    var wideAge = 0L   // tuoi lan nhan do (ms)
+    var cal = true     // camera da hieu chinh xong (chua xong: vach openpilot chao -> canh 3D lam muot manh hon)
     var lm: IntArray? = null   // kieu vach 4 vach openpilot (VehDet.marks): 0 khong ro, 1 trang dut, 2 trang lien, 3 vang dut, 4 vang lien, 5 vang doi
     var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
     var camM: Int? = null
@@ -1038,7 +1041,8 @@ class AdasService : Service() {
         if (limit != null && now - limitAt > 15 * 60_000L) limit = null
         s.limit = limit
         if (now - objsAt < 1500) s.objs = objs
-        if (scene3d && now - wideAt < 1200) s.wide = wide
+        if (scene3d && now - wideAt < 700) { s.wide = wide; s.wideSeq = wideAt; s.wideAge = now - wideAt }   // 23/11: 1,2 s -> 0,7 s (xe da qua van con hien)
+        s.cal = !prefs.autoCalib || prefs.calibrated
         if (scene3d && now - laneMkAt < 1500) s.lm = laneMk
         val ct = camType
         if (ct != null && prefs.camAlert && now - camAt < 30_000) {

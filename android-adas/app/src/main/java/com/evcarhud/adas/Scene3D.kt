@@ -105,6 +105,9 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         if (leadOk) sb.append(",\"ld\":{\"p\":").append(f(o.leadProb)).append(",\"x\":").append(f(o.leadX, 1))
             .append(",\"y\":").append(f(o.leadY)).append(",\"v\":").append(f(o.leadV)).append('}')
         sn.lm?.let { m -> sb.append(",\"lm\":[").append(m.joinToString(",")).append(']') }
+        if (sn.wide != null) sb.append(",\"os\":").append(sn.wideSeq).append(",\"oa\":").append(sn.wideAge)
+        sn.tl?.let { c -> sb.append(",\"tl\":\"").append(c).append('"'); sn.tlSec?.let { sb.append(",\"ts\":").append(it) } }
+        if (!sn.cal) sb.append(",\"cal\":0")
         sb.append(",\"ldw\":\"").append(sn.ldw).append('"')
         if (sn.offCm != null) sb.append(",\"off\":").append(sn.offCm)
         sb.append(",\"ob\":[")
