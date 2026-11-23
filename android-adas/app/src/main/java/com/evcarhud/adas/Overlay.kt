@@ -86,7 +86,8 @@ class Overlay(ctx: Context) : View(ctx) {
     private var oy = 0f
 
     private fun layoutScale() {
-        s = max(width / imgW.toFloat(), height / imgH.toFloat())
+        // 23/11: chia doi man -> camera VUA KHUNG (khong cat, khong meo), nam giua nua trai; toan man van phu kin
+        s = if (split && !calib) minOf(width / imgW.toFloat(), height / imgH.toFloat()) else max(width / imgW.toFloat(), height / imgH.toFloat())
         ox = (width - imgW * s) / 2
         oy = (height - imgH * s) / 2
     }
@@ -101,7 +102,8 @@ class Overlay(ctx: Context) : View(ctx) {
     override fun onDraw(cv: Canvas) {
         snap?.cam?.let { if (it.w > 0) { imgW = it.w; imgH = it.h } }   // cam guong: kich thuoc biet sau khi luong len
         layoutScale()
-        val u = width / 100f
+        // chia doi: don vi theo ca man (80%) de chu + nut khong teo con nua (truoc day u = nua man / 100)
+        val u = if (split) width * 2 / 100f * 0.8f else width / 100f
         frame?.let { dst.set(ox, oy, ox + imgW * s, oy + imgH * s); cv.drawBitmap(it, null, dst, bmpPaint) }
         val sn = snap
         val o = sn?.out
@@ -336,26 +338,27 @@ class Overlay(ctx: Context) : View(ctx) {
 
         // chip ben phai: [cai dat] [LAN] [HUD]  — nut Cai dat to, vung cham rong de bam khi lai
         var xr = width - 2f * u0
-        val gw = 3.6f * u0
-        val gh = 3.2f * u0
+        val gw = 4.6f * u0      // 23/11: nut to hon ~30% (bam khi lai)
+        val gh = 4.0f * u0
         gearRect.set(xr - gw, top, xr, top + gh)
         gearHit.set(gearRect.left - 1.4f * u0, gearRect.top - 1.4f * u0, gearRect.right + 1.4f * u0, gearRect.bottom + 1.4f * u0)
         fill.color = Color.argb(190, 20, 27, 37); cv.drawRoundRect(gearRect, 1.2f * u0, 1.2f * u0, fill)
         txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 2.1f * u0
-        cv.drawText("⚙", gearRect.centerX(), gearRect.centerY() + 0.72f * u0, txt)
+        txt.textSize = 2.7f * u0
+        cv.drawText("⚙", gearRect.centerX(), gearRect.centerY() + 0.92f * u0, txt)
         xr -= gw + 0.6f * u0
         val bothLanes = sn?.out?.let { it.laneProb[1] > 0.5f && it.laneProb[2] > 0.5f } ?: false
         val lanBg = when { sn != null && sn.ldw != '-' -> Color.argb(220, 220, 50, 60); bothLanes -> Color.argb(200, 30, 158, 90); else -> Color.argb(140, 90, 96, 104) }
-        xr -= chip(cv, xr, top, u0, "LANE", null, lanBg) + 0.6f * u0
+        xr -= chip(cv, xr, top + 0.7f * u0, u0, "LANE", null, lanBg) + 0.6f * u0
         val hudOk = sn?.hudOk == true
-        xr -= chip(cv, xr, top, u0, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32)) + 0.6f * u0
+        xr -= chip(cv, xr, top + 0.7f * u0, u0, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32)) + 0.6f * u0
         // nut chia doi man (camera | ban do): o vuong, dang bat thi to mau xanh
         splitRect.set(xr - gw, top, xr, top + gh)
         splitHit.set(splitRect.left - 1.4f * u0, splitRect.top - 1.4f * u0, splitRect.right + 1.4f * u0, splitRect.bottom + 1.4f * u0)
         fill.color = if (split) Color.argb(220, 30, 158, 90) else Color.argb(190, 20, 27, 37)
         cv.drawRoundRect(splitRect, 1.2f * u0, 1.2f * u0, fill)
-        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 2.1f * u0
-        cv.drawText("◫", splitRect.centerX(), splitRect.centerY() + 0.72f * u0, txt)
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 2.7f * u0
+        cv.drawText("◫", splitRect.centerX(), splitRect.centerY() + 0.92f * u0, txt)
         txt.textAlign = Paint.Align.LEFT
     }
 
