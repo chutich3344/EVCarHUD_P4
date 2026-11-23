@@ -97,6 +97,20 @@ void phone_adas_on_write(const char *s, size_t n)
         board_ui_unlock();
         return;
     }
+    if (n >= 4 && n < 16 && strncmp(s, "T1|", 3) == 0) {          /* "T1|R|25" den giao thong + giay (app LANE), "T1|-" = het */
+        char b[16];
+        memcpy(b, s, n);
+        b[n] = 0;
+        char col = b[3];
+        int sec = -1;
+        if (n > 5 && b[4] == '|' && b[5] >= '0' && b[5] <= '9') sec = atoi(b + 5);
+        static char s_lc;
+        if (col != s_lc) { s_lc = col; ESP_LOGI(TAG, "den tu app %s", b); }
+        board_ui_lock();
+        obstacle_ui_tlight(col, sec);
+        board_ui_unlock();
+        return;
+    }
     if (n >= 3 && n < 16 && strncmp(s, "S1|", 3) == 0) {          /* "S1|km/h": bien toc do app doc tu camera, 0 = het */
         char b[16];
         memcpy(b, s, n);

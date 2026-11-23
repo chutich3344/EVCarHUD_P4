@@ -27,3 +27,9 @@ void obstacle_ui_xadas(const xadas_frame_t *f);
 void obstacle_ui_phone(const xadas_frame_t *f, char ldw, bool lanes, bool crit);
 /* Camera USB cam/rut (usb_cam.c): dang cam thi camera uu tien, xADAS bi bo qua (an chip + o xADAS, khong tit theo xADAS) */
 void obstacle_ui_cam(bool on);
+/* 23/11: den giao thong tu app LANE (goi "T1|mau|giay", phone_adas.c). col 'R' / 'Y' / 'G', 0 = het; sec < 0 = khong doc duoc so.
+ * HUD ve den 3 bong + so giay dem nguoc trong o duoi bien (thay "XE DUNG" / so met an toan); xADAS gan / qua gan van uu tien.
+ * Tu bo sau 3 s khong co goi. */
+void obstacle_ui_tlight(char col, int sec);
+/* Kieu hien (de chup gia lap): 1 = chi o duoi bien, 2 = xe dung (< 3 km/h) thi den + so to thay so toc do. */
+void obstacle_ui_tlight_style(int style);
