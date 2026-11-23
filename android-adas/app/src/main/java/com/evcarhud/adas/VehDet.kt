@@ -21,7 +21,7 @@ import kotlin.math.min
  * cat 1 dai ngang quanh duong chan troi (ca be ngang anh) -> 640 x 224.
  * Ket qua: toa do chuan hoa 0..1 theo anh hien thi, giong SignDet.Obj.
  */
-class VehDet(ctx: Context, private val onObjs: (List<SignDet.Obj>, IntArray?) -> Unit) {
+class VehDet(ctx: Context, private val onObjs: (List<SignDet.Obj>, IntArray?, Long) -> Unit) {
     private val th = HandlerThread("veh3d").apply { start() }
     private val h = Handler(th.looper)
     private val env = OrtEnvironment.getEnvironment()
@@ -62,7 +62,7 @@ class VehDet(ctx: Context, private val onObjs: (List<SignDet.Obj>, IntArray?) ->
             geo = g; lnOk = g != null && o != null
             if (o != null) for (i in 0..3) { System.arraycopy(o.laneY[i], 0, lnY[i], 0, Op.N); System.arraycopy(o.laneZ[i], 0, lnZ[i], 0, Op.N) }
         } catch (e: Exception) { return }
-        lastAt = now; busy = true
+        lastAt = now; busy = true; frameAt = now   // 24/11: moc thoi gian KHUNG ANH (khong phai luc AI xong) -> 3D dat xe dung thoi diem
         h.post { try { run() } catch (e: Throwable) { Log.w(TAG, "run", e) } finally { busy = false } }
     }
 
@@ -80,6 +80,7 @@ class VehDet(ctx: Context, private val onObjs: (List<SignDet.Obj>, IntArray?) ->
         return (0xff shl 24) or (r shl 16) or (g shl 8) or b
     }
 
+    @Volatile private var frameAt = 0L
     private fun run() {
         val s = sess ?: return
         val t0 = SystemClock.elapsedRealtime()
@@ -123,7 +124,7 @@ class VehDet(ctx: Context, private val onObjs: (List<SignDet.Obj>, IntArray?) ->
         for (c in cand) if (c[2] - c[0] < 0.75f && keep.none { iou(it, c) > 0.5f }) keep += c
         lastMs = SystemClock.elapsedRealtime() - t0
         val lm = try { if (lnOk) marks() else null } catch (e: Exception) { null }
-        onObjs(keep.take(16).map { SignDet.Obj(it[5].toInt(), it[4], it[0], it[1], it[2], it[3]) }, lm)
+        onObjs(keep.take(16).map { SignDet.Obj(it[5].toInt(), it[4], it[0], it[1], it[2], it[3]) }, lm, frameAt)
     }
 
     /**
@@ -201,7 +202,7 @@ class VehDet(ctx: Context, private val onObjs: (List<SignDet.Obj>, IntArray?) ->
         private const val TAG = "VehDet"
         private const val IW = 640
         private const val IH = 224
-        private const val CONF = 0.35f
+        private const val CONF = 0.2f   // 24/11 ByteTrack: lay ca hop diem thap (0,2–0,35) de NOI TIEP vet cu; xe moi van can >= 0,35 (trang 3D)
         /** COCO: nguoi 0, xe dap 1, o to 2, xe may 3, xe buyt 5, xe tai 7 */
         private val CLS = intArrayOf(0, 1, 2, 3, 5, 7)
     }

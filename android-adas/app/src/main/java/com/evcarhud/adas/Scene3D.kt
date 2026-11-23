@@ -153,7 +153,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         sb.append(",\"ldw\":\"").append(sn.ldw).append('"')
         if (sn.offCm != null) sb.append(",\"off\":").append(sn.offCm)
         sb.append(",\"ob\":[")
-        objs(sn, o, leadOk).forEachIndexed { i, b -> if (i > 0) sb.append(','); sb.append("[\"").append(b.c).append("\",").append(f(b.x, 1)).append(',').append(f(b.y)).append(',').append(if (b.lead) 1 else 0).append(']') }
+        objs(sn, o, leadOk).forEachIndexed { i, b -> if (i > 0) sb.append(','); sb.append("[\"").append(b.c).append("\",").append(f(b.x, 1)).append(',').append(f(b.y)).append(',').append(if (b.lead) 1 else 0).append(',').append(f(b.s)).append(']') }
         sb.append("]}")
         return sb.toString()
     }
@@ -161,7 +161,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
     private fun esc(t: String) = t.replace("\\", "\\\\").replace("\"", "\\\"")
     private fun arr(sb: StringBuilder, a: FloatArray) { sb.append('['); for (k in a.indices) { if (k > 0) sb.append(','); sb.append(f(a[k])) }; sb.append(']') }
 
-    private class G(var c: String, var x: Float, var y: Float, var lead: Boolean)
+    private class G(var c: String, var x: Float, var y: Float, var lead: Boolean, val s: Float = 1f)
 
     /** Do cui bu them (rad, duong = camera thuc te ngua len hon hieu chinh dang dung). Tu khop theo khoang cach xe truoc cua openpilot. */
     private var dPitch = 0.0
@@ -231,7 +231,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
             val aLead = Math.atan2(o.leadY.toDouble(), o.leadX.toDouble())
             var best: SignDet.Obj? = null; var bestW = 0f
             for (b in src) if (b.cls == 2 || b.cls == 5 || b.cls == 7) {
-                if (b.y2 * cam.h > hoodPx - 3) continue
+                if (b.y2 * cam.h > hoodPx - 3 || b.conf < 0.35f) continue   // 24/11: hop diem thap (chi de noi vet) khong dung khop do cui
                 val r = ray((b.x1 + b.x2) / 2 * cam.w, b.y2 * cam.h)
                 if (abs(Math.atan2(r[1], r[0]) - aLead) < 0.09 && b.x2 - b.x1 > bestW) { best = b; bestW = b.x2 - b.x1 }
             }
@@ -259,7 +259,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
                 val rt = ray(u, b.y1 * cam.h); val sc = gx / maxOf(rt[0], 1e-3)
                 if (sn.camH - rt[2] * sc < 2.4) cc = "car"
             }
-            res += G(cc, gx, gy, false)
+            res += G(cc, gx, gy, false, b.conf)
         }
         if (leadOk) {
             var best: G? = null

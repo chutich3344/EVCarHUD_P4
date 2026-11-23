@@ -288,7 +288,7 @@ class AdasService : Service() {
         signDb = SignDb(this); camDb = CamDb(this); road = RoadInfo { m -> clog?.line(m) }
         waze = WazeModLink(this, { m -> clog?.line(m) }) { b -> onWaze(b) }.also { it.start() }
         signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
-        vehDet = VehDet(this) { ob, lm -> main.post { wide = ob; wideAt = SystemClock.elapsedRealtime(); if (lm != null) { laneMk = lm; laneMkAt = wideAt }
+        vehDet = VehDet(this) { ob, lm, fAt -> main.post { wide = ob; wideAt = fAt; if (lm != null) { laneMk = lm; laneMkAt = wideAt }
             if (targetHz == 0 && scene3d) publishScene() } }   // 23/11: AI nghi (xe dung lau) van day xe YOLO len canh 3D
         tlight = TLight(this) { r -> main.post { onTLight(r) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
@@ -1148,7 +1148,8 @@ class AdasService : Service() {
         if (limit != null && now - limitAt > 15 * 60_000L) limit = null
         s.limit = limit
         if (now - objsAt < 1500) s.objs = objs
-        if (scene3d && now - wideAt < 700) { s.wide = wide; s.wideSeq = wideAt; s.wideAge = now - wideAt }   // 23/11: 1,2 s -> 0,7 s (xe da qua van con hien)
+        if (scene3d && now - wideAt < 1000) {   // 24/11: wideAt = luc chup khung (them thoi gian AI chay) -> noi 0,7 -> 1,0 s
+         s.wide = wide; s.wideSeq = wideAt; s.wideAge = now - wideAt }   // 23/11: 1,2 s -> 0,7 s (xe da qua van con hien)
         s.cal = (!prefs.autoCalib || prefs.calibrated) && (poseErrF.isNaN() || poseErrF < 2.5f)   // + thi giac khong tin (70mai meo: pose lech GPS)
         if (scene3d && now - laneMkAt < 1500) s.lm = laneMk
         val ct = camType
