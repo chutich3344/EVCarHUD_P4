@@ -138,7 +138,7 @@ const jZeb = [0, 1].map(() => flat(0xffffff, 0.019, zebraTex)), jStop = flat(0xf
 // 23/11 toi: cot den giao thong 3D o vach dung (ben phai, can vuon ra long duong): den sang dung mau app doc duoc
 const tlG = new THREE.Group(); scene.add(tlG); tlG.visible = false;
 // 23/11 toi: duong nhanh theo ban do OSM (d.br): mat duong + 2 mep trang, tu mep duong minh ra ngoai 30 m, dung goc
-let brs = [], brA = null;
+let brs = [], brA = null, osmAt = -99;
 const brG = [0, 1, 2, 3].map(() => { const g = new THREE.Group(); g.visible = false; scene.add(g);
   const mk = (c, w, h) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c })); m.rotation.x = -Math.PI / 2; m.position.y = h; g.add(m); return m; };
   g.userData.a = mk(0x333333, 1, 0.026); g.userData.e1 = mk(0xffffff, 1, 0.03); g.userData.e2 = mk(0xffffff, 1, 0.03); return g; });
@@ -520,12 +520,17 @@ function step(dt) {
     if (d !== tlLastD) { tlLastD = d;
       if (d.tlx) { if (!tlP || Math.abs(d.tlx[0] - tlP.x) > 15) tlP = { x: d.tlx[0], y: d.tlx[1] }; else { tlP.x += (d.tlx[0] - tlP.x) * 0.3; tlP.y += (d.tlx[1] - tlP.y) * 0.3; } tlP.at = t; } }
     if (tlP) { tlP.x -= Math.max(0, cur.v) * dt; if (t - tlP.at > 6 || tlP.x < -8) tlP = null; }
-    if (tlC && !jOn && t - jEndAt > 10) {
+    // 23/11 toi (log dem 70mai: co/den long do, den duong cam bi bao nham la den -> nga tu gia): co ban do OSM thi den chi dung
+    // nga tu khi ban do CO giao lo trong +-30 m quanh cho den; khong co ban do ma la ban dem -> chi hien the den, khong dung nga tu.
+    if (d.bra !== undefined) osmAt = t;
+    const tlAt = tlP ? tlP.x : 25;
+    const tlOk = t - osmAt < 5 ? brs.some(b => Math.abs(b.x - tlAt) < 30) : d.th !== 'night';
+    if (tlC && tlOk && !jOn && t - jEndAt > 10) {
       const lx = d.ld && d.ld.p > 0.5 && d.ld.v < 3 && d.ld.x < 45 ? d.ld.x : -1;
       crossX = tlP ? tlP.x + jW / 2 + 1.5 : lx > 0 ? lx + 4.6 + 1.6 + 3.4 + jW / 2 : 25; crossAt = t; tlJ = true;
     }
     if (tlJ && jOn && tlP && t - tlP.at < 0.5) crossX += (tlP.x + jW / 2 + 1.5 - crossX) * Math.min(1, dt / 0.8);   // bam theo lan do moi
-    if (tlC && jOn) crossAt = t;
+    if (tlC && jOn && (tlJ ? tlOk : true)) crossAt = t;
     // duong nhanh / cat ngang theo ban do: moi lan GPS (d.bra doi) nap lai, giua 2 lan tru theo quang duong
     if (d.bra !== undefined && d.bra !== brA) { brA = d.bra; brs = (d.br || []).map(b => ({ x: b[0], side: b[1], ang: b[2] })); }
     brs.forEach(b => b.x -= Math.max(0, cur.v) * dt); brs = brs.filter(b => b.x > -12);
