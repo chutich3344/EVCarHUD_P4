@@ -70,11 +70,21 @@ class Scene3D(ctx: Context) : WebView(ctx) {
 
     /** Goi tren luong giao dien moi Snap. Gioi han 20 lan/giay. */
     private var sentTl = ""
+    private var outAt = 0L; private var infoAt = 0L; private var gapF = 0f; private var pendDrop = 0; private var idleSkip = 0
+    companion object {
+        /** Chan doan cho log may chu: khoang cach giua 2 lan co ket qua AI toi man 3D, so goi bi bo. */
+        @Volatile var info = "-"
+    }
     fun update(sn: Snap) {
         if (!ready || visibility != VISIBLE) return
         val now = SystemClock.elapsedRealtime()
-        if (now - lastFeed < 45) return
+        // 23/11 (lane 3D nhay): Snap KHONG co ket qua AI (HUD/GPS/xe YOLO goi publishIdle) khi AI van dang chay -> bo qua,
+        // truoc day goi nay chiem cho 45 ms va lam ROI goi co ket qua openpilot that ngay sau do.
+        if (sn.out == null && now - outAt < 700) { idleSkip++; return }
+        if (now - lastFeed < 45) { if (sn.out != null) pendDrop++; return }
+        if (sn.out != null) { if (outAt > 0) gapF += 0.2f * ((now - outAt) - gapF); outAt = now }
         lastFeed = now
+        if (now - infoAt >= 10_000) { infoAt = now; info = "${gapF.toInt()}ms/lan · bo ${pendDrop} · nghi ${idleSkip}"; pendDrop = 0; idleSkip = 0 }
         // den giao thong + so giay: goi rieng, chay ca khi AI dang nghi (xe do / dung den do lau, khong co sn.out)
         val tk = (sn.tl?.toString() ?: "-") + (sn.tlSec ?: -1)
         if (tk != sentTl) { sentTl = tk; evaluateJavascript("window.setTl && setTl(${sn.tl?.let { "'$it'" } ?: "null"}, ${sn.tlSec ?: "null"})", null) }
@@ -122,6 +132,9 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         sn.lm?.let { m -> sb.append(",\"lm\":[").append(m.joinToString(",")).append(']') }
         if (sn.wide != null) sb.append(",\"os\":").append(sn.wideSeq).append(",\"oa\":").append(sn.wideAge)
         if (!sn.cal) sb.append(",\"cal\":0")
+        // tuoi vach (ms): goi khong co ket qua AI moi thi bao vach dang dung la ket qua cu bao lau (man 3D lam mo vach > 1,5 s)
+        if (!live) sb.append(",\"la\":").append(if (outAt > 0) SystemClock.elapsedRealtime() - outAt else 99999)
+        if (sn.stat.isNotEmpty()) sb.append(",\"dbg\":1")   // bat "Ky thuat": ve them vach THO (chua lam muot) de so voi vach da ve
         sb.append(",\"ldw\":\"").append(sn.ldw).append('"')
         if (sn.offCm != null) sb.append(",\"off\":").append(sn.offCm)
         sb.append(",\"ob\":[")

@@ -125,6 +125,8 @@ const shoulderL = ribbon(0x777777, 1, 0.005), shoulderR = ribbon(0x777777, 1, 0.
 // (vach le / mep nhua) voi xac suat 0,3–0,5 -> truoc day ve thanh them 1 lan. Nay vach ngoai chi la vach chia lan khi tin cay (> 0,55, giu > 0,4)
 // va cach vach trong 2,5–4,8 m (dung be rong 1 lan), on dinh 0,5 s moi bat / 1 s moi tat. Le hep (< 2,8 m) ngoai vach cuoi to mau le, vach cuoi ve lien.
 const shdL = ribbon(0x555555, 1, 0.003), shdR = ribbon(0x555555, 1, 0.003);
+// 23/11 chan doan (bat "Ky thuat" trong Cai dat): ve vach THO tu goi moi nhat (do, chua lam muot) de so voi vach da ve (trang)
+const rawL = [0, 1, 2, 3].map(() => { const m = ribbon(0xff2d2d, 1, 0.03); m.visible = false; return m; });
 const acc = [false, true, true, false], accT = [0, 1, 1, 0]; let shLon = false, shRon = false;
 const lines = [0, 1, 2, 3].map(() => { const m = ribbon(0xffffff, 1, 0.012, 12); m.material.alphaMap = dashTex; m.material.transparent = true; m.material.depthWrite = false; return m; });
 const path = ribbon(0x3e8bff, 0.9, 0.02); path.material.alphaMap = pathTex; path.material.transparent = true; path.material.depthWrite = false;
@@ -589,13 +591,17 @@ function step(dt) {
     const yc = theme === 'night' ? 0xffc21a : 0xe2a400;
     lines[k].material.color.setHex(isY ? yc : T.line);
     if ((lines[k].material.alphaMap === null) !== solid) { lines[k].material.alphaMap = solid ? null : dashTex; lines[k].material.needsUpdate = true; }
-    lines[k].material.opacity = Math.min(1, 0.35 + cur.lp[k]);
+    lines[k].material.opacity = Math.min(1, 0.35 + cur.lp[k]) * (d.la > 1500 ? 0.4 : 1);   // vach cu (AI nghi > 1,5 s) ve mo
     const w = (k === 1 || k === 2) ? 0.09 : 0.075;
     const off = dbl ? 0.11 : 0;            // vach doi: 2 vach cach nhau ~0,22 m
     setRibbon(lines[k], Y.map(v => v - w + off), Y.map(v => v + w + off), odo);
     lines2[k].visible = lines[k].visible && dbl;
     if (dbl) { lines2[k].material.color.setHex(yc); if (lines2[k].material.alphaMap) { lines2[k].material.alphaMap = null; lines2[k].material.needsUpdate = true; }
       lines2[k].material.opacity = lines[k].material.opacity; setRibbon(lines2[k], Y.map(v => v - w - off), Y.map(v => v + w - off), odo); }
+  }
+  {
+    const dbgOn = !!d.dbg && d.ln && d.ed; rawL.forEach(m => m.visible = dbgOn);
+    if (dbgOn) [d.ln[1], d.ln[2], d.ed[0], d.ed[1]].forEach((a, i) => { const Y = sample(a); setRibbon(rawL[i], Y.map(v => v - 0.05), Y.map(v => v + 0.05)); });
   }
   const vk = Math.max(0, cur.v * 3.6);
   // duong di: dung o duoi xe truoc
@@ -720,6 +726,7 @@ function step(dt) {
     else if (oneWay) chips.push('<span class="chip">1 chiều</span>');
     if (nPark) chips.push(`<span class="chip">${nPark} xe đậu</span>`);
   }
+  if (d.dbg) chips.push('<span class="chip" style="color:#ff2d2d">đỏ = vạch thô AI</span>');
   if (d.ldw === 'L' || d.ldw === 'R') chips.push(`<span class="chip dang">Lệch lane ${d.ldw === 'L' ? 'trái' : 'phải'}</span>`);
   else if (d.off != null) chips.push(`<span class="chip">Lệch lane ${d.off >= 0 ? '+' : ''}${d.off} cm</span>`);
   const html = chips.join(''); const ce = document.getElementById('chips'); if (ce.innerHTML !== html) ce.innerHTML = html;
