@@ -73,6 +73,7 @@ class Snap(
     var limit: Int? = null
     var objs: List<SignDet.Obj>? = null   // xe/nguoi YOLOX (de ghi loai xe truoc)
     var wide: List<SignDet.Obj>? = null   // xe/nguoi TOAN KHUNG (VehDet) khi man canh 3D dang bat
+    var lm: IntArray? = null   // kieu vach 4 vach openpilot (VehDet.marks): 0 khong ro, 1 trang dut, 2 trang lien, 3 vang dut, 4 vang lien, 5 vang doi
     var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
     var camM: Int? = null
     var limitSrc: String? = null   // bien lay tu app dan duong: "Waze" / "GOFA"
@@ -177,6 +178,7 @@ class AdasService : Service() {
     @Volatile var scene3d = false
     private var wide: List<SignDet.Obj>? = null
     private var wideAt = 0L
+    private var laneMk: IntArray? = null; private var laneMkAt = 0L
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
@@ -251,7 +253,7 @@ class AdasService : Service() {
         signDb = SignDb(this); camDb = CamDb(this); road = RoadInfo { m -> clog?.line(m) }
         waze = WazeModLink(this, { m -> clog?.line(m) }) { b -> onWaze(b) }.also { it.start() }
         signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
-        vehDet = VehDet(this) { ob -> main.post { wide = ob; wideAt = SystemClock.elapsedRealtime() } }
+        vehDet = VehDet(this) { ob, lm -> main.post { wide = ob; wideAt = SystemClock.elapsedRealtime(); if (lm != null) { laneMk = lm; laneMkAt = wideAt } } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
             it.onCam = { m -> onCam(m) }
@@ -563,7 +565,7 @@ class AdasService : Service() {
         if (scene3d && uiVisible && hot < 2) vehDet?.let { vd ->
             val g = geom; val p = FloatArray(2)
             val top = if (g != null && g.project(1000f, 0f, 0f, p, 0)) ((p[1] - 0.06f * g.w) / g.h) else 0.3f
-            vd.offer(im, cam?.flip == true, top, if (hot == 0) 250L else 500L)
+            vd.offer(im, cam?.flip == true, top, if (hot == 0) 250L else 500L, g, lastOut)
         }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
@@ -998,6 +1000,7 @@ class AdasService : Service() {
         s.limit = limit
         if (now - objsAt < 1500) s.objs = objs
         if (scene3d && now - wideAt < 1200) s.wide = wide
+        if (scene3d && now - laneMkAt < 1500) s.lm = laneMk
         val ct = camType
         if (ct != null && prefs.camAlert && now - camAt < 30_000) {
             // dem lui theo quang duong da di tu luc HUD bao (duong thang, du dung cho vai tram met)

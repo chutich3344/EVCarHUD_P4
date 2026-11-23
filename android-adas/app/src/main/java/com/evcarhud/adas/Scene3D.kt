@@ -104,6 +104,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         val leadOk = o.leadProb > 0.5f
         if (leadOk) sb.append(",\"ld\":{\"p\":").append(f(o.leadProb)).append(",\"x\":").append(f(o.leadX, 1))
             .append(",\"y\":").append(f(o.leadY)).append(",\"v\":").append(f(o.leadV)).append('}')
+        sn.lm?.let { m -> sb.append(",\"lm\":[").append(m.joinToString(",")).append(']') }
         sb.append(",\"ldw\":\"").append(sn.ldw).append('"')
         if (sn.offCm != null) sb.append(",\"off\":").append(sn.offCm)
         sb.append(",\"ob\":[")
