@@ -31,9 +31,11 @@ body.day { --ink: #16191e; --sub: #3d4550; --chip: rgba(0,0,0,.08); background: 
 const N = 33, X_IDX = []; for (let i = 0; i < N; i++) X_IDX.push(192 * (i / 32) * (i / 32));
 const THEMES = {
   night: { bg: 0x15181d, fog: [30, 140], ground: 0x1b1f25, road: 0x2b3038, line: 0xdfe4ea, edge: 0x6d7682, wall: 0x3a414b,
-           car: 0x8d96a1, ego: 0xf2f4f6, glass: 0x1a1f26, lead: 0xdde6f3, shadow: 0.55, hemi: [0xcfd8e6, 0x15181d, 0.75], sun: 0.85 },
+           car: 0x8d96a1, ego: 0xf2f4f6, glass: 0x1a1f26, lead: 0xdde6f3, shadow: 0.55, hemi: [0xcfd8e6, 0x15181d, 0.75], sun: 0.85,
+           opp: 0x262b33, walk: 0x343a43, yel: 0xffc21a, onc: 0xa39a8c },
   day:   { bg: 0xe4e7eb, fog: [30, 150], ground: 0xd9dce1, road: 0xbfc4cb, line: 0xffffff, edge: 0x8d949d, wall: 0xa9afb7,
-           car: 0x7b838d, ego: 0xffffff, glass: 0x2a313a, lead: 0x4b5566, shadow: 0.28, hemi: [0xffffff, 0xb9bec5, 0.85], sun: 0.75 },
+           car: 0x7b838d, ego: 0xffffff, glass: 0x2a313a, lead: 0x4b5566, shadow: 0.28, hemi: [0xffffff, 0xb9bec5, 0.85], sun: 0.75,
+           opp: 0xb3b8c0, walk: 0xcdd1d6, yel: 0xe2a400, onc: 0x8a8173 },
 };
 let theme = 'night';
 
@@ -95,6 +97,15 @@ const shoulderL = ribbon(0x777777, 1, 0.005), shoulderR = ribbon(0x777777, 1, 0.
 const lines = [0, 1, 2, 3].map(() => { const m = ribbon(0xffffff, 1, 0.012, 12); m.material.alphaMap = dashTex; m.material.transparent = true; m.material.depthWrite = false; return m; });
 const path = ribbon(0x3e8bff, 0.9, 0.02); path.material.alphaMap = pathTex; path.material.transparent = true; path.material.depthWrite = false;
 const wallL = wallMesh(), wallR = wallMesh();
+// 23/11 (3DLANE-02): duong 2 chieu - openpilot chi cho mep phan duong chieu minh, xe nguoc chieu / xe do ben kia truoc day nam lo lung ngoai duong.
+// Thay xe ben ngoai mep trai -> ve them phan duong NGUOC CHIEU (mau hoi khac), vach tim vang doi o mep trai, vach dut giua phan ben kia.
+// Thay xe do ngoai mep phai -> ve dai le/cho do xe.
+const oppRoad = ribbon(0x333333, 1, 0.001), oppEdge = ribbon(0x777777, 1, 0.005);
+const yelA = ribbon(0xffc21a, 1, 0.013), yelB = ribbon(0xffc21a, 1, 0.013);
+const oppLine = ribbon(0xffffff, 1, 0.012, 12); oppLine.material.alphaMap = dashTex; oppLine.material.transparent = true; oppLine.material.depthWrite = false;
+const walkR = ribbon(0x555555, 1, 0.004), walkL = ribbon(0x555555, 1, 0.004);
+const wallO = wallMesh();
+let oppW = 0, oppAt = -99, oppMax = 0, parkW = 0, parkAt = -99, parkMax = 0;
 
 // ---- xe low-poly ----
 function profileShape(pts) { const s = new THREE.Shape(); pts.forEach((p, i) => i ? s.lineTo(p[0], p[1]) : s.moveTo(p[0], p[1])); s.closePath(); return s; }
@@ -154,7 +165,9 @@ function applyTheme(t) {
   scene.background = new THREE.Color(T.bg); scene.fog = new THREE.Fog(T.bg, T.fog[0], T.fog[1]);
   ground.material.color.setHex(T.ground); road.material.color.setHex(T.road);
   shoulderL.material.color.setHex(T.edge); shoulderR.material.color.setHex(T.edge);
-  lines.forEach(l => l.material.color.setHex(T.line)); [wallL, wallR].forEach(w => w.material.color.setHex(T.wall));
+  lines.forEach(l => l.material.color.setHex(T.line)); [wallL, wallR, wallO].forEach(w => w.material.color.setHex(T.wall));
+  oppRoad.material.color.setHex(T.opp); oppEdge.material.color.setHex(T.edge); oppLine.material.color.setHex(T.line);
+  yelA.material.color.setHex(T.yel); yelB.material.color.setHex(T.yel); walkR.material.color.setHex(T.walk); walkL.material.color.setHex(T.walk);
   hemi.color.setHex(T.hemi[0]); hemi.groundColor.setHex(T.hemi[1]); hemi.intensity = T.hemi[2]; sun.intensity = T.sun;
   MATS.ego.color.setHex(T.ego); MATS.glass.color.setHex(T.glass);
   ego.userData.shadow.material.opacity = T.shadow;
@@ -184,6 +197,11 @@ window.feed = function (j) {
   if (d.view) setView(d.view);
   tgt = d; const t = now(); const dt = lastFeedAt < 0 ? 0.1 : Math.min(0.5, Math.max(0.02, t - lastFeedAt)); lastFeedAt = t;
   document.getElementById('wait').hidden = true;
+  // nguoi dung TREN LONG DUONG (ke ca phan nguoc chieu) = nguoi lai xe may ma YOLO khong bat duoc xe -> ve xe may
+  if (cur.ed && d.ob) for (const o of d.ob) if (o[0] === 'person' && o[1] > 2) {
+    const eL = interp(X_IDX, cur.ed[0], o[1]), eR = interp(X_IDX, cur.ed[1], o[1]);
+    if (o[2] > eL - 0.3 - oppW && o[2] < eR - 0.2) o[0] = 'moto';
+  }
   // gan detections vao vet (gan nhat, cung nhom), uoc van toc tuong doi
   const used = new Set();
   for (const tr of tracks) {
@@ -224,14 +242,36 @@ function step(dt) {
   setRibbon(road, eL.map(v => v - 0.3), eR.map(v => v + 0.3));
   setRibbon(shoulderL, eL.map(v => v - 0.3), eL.map(v => v - 0.12));
   setRibbon(shoulderR, eR.map(v => v + 0.12), eR.map(v => v + 0.3));
-  setWall(wallL, eL.map(v => v - 0.45), 0.7); setWall(wallR, eR.map(v => v + 0.45), 0.7);
+  // phan duong nguoc chieu / le phai: lon dan khi thay xe ngoai mep, giu 8 s roi thu lai
+  const oT = t - oppAt < 8 ? Math.max(6.5, Math.min(11, oppMax)) : 0, pT = t - parkAt < 8 ? Math.max(3, Math.min(7.5, parkMax)) : 0;
+  const ga = 1 - Math.exp(-dt / 0.6); oppW += (oT - oppW) * ga; parkW += (pT - parkW) * ga;
+  if (t - oppAt > 8) oppMax = 0; if (t - parkAt > 8) parkMax = 0;
+  const two = oppW > 0.4;
+  [oppRoad, oppEdge, yelA, yelB, wallO, walkL].forEach(m => m.visible = two);
+  oppLine.visible = oppW > 5.5;
+  if (two) {
+    const iL = eL.map(v => v - 0.3), oL = iL.map(v => v - oppW);
+    setRibbon(oppRoad, oL, iL);
+    setRibbon(yelA, iL.map(v => v - 0.08), iL.map(v => v + 0.02)); setRibbon(yelB, iL.map(v => v + 0.14), iL.map(v => v + 0.24));
+    setRibbon(oppLine, iL.map(v => v - oppW / 2 - 0.075), iL.map(v => v - oppW / 2 + 0.075), odo);
+    setRibbon(oppEdge, oL.map(v => v - 0.18), oL);
+    setRibbon(walkL, oL.map(v => v - 3.2), oL.map(v => v - 0.18));
+    setWall(wallO, oL.map(v => v - 3.3), 0.7);
+  }
+  walkR.visible = parkW > 0.4;
+  if (walkR.visible) setRibbon(walkR, eR.map(v => v + 0.3), eR.map(v => v + 0.3 + parkW));
+  // khi da co phan duong ben kia / le do xe thi bo tuong mo (truoc day xe ben kia dung sau tuong)
+  // cao toc (> 60 km/h): ben kia la chieu doc lap co dai phan cach -> giu tuong, khong ve vach vang
+  const hw = cur.v * 3.6 > 60; yelA.visible = yelB.visible = two && !hw;
+  wallL.visible = !two || hw; wallR.visible = true;
+  setWall(wallL, eL.map(v => v - 0.45), 0.7); setWall(wallR, eR.map(v => v + 0.45 + parkW), 0.7);
   for (let k = 0; k < 4; k++) {
     const ln = cur.ln[k], Y = sample(ln), y10 = at(ln, 10), e0 = at(cur.ed[0], 10), e1 = at(cur.ed[1], 10);
     const dE = Math.min(Math.abs(y10 - e0), Math.abs(y10 - e1));
     const inside = y10 > e0 - 0.4 && y10 < e1 + 0.4;
     lines[k].visible = cur.lp[k] > (k === 1 || k === 2 ? 0.25 : 0.4) && inside;
     // duong 2 chieu (thay xe nguoc chieu ben trai trong 5 s): vach trai lan minh = vach tim vang lien
-    const center = k === 1 && t - oncAt < 5;
+    const center = k === 1 && t - oncAt < 5 && !two;
     lines[k].material.color.setHex(center ? (theme === 'night' ? 0xffc21a : 0xe2a400) : T.line);
     const solid = dE < 0.9 || center; if ((lines[k].material.alphaMap === null) !== solid) { lines[k].material.alphaMap = solid ? null : dashTex; lines[k].material.needsUpdate = true; }
     lines[k].material.opacity = Math.min(1, 0.35 + cur.lp[k]);
@@ -275,9 +315,18 @@ function step(dt) {
     const xc = x + (ob.kind === 'person' ? 0 : L / 2);
     ob.grp.position.set(y, 0, -xc);
     if ((tr.onc || 0) >= 3 && y < centerAt(xc)) oncAt = t;
-    const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6); ob.grp.rotation.y = -yaw + ((tr.onc || 0) >= 3 ? Math.PI : 0);
+    // xe nam ngoai mep trai (khong phai nguoi di bo) -> co phan duong nguoc chieu; ngoai mep phai -> le / xe do
+    const eLx = at(cur.ed[0], xc), eRx = at(cur.ed[1], xc);
+    const outL = y < eLx - 0.6, outR = y > eRx + 0.6;
+    if (tr.n >= 3 && ob.kind !== 'person' && x > 3 && x < 60) {
+      if (outL && eLx - y < 14) { oppAt = t; oppMax = Math.max(oppMax, eLx - 0.3 - y + 2.2); }
+      if (outR && y - eRx < 10) { parkAt = t; parkMax = Math.max(parkMax, y - eRx - 0.3 + 1.6); }
+    }
+    // ben phan nguoc chieu: mac dinh quay dau ve phia minh, tru khi vet cho thay chay cung chieu ro rang
+    const faceUs = (tr.onc || 0) >= 3 || (two && y < eLx - 0.2 && (tr.onc || 0) > -3);
+    const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6); ob.grp.rotation.y = -yaw + (faceUs ? Math.PI : 0);
     const fade = Math.min(tr.a, fadeOut, x > 70 ? Math.max(0, (95 - x) / 25) : 1);
-    let col = T.car;
+    let col = faceUs && ob.kind !== 'person' ? T.onc : T.car;
     if (tr.lead && d.ld) {
       col = T.lead; const vrel = d.ld.v - cur.v, ttc = vrel < -0.5 ? x / -vrel : 99;
       if (vk > 5 && x < ttSafe(vk)) col = 0xffb020;
