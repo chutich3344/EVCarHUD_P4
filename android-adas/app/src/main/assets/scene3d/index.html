@@ -438,7 +438,10 @@ function step(dt) {
       const mat = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.15, transparent: true });
       tr.obj = { grp: makeCar(KIND[c] || 'car', mat), mat, kind: KIND[c] }; scene.add(tr.obj.grp);
     }
-    const ob = tr.obj, L = ob.grp.userData.L, y = tr.sy, Wd = WID[ob.kind] || 1.8;
+    const ob = tr.obj, L = ob.grp.userData.L, Wd = WID[ob.kind] || 1.8;
+    let y = tr.sy;
+    // xe ben canh sat xe minh (xe nguoc chieu luot qua, chieu hop xe sat mep anh hay lech vao trong) -> day ra ngoai, khong ve chong len xe minh
+    if (tr.sx < 2.1 && tr.sx + L > -3.1 && Math.abs(y) < (1.9 + Wd) / 2 + 0.25) y = (y < 0 ? -1 : 1) * ((1.9 + Wd) / 2 + 0.25);
     let x = tr.sx;
     for (let it = 0; it < 6; it++) {
       const hit = placed.find(p => Math.abs(p.y - y) < (p.w + Wd) / 2 * 0.9 && x < p.x + p.l + 0.4 && x + L > p.x - 0.4);
