@@ -30,6 +30,7 @@ body.day { --ink: #16191e; --sub: #3d4550; --chip: rgba(0,0,0,.08); background: 
 <button class="vbtn" id="vbtn">🎥 Sau xe</button>
 <div class="wait" id="wait">Đang chờ AI…</div>
 <script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
 <script>
 "use strict";
 const N = 33, X_IDX = []; for (let i = 0; i < N; i++) X_IDX.push(192 * (i / 32) * (i / 32));
@@ -161,6 +162,24 @@ function makeCar(kind, bodyMat) {
   addShadow(grp, L, W); grp.userData.L = L; return grp;
 }
 const ego = makeCar('ego', MATS.ego); ego.position.set(0, 0, 0.5); scene.add(ego);   // goc toa do = camera kinh lai, dau xe ~1,8 m phia truoc
+// mau xe minh tu file .glb nguoi dung chon (vd VinFast VF7): tu can dai 4,6 m, dat len mat duong, quay dau ve phia truoc
+let egoGlb = null;
+window.setEgoModel = function (url, flip, white) {
+  if (egoGlb) { ego.remove(egoGlb); egoGlb = null; }
+  ego.children.forEach(c => { if (c !== ego.userData.shadow) c.visible = !url; });
+  if (!url || !THREE.GLTFLoader) return;
+  new THREE.GLTFLoader().load(url, g => {
+    const m = g.scene; let box = new THREE.Box3().setFromObject(m), sz = box.getSize(new THREE.Vector3());
+    if (sz.x > sz.z) { m.rotation.y = Math.PI / 2; box = new THREE.Box3().setFromObject(m); sz = box.getSize(new THREE.Vector3()); }
+    if (flip) m.rotation.y += Math.PI;
+    const k = 4.6 / Math.max(0.01, sz.z); m.scale.multiplyScalar(k);
+    box = new THREE.Box3().setFromObject(m); const c = box.getCenter(new THREE.Vector3());
+    m.position.x -= c.x; m.position.z -= c.z; m.position.y -= box.min.y;
+    m.traverse(o => { if (o.isMesh) { o.castShadow = false; if (white && o.material) { const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach(mt => { const n = (mt.name || '').toLowerCase(); if (mt.color && !/glass|window|kinh|tire|tyre|wheel|rim|light|lamp|black/.test(n) && !mt.transparent) mt.color.setHex(0xf4f5f7); }); } } });
+    egoGlb = m; ego.add(m);
+  }, undefined, e => { console.log('glb loi', e); ego.children.forEach(c => c.visible = true); });
+};
 const glow = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 6.4), new THREE.MeshBasicMaterial({ color: 0x3e8bff, transparent: true, alphaMap: shadowTex, opacity: 0.9, depthWrite: false }));
 glow.rotation.x = -Math.PI / 2; glow.position.y = 0.03; glow.visible = false; scene.add(glow);
 const KIND = { car: 'car', bus: 'big', truck: 'big', moto: 'moto', bike: 'moto', person: 'person' };

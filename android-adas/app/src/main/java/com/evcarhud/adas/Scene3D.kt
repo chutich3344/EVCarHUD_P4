@@ -43,13 +43,25 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         setBackgroundColor(Color.rgb(21, 24, 29))
         settings.javaScriptEnabled = true
         settings.allowFileAccess = true
+        @Suppress("DEPRECATION") settings.allowFileAccessFromFileURLs = true   // nap mau xe .glb trong filesDir
         settings.mediaPlaybackRequiresUserGesture = true
         isVerticalScrollBarEnabled = false; isHorizontalScrollBarEnabled = false
         webViewClient = object : WebViewClient() {
-            override fun onPageFinished(v: WebView?, url: String?) { ready = true }
+            override fun onPageFinished(v: WebView?, url: String?) { ready = true; applyEgo() }
         }
         addJavascriptInterface(Bridge(), "LaneApp")
         loadUrl("file:///android_asset/scene3d/index.html")
+    }
+
+    /** Mau xe minh (.glb), null = xe mac dinh. */
+    var egoFile: String? = null
+    var egoFlip = false
+    var egoWhite = false
+    fun applyEgo() {
+        if (!ready) return
+        val f = egoFile?.takeIf { java.io.File(it).isFile }
+        val u = if (f == null) "null" else "'file://" + f.replace("'", "") + "?t=" + java.io.File(f).lastModified() + "'"
+        evaluateJavascript("window.setEgoModel && setEgoModel($u, $egoFlip, $egoWhite)", null)
     }
 
     fun pause() { onPause() }

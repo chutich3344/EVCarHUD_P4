@@ -62,6 +62,16 @@ class Prefs(ctx: Context) {
     var scene3dView: String
         get() = p.getString("scene3dview", null) ?: if (p.getBoolean("scene3dhigh", false)) "high" else "chase"
         set(v) = p.edit().putString("scene3dview", v).apply()
+    /** Mau xe minh trong canh 3D: file .glb da chep vao filesDir (rong = xe mac dinh), quay 180 do, son trang. */
+    var egoGlb: String
+        get() = p.getString("egoglb", "") ?: ""
+        set(v) = p.edit().putString("egoglb", v).apply()
+    var egoFlip: Boolean
+        get() = p.getBoolean("egoflip", false)
+        set(v) = p.edit().putBoolean("egoflip", v).apply()
+    var egoWhite: Boolean
+        get() = p.getBoolean("egowhite", false)
+        set(v) = p.edit().putBoolean("egowhite", v).apply()
     /** Cong tac tat NHANH het cua so noi (PiP: ban do + o nhiet) de xem camera gon. Mac dinh TAT (van hien PiP). */
     var hidePip: Boolean
         get() = p.getBoolean("hidepip", false)

@@ -155,6 +155,7 @@ class MainActivity : Activity() {
         scene = sc
         sc.view = prefs.scene3dView
         sc.onView = { v -> prefs.scene3dView = v }     // nut doi goc ngay tren man 3D
+        sc.egoFile = prefs.egoGlb.ifEmpty { null }; sc.egoFlip = prefs.egoFlip; sc.egoWhite = prefs.egoWhite
         root.addView(sc, root.indexOfChild(overlay) + 1, FrameLayout.LayoutParams(1, 1))
     }
 
@@ -338,6 +339,7 @@ class MainActivity : Activity() {
                 T("Chia đôi màn (camera | bản đồ)", "trái camera + ADAS, phải bản đồ · bật nhanh bằng nút ◫ trên màn", { prefs.splitScreen }, { b -> prefs.splitScreen = b; overlay.split = b; sizePips(root.width) }, true),
                 S("Cảnh lái 3D (kiểu Tesla)", "vẽ lại lane, đường đi, xe xung quanh từ AI · bật nhanh bằng nút 3D trên màn", listOf("Tắt", "Toàn màn", "Thay bản đồ"), { prefs.scene3d.coerceIn(0, 2) }, { k -> prefs.scene3d = k; if (k != 0) prefs.scene3dLast = k; sizePips(root.width) }, true),
                 S("Góc nhìn cảnh 3D", null, listOf("Sau xe", "Trên cao", "Sát sau", "FSD"), { VIEWS3D.indexOf(prefs.scene3dView).coerceAtLeast(0) }, { k -> prefs.scene3dView = VIEWS3D[k]; scene?.view = VIEWS3D[k] }, true),
+                A("Mẫu xe 3D của mình", "chọn file .glb (vd VF7 tải từ Sketchfab) · tự co về dài 4,6 m", if (prefs.egoGlb.isEmpty()) "Mặc định" else "File .glb") { egoModelDialog() },
                 T("Ẩn cửa sổ nổi (PiP)", "ẩn nhanh bản đồ + ô nhiệt để xem camera gọn", { prefs.hidePip }, { b -> prefs.hidePip = b; showPips() }, false),
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),
                 S("Nguồn bản đồ", null, listOf("Google tối", "OpenStreetMap"), { if (prefs.mapSrc == "osm") 1 else 0 }, { k -> prefs.mapSrc = if (k == 1) "osm" else "google"; map.source = prefs.mapSrc }, false),
@@ -388,9 +390,37 @@ class MainActivity : Activity() {
         catch (e: Exception) { svc?.logLine("WAZEMOD xin quyen loi ${e.javaClass.simpleName} ${e.message}"); toast(svc?.wazeStatus() ?: "Không mở được Waze Mod (${e.javaClass.simpleName})") }
     }
 
+    private fun egoModelDialog() {
+        val items = arrayOf("Chọn file .glb…", "Dùng xe mặc định", (if (prefs.egoFlip) "✓ " else "") + "Quay đầu xe 180°", (if (prefs.egoWhite) "✓ " else "") + "Sơn trắng thân xe")
+        AlertDialog.Builder(this).setTitle("Mẫu xe 3D của mình").setItems(items) { _, k ->
+            when (k) {
+                0 -> try { @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), 8) } catch (e: Exception) { toast("Không mở được trình chọn file") }
+                1 -> { prefs.egoGlb = ""; applyEgo() }
+                2 -> { prefs.egoFlip = !prefs.egoFlip; applyEgo() }
+                3 -> { prefs.egoWhite = !prefs.egoWhite; applyEgo() }
+            }
+        }.show()
+    }
+
+    private fun applyEgo() {
+        scene?.let { it.egoFile = prefs.egoGlb.ifEmpty { null }; it.egoFlip = prefs.egoFlip; it.egoWhite = prefs.egoWhite; it.applyEgo() }
+        refreshSettings()
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(req: Int, res: Int, data: Intent?) {
         @Suppress("DEPRECATION") super.onActivityResult(req, res, data)
+        if (req == 8 && res == RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                val f = java.io.File(filesDir, "xe-3d.glb")
+                contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                val head = f.inputStream().use { val b = ByteArray(4); it.read(b); String(b, Charsets.ISO_8859_1) }
+                if (head != "glTF") { f.delete(); toast("File không phải .glb (glTF nhị phân)"); return }
+                if (f.length() > 40L shl 20) { f.delete(); toast("File quá lớn (> 40 MB), nên giảm bớt tam giác"); return }
+                prefs.egoGlb = f.absolutePath; applyEgo(); toast("Đã nạp mẫu xe 3D (${f.length() / 1024} KB)")
+            } catch (e: Exception) { toast("Lỗi đọc file: ${e.message}") }
+        }
         if (req == 7) { svc?.logLine("WAZEMOD xin quyen ket qua $res"); toast(if (res == RESULT_OK) "Đã nối Waze Mod" else "Waze Mod chưa cho phép (bị đóng ngay hoặc bấm Từ chối)"); svc?.wazeRetry(); refreshSettings() }
     }
 
