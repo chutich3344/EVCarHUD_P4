@@ -492,11 +492,9 @@ function step(dt) {
     crossX -= Math.max(0, cur.v) * dt;
     // 23/11 (V14 Lite): dang thay den giao thong ma chua co xe chay ngang -> van dung giao lo phia truoc: ngay sau xe truoc dang dung, khong thi ~25 m.
     // Giu toi khi xe minh qua giao lo, sau do 10 s moi dat lai (den van con trong khung khi vua qua).
-    if (tlC && !jOn && t - jEndAt > 10) {
-      const lx = d.ld && d.ld.p > 0.5 && d.ld.v < 3 && d.ld.x < 45 ? d.ld.x : -1;
-      crossX = lx > 0 ? lx + 4.6 + 1.6 + 3.4 + jW / 2 : 25; crossAt = t; tlJ = true;
-    }
-    if (tlC && tlJ && jOn) crossAt = t;
+    // 23/11 toi (Reality): den giao thong KHONG tu dung nga tu nua (truoc day dat cach 25 m). Nga tu chi bat khi co xe cat ngang
+    // that (giu >= 0,6 s, di vao long duong); dang co nga tu that ma van thay den thi giu nga tu.
+    if (tlC && jOn) crossAt = t;
     // be ngang duong cat ngang ~ be ngang duong chinh (7–14 m), chot luc bat dau giao lo
     if (!jOn && cur.ed) jW = Math.max(7, Math.min(14, interp(X_IDX, cur.ed[1], 12) - interp(X_IDX, cur.ed[0], 12) + 0.6 + (oppW > 0.4 && !inOppPrev ? oppW + medW : 0)));
     const jWas = jOn;
@@ -641,6 +639,8 @@ function step(dt) {
     const PY = XS.map(x => interp(cur.px, cur.py, Math.min(Math.max(x, 0), pmax)));
     const pw = j => (XS[j] < 1.9 || XS[j] > pmax) ? 0 : 0.95 * (1 - 0.45 * Math.min(1, (XS[j] - 1.9) / Math.max(1, pmax - 1.9)));   // thon dan ve xa
     setRibbon(path, PY.map((v, j) => v - pw(j)), PY.map((v, j) => v + pw(j)), 0, x => Math.max(0, Math.min(1, (x - 1.9) / (pmax - 1.9))));
+    // 23/11 toi: den do / vang -> duong di cua minh doi mau do / vang (thay cho tu dung nga tu khi chua co bang chung)
+    path.material.color.setHex(tlC === 'R' ? 0xff3b30 : tlC === 'Y' ? 0xffb020 : 0x3e8bff);
   }
   // xe
   const centerAt = x => (at(cur.ln[1], x) + at(cur.ln[2], x)) / 2;
@@ -667,11 +667,11 @@ function step(dt) {
       const eR1 = at(cur.ed[1], tr.sx + L / 2);
       if (ob.kind !== 'person' && y > eR1 + 0.4) y = Math.max(y, eR1 + 0.3 + Wd / 2 + 0.2);
     }
-    let x = tr.sx;
-    for (let it = 0; it < 6; it++) {
-      const hit = placed.find(p => Math.abs(p.y - y) < (p.w + Wd) / 2 * 0.9 && x < p.x + p.l + 0.4 && x + L > p.x - 0.4);
-      if (!hit) break; x = hit.x + hit.l + 0.6;
-    }
+    // 23/11 toi (Reality): KHONG xep/day xe cho do chong. Trung gan het voi xe da ve (2 lan nhan cung 1 xe) -> an ban sau;
+    // chong nhe (2 xe sat nhau that) -> giu dung vi tri do duoc.
+    const x = tr.sx;
+    const dup = placed.find(p => Math.abs(p.y - y) < (p.w + Wd) / 2 * 0.55 && Math.min(x + L, p.x + p.l) - Math.max(x, p.x) > 0.6 * Math.min(L, p.l));
+    if (dup) { ob.grp.visible = false; continue; }
     placed.push({ x, y, l: L, w: Wd });
     const xc = x + (ob.kind === 'person' ? 0 : L / 2);
     ob.grp.position.set(y, 0, -xc);
