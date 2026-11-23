@@ -41,6 +41,8 @@ class Beeper {
     }
 
     fun test() = play(ToneGenerator.TONE_PROP_BEEP2, 400)
+    /** Den vua chuyen xanh trong luc xe dung (nhac nhe, khac tieng canh bao). */
+    fun green() = play(ToneGenerator.TONE_PROP_ACK, 300)
 
     private fun play(tone: Int, ms: Int) { try { tg?.startTone(tone, ms) } catch (_: Exception) {} }
 

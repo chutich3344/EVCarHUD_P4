@@ -237,6 +237,7 @@ class MainActivity : Activity() {
                 S("Độ nhạy xe trước", "sớm = báo sớm hơn, dễ kêu hơn", listOf("Sớm", "Vừa", "Muộn"), { prefs.fcwSens }, { k -> prefs.fcwSens = k }, true),
                 H("Biển & tốc độ"),
                 T("Đọc biển giao thông", "camera đọc biển khi xe chạy", { prefs.signs }, { b -> prefs.signs = b }, false),
+                T("Đèn giao thông + đếm giây", "quét khi xe chậm/dừng gần giao lộ · dừng đèn đỏ thì AI nghỉ bớt cho mát máy · ting khi chuyển xanh", { prefs.tlight }, { b -> prefs.tlight = b }, false),
                 S("Kêu khi vượt tốc độ", "chỉ theo biển thật / Waze / GOFA", listOf("Tắt", "+0", "+5", "+10"),
                     { when (prefs.overKmh) { -1 -> 0; 0 -> 1; 10 -> 3; else -> 2 } }, { k -> prefs.overKmh = intArrayOf(-1, 0, 5, 10)[k] }, true),
                 T("Biển tốc độ từ Waze / GOFA", "bong bóng tốc độ của app dẫn đường", { prefs.navLimit }, { b -> prefs.navLimit = b }, true),
