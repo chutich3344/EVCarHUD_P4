@@ -75,7 +75,7 @@ class Snap(
     var wide: List<SignDet.Obj>? = null   // xe/nguoi TOAN KHUNG (VehDet) khi man canh 3D dang bat
     var wideSeq = 0L   // moc lan nhan (de canh 3D chi cap nhat vet khi co lan nhan MOI, khong lap lai list cu 20 lan/giay)
     var wideAge = 0L   // tuoi lan nhan do (ms)
-    var cal = true     // camera da hieu chinh xong (chua xong: vach openpilot chao -> canh 3D lam muot manh hon)
+    var cal = true     // camera da hieu chinh xong VA thi giac tin duoc (khong: vach openpilot chao -> canh 3D lam muot manh, bo khung vo ly)
     var lm: IntArray? = null   // kieu vach 4 vach openpilot (VehDet.marks): 0 khong ro, 1 trang dut, 2 trang lien, 3 vang dut, 4 vang lien, 5 vang doi
     var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
     var camM: Int? = null
@@ -1050,7 +1050,7 @@ class AdasService : Service() {
         s.limit = limit
         if (now - objsAt < 1500) s.objs = objs
         if (scene3d && now - wideAt < 700) { s.wide = wide; s.wideSeq = wideAt; s.wideAge = now - wideAt }   // 23/11: 1,2 s -> 0,7 s (xe da qua van con hien)
-        s.cal = !prefs.autoCalib || prefs.calibrated
+        s.cal = (!prefs.autoCalib || prefs.calibrated) && (poseErrF.isNaN() || poseErrF < 2.5f)   // + thi giac khong tin (70mai meo: pose lech GPS)
         if (scene3d && now - laneMkAt < 1500) s.lm = laneMk
         val ct = camType
         if (ct != null && prefs.camAlert && now - camAt < 30_000) {
