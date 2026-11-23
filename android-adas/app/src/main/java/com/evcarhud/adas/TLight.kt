@@ -153,7 +153,8 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         val lit = lampsF.filter { it.col != null }
         var col: Char? = null; var sec: Int? = null
         if (lit.isNotEmpty()) {
-            val m = lit.maxByOrNull { (it.b[2] - it.b[0]) * (it.b[3] - it.b[1]) * it.conf }!!
+            // den to + tin cay + gan giua ngang (den 2 mep vung quet thuong cua huong khac) duoc uu tien
+            val m = lit.maxByOrNull { val cxn = (it.b[0] + it.b[2]) / 2f / w; (it.b[2] - it.b[0]) * (it.b[3] - it.b[1]) * it.conf * (1f - 1.2f * abs(cxn - 0.5f)) }!!
             col = m.col
             sec = m.cd?.v ?: cds.firstOrNull { it.col == m.col }?.cd?.v ?: lit.firstOrNull { it.col == m.col && it.cd != null }?.cd?.v
         }
@@ -378,14 +379,31 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         var changedAt = 0L; private set
         var prevCol: Char? = null; private set
 
+        /** Moi mau: [luc bat dau xuat hien lien tuc, lan cuoi thay]. Mat > 2,5 s thi tinh lai tu dau. */
+        private val streak = HashMap<Char, LongArray>()
+        /** Mau duoc chon o lan quet vua roi (de ghi log). */
+        var want: Char? = null; private set
+
         fun update(r: Res, now: Long) {
-            if (r.col == null) { if (now - seenAt > 3000) { col = null; sec = -1; lamps = emptyList() }; return }
+            if (r.col == null) { if (now - seenAt > 3000) { col = null; sec = -1; lamps = emptyList(); streak.clear() }; want = null; return }
             seenAt = now; lamps = r.lamps
-            if (r.col != col) {
-                if (cand == r.col) candN++ else { cand = r.col; candN = 1 }
-                if (candN >= 2 || col == null) { prevCol = col; col = r.col; changedAt = now; sec = -1; pendV = -1 } else return
+            val present = r.lamps.map { it.col }.toSet().ifEmpty { setOf(r.col) }
+            for (c in present) { val st = streak[c]; if (st == null || now - st[1] > 2500) streak[c] = longArrayOf(now, now) else st[1] = now }
+            // 23/11 test that: dung cho do, den minh chuyen xanh nhung khung van con 1 den do khac (huong khac / mui ten / bi cat
+            // khoi man) to hon -> cu bao DO. Luat: khi trong khung co nhieu mau, MAU MOI XUAT HIEN (sau mau kia >= 1,5 s) thang;
+            // cung luc xuat hien thi theo den to + gan giua nhat (r.col).
+            var w: Char = r.col
+            if (present.size > 1) {
+                val nw = present.maxByOrNull { streak[it]!![0] }!!
+                val older = present.filter { it != nw }.minOf { streak[it]!![0] }
+                if (streak[nw]!![0] - older >= 1500) w = nw
             }
-            val v = r.sec ?: return
+            want = w
+            if (w != col) {
+                if (cand == w) candN++ else { cand = w; candN = 1 }
+                if (candN >= 2 || col == null) { prevCol = col; col = w; changedAt = now; sec = -1; pendV = -1 } else return
+            }
+            val v = (if (w == r.col) r.sec else null) ?: r.lamps.firstOrNull { it.col == w && it.sec != null }?.sec ?: return
             val pred = cur(now)
             when {
                 pred == null || abs(pred - v) <= 2 -> { sec = v; secAt = now; pendV = -1 }
@@ -395,7 +413,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         }
         /** So giay hien tai (dem lui theo dong ho), null = khong co / da het. */
         fun cur(now: Long): Int? { if (sec < 0) return null; val v = sec - ((now - secAt) / 1000).toInt(); return if (v >= 0) v else null }
-        fun clear() { col = null; sec = -1; lamps = emptyList(); cand = null; candN = 0 }
+        fun clear() { col = null; sec = -1; lamps = emptyList(); cand = null; candN = 0; streak.clear() }
     }
 
     companion object {
