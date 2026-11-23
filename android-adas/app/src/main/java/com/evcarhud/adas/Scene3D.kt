@@ -80,8 +80,9 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         val now = SystemClock.elapsedRealtime()
         // 23/11 (lane 3D nhay): Snap KHONG co ket qua AI (HUD/GPS/xe YOLO goi publishIdle) khi AI van dang chay -> bo qua,
         // truoc day goi nay chiem cho 45 ms va lam ROI goi co ket qua openpilot that ngay sau do.
-        if (sn.out == null && now - outAt < 700) { idleSkip++; return }
-        if (now - lastFeed < 45) { if (sn.out != null) pendDrop++; return }
+        // 23/11 toi (gop y): KHONG bo han goi nay (xe YOLO / GPS / HUD van phai cap nhat) -> goi co ket qua AI luon qua ngay,
+        // goi khong co ket qua chi gui toi da ~8 lan/giay va giu nguyen vach + xe truoc cua lan AI gan nhat (khong nhay).
+        if (sn.out == null && now - lastFeed < 120) { idleSkip++; return }
         if (sn.out != null) { if (outAt > 0) gapF += 0.2f * ((now - outAt) - gapF); outAt = now }
         lastFeed = now
         if (now - infoAt >= 10_000) { infoAt = now; info = "${gapF.toInt()}ms/lan · bo ${pendDrop} · nghi ${idleSkip}"; pendDrop = 0; idleSkip = 0 }
@@ -109,7 +110,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
 
     private fun json(sn: Snap): String? {
         sn.out?.let { lastOut = it }
-        val live = sn.out != null
+        val live = sn.out != null || (outAt > 0 && SystemClock.elapsedRealtime() - outAt < 700)   // AI van dang chay: goi phu giu ket qua moi nhat
         val o = sn.out ?: lastOut ?: defOut
         val sb = StringBuilder(2600)
         sb.append("{\"v\":").append(f(sn.vKmh / 3.6f))

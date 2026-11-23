@@ -60,8 +60,9 @@ class Prefs(ctx: Context) {
         set(v) = p.edit().putInt("scene3dlast", v).apply()
     /** Goc nhin canh 3D: "chase" sau xe, "high" tren cao, "low" thap sat sau xe, "fsd" xeo 3/4 cao kieu Tesla FSD (23/11). */
     var scene3dView: String
-        get() = p.getString("scene3dview", null) ?: if (p.getBoolean("scene3dhigh", false)) "high" else "chase"
-        set(v) = p.edit().putString("scene3dview", v).apply()
+        // 23/11 toi: khoa moi -> moi may vao thang goc V14 (fsd) 1 lan, sau do giu goc nguoi dung chon
+        get() = p.getString("scene3dview_v14", null) ?: "fsd"
+        set(v) = p.edit().putString("scene3dview_v14", v).apply()
     /** Mau xe minh trong canh 3D: file .glb da chep vao filesDir (rong = xe mac dinh), quay 180 do, son trang. */
     var egoGlb: String
         get() = p.getString("egoglb", "") ?: ""

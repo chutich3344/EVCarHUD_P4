@@ -136,7 +136,7 @@ class AdasService : Service() {
     private var preY = ByteArray(0); private var preU = ByteArray(0); private var preV = ByteArray(0)
     /** Chan doan (23/11): khoang cach 2 khung dua vao mo hinh lan cuoi (0 = 2 khung giong nhau), so lan cap hong / tong, so lan doi hinh hoc. */
     @Volatile private var pairMs = -1L
-    private var pairBad = 0; private var pairAll = 0; private var geomN = 0
+    private var pairBad = 0; private var pairAll = 0; private var geomN = 0; private var pairSkip = 0; private var goodPairAt = 0L
     private var keepRingOnce = false
     private var gpsKmh = -1f
     private var gpsAt = 0L
@@ -572,7 +572,9 @@ class AdasService : Service() {
             // pho dong it doan thang dai: lech < 1,1 do 1 lan la du dung (van tiep tuc tinh chinh sau)
             if (yawGood >= 1 && !prefs.calibrated) prefs.calibrated = true
             saveCalib()
-            if (abs(med) > 0.002) rebuildGeom(keepRing = true)   // chinh yaw vai phan 10 do: giu cap khung, khong lam vach nhay
+            // chinh yaw nho (< ~0,8 do/lan): giu cap khung, khong lam vach nhay; chinh lon (luc moi hieu chinh) thi xoa ring
+            // de 2 khung trong cap khong lech he toa do (gop y 23/11 toi)
+            if (abs(med) > 0.002) rebuildGeom(keepRing = abs(med) < 0.02)
         }
     }
 
@@ -790,6 +792,10 @@ class AdasService : Service() {
         }
         if (bestErr > 120) best = slot
         pairMs = ts - ringT[best]; pairAll++; if (best == slot) pairBad++
+        // 23/11 toi (gop y P0): cap khung hong (2 khung giong nhau) -> KHONG chay mo hinh, giu vach lan truoc
+        // (khung nay da vao ring nen lan sau co cap dung). Chi chap nhan cap hong khi da >2 s khong co ket qua (moi mo cam).
+        if (best == slot && t0 - goodPairAt < 2000) { pairSkip++; return }
+        if (best != slot) goodPairAt = t0
         System.arraycopy(ringMed[best], 0, img, 0, Op.PACK); System.arraycopy(ringMed[slot], 0, img, Op.PACK, Op.PACK)
         System.arraycopy(ringBig[best], 0, big, 0, Op.PACK); System.arraycopy(ringBig[slot], 0, big, Op.PACK, Op.PACK)
 
@@ -927,7 +933,7 @@ class AdasService : Service() {
         if (xcInfo != lastXc) { lastXc = xcInfo; l.line(xcInfo) }
         // chan doan lane 3D (23/11): cap khung vao mo hinh + so lan doi hinh hoc, moi 10 s
         if (now - pairLogAt >= 10_000) { pairLogAt = now
-            l.line("cap khung ${pairMs}ms · hong $pairBad/$pairAll · doi hinh hoc $geomN · feed3d ${Scene3D.info}"); pairBad = 0; pairAll = 0; geomN = 0 }
+            l.line("cap khung ${pairMs}ms · hong $pairBad/$pairAll (bo $pairSkip) · doi hinh hoc $geomN · feed3d ${Scene3D.info}"); pairBad = 0; pairAll = 0; geomN = 0; pairSkip = 0 }
     }
 
     private fun onResult(o: Op.Out, g: Op.Cam, v: Float, ldw: Char, off: Float?, leadM: Float?, ttc: Float?, level: Int, near: Boolean) {

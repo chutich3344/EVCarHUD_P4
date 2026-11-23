@@ -33,6 +33,8 @@ class MainActivity : Activity() {
     private var svc: AdasService? = null
     private var scene: Scene3D? = null          // man canh 3D (tao khi bat lan dau)
     private lateinit var btn3d: android.widget.TextView
+    /** Nut Cai dat co to tren man 3D toan man (camera dang o PiP khong con ve nut). */
+    private lateinit var btnGear: android.widget.TextView
     private var started = false
 
     private val conn = object : ServiceConnection {
@@ -71,6 +73,13 @@ class MainActivity : Activity() {
             setOnClickListener { toggle3d() }
         }
         root.addView(btn3d, FrameLayout.LayoutParams(1, 1))
+        btnGear = android.widget.TextView(this).apply {
+            text = "⚙"; setTextColor(android.graphics.Color.WHITE); gravity = android.view.Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 24f; setColor(0xcc141b25.toInt()); setStroke(3, 0x55ffffff) }
+            setOnClickListener { settings() }
+            visibility = View.GONE
+        }
+        root.addView(btnGear, FrameLayout.LayoutParams(1, 1))
         setContentView(root)
         root.addOnLayoutChangeListener { _, l, t, r, btm, ol, ot, orr, ob ->
             if (r - l != orr - ol || btm - t != ob - ot) sizePips(r - l)
@@ -120,6 +129,7 @@ class MainActivity : Activity() {
     private fun sizePips(w: Int) {
         if (w <= 0) return
         place3dBtn(w)
+        overlay.pip = false; btnGear.visibility = View.GONE   // applyScene bat lai khi 3D toan man
         if (prefs.scene3d == 1 && !overlay.calib) { applyScene(w); return }
         if (prefs.splitScreen) { applySplit(w); return }
         val u = w / 100f
@@ -188,9 +198,16 @@ class MainActivity : Activity() {
             showScene(0f, 0f, -1, -1)
             scene?.setOnTouchListener(null)
             overlay.layoutParams = FrameLayout.LayoutParams(pw, ph); overlay.x = px; overlay.y = py
+            overlay.pip = true
             overlay.onTap = { swap3d = true; sizePips(root.width) }
             overlay.bringToFront()
+            // nut Cai dat co man hinh (to nhu ban camera toan man), ngay duoi PiP
+            val gs = (6.4f * u).toInt()
+            btnGear.layoutParams = FrameLayout.LayoutParams(gs, gs); btnGear.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 3.4f * u)
+            btnGear.x = w - gs - 1.6f * u; btnGear.y = py + ph + 1.4f * u
+            btnGear.visibility = View.VISIBLE; btnGear.bringToFront()
         } else {
+            overlay.pip = false; btnGear.visibility = View.GONE
             overlay.onTap = null
             overlay.layoutParams = FrameLayout.LayoutParams(-1, -1); overlay.x = 0f; overlay.y = 0f
             showScene(px, py, pw, ph)
@@ -226,6 +243,7 @@ class MainActivity : Activity() {
 
     private fun showPips() {
         if (prefs.scene3d == 1 && !overlay.calib) { applyScene(root.width); return }
+        overlay.pip = false; btnGear.visibility = View.GONE
         // dang chinh tay diem tu trong che do 3D toan man: tra camera ve toan man de keo
         if (prefs.scene3d == 1 && overlay.calib) { hideScene(); if (!prefs.splitScreen && overlay.layoutParams.width != -1) { sizePips(root.width); return } }
         if (prefs.splitScreen) { applySplit(root.width); return }
@@ -362,7 +380,7 @@ class MainActivity : Activity() {
             SettingsView.Cat("hien", "Hiển thị", { if (prefs.hidePip) "ẩn PiP" else listOfNotNull(if (prefs.showMap) "bản đồ" else null, if (prefs.showTemp) "nhiệt" else null).joinToString(" · ").ifEmpty { "gọn" } }) { listOf(
                 T("Chia đôi màn (camera | bản đồ)", "trái camera + ADAS, phải bản đồ · bật nhanh bằng nút ◫ trên màn", { prefs.splitScreen }, { b -> prefs.splitScreen = b; overlay.split = b; sizePips(root.width) }, true),
                 S("Cảnh lái 3D (kiểu Tesla)", "vẽ lại lane, đường đi, xe xung quanh từ AI · bật nhanh bằng nút 3D trên màn", listOf("Tắt", "Toàn màn", "Thay bản đồ"), { prefs.scene3d.coerceIn(0, 2) }, { k -> prefs.scene3d = k; if (k != 0) prefs.scene3dLast = k; sizePips(root.width) }, true),
-                S("Góc nhìn cảnh 3D", null, listOf("Sau xe", "Trên cao", "Sát sau", "FSD"), { VIEWS3D.indexOf(prefs.scene3dView).coerceAtLeast(0) }, { k -> prefs.scene3dView = VIEWS3D[k]; scene?.view = VIEWS3D[k] }, true),
+                S("Góc nhìn cảnh 3D", null, listOf("Sau xe", "Trên cao", "Sát sau", "V14"), { VIEWS3D.indexOf(prefs.scene3dView).coerceAtLeast(0) }, { k -> prefs.scene3dView = VIEWS3D[k]; scene?.view = VIEWS3D[k] }, true),
                 A("Mẫu xe 3D của mình", "chọn file .glb (vd VF7 tải từ Sketchfab) · tự co về dài 4,6 m", if (prefs.egoGlb.isNotEmpty()) "File .glb" else if (prefs.egoKind == "basic") "Cơ bản" else "VF7 trắng") { egoModelDialog() },
                 T("Ẩn cửa sổ nổi (PiP)", "ẩn nhanh bản đồ + ô nhiệt để xem camera gọn", { prefs.hidePip }, { b -> prefs.hidePip = b; showPips() }, false),
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),

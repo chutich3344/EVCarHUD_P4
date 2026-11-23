@@ -344,14 +344,14 @@ function applyTheme(t) {
   document.body.className = t;
 }
 // goc nhin: sau xe / tren cao / FSD (thap, sat sau xe, rong nhu man Tesla FSD)
-const VIEWS = { chase: 'Sau xe', high: 'Trên cao', low: 'Sát sau', fsd: 'FSD' }, VORDER = ['chase', 'high', 'low', 'fsd'];
-let curView = 'chase';
+const VIEWS = { chase: 'Sau xe', high: 'Trên cao', low: 'Sát sau', fsd: 'V14' }, VORDER = ['chase', 'high', 'low', 'fsd'];
+let curView = 'fsd';
 // camera quay quanh 1 diem phia truoc xe: az (do, + = camera lech sang phai-sau), el (do cao), r (m). Keo 1 ngon = xoay, 2 ngon = zoom, cham 2 lan = ve goc goc.
 // FSD (23/11): nhin xeo 3/4 tu sau-trai (thay ro phan duong nguoc chieu), cao, rong nhu man Tesla FSD / GTA thay vi dung sau duoi xe.
 const PRESET = { chase: { fz: 22, fy: 0.8, az: 0, el: 7, r: 35.8, fov: 46 },
                  high:  { fz: 24, fy: 0, az: 0, el: 31, r: 42, fov: 50 },
                  low:   { fz: 30, fy: 1.0, az: 0, el: 3, r: 37.7, fov: 58 },   // goc thap sat sau xe (ban 0.1.117)
-                 fsd:   { fz: 9, fy: 0.6, az: -15, el: 23, r: 28, fov: 50 } };
+                 fsd:   { fz: 10, fy: 0, az: 0, el: 26, r: 30, fov: 50 } };   // 23/11 toi: goc V14 Lite - ngay sau xe, cao ~26 do, xe minh nam 2/3 duoi man, thay xa toi giao lo
 const orb = { dAz: 0, dEl: 0, kR: 1 };
 function placeCam() {
   const P = PRESET[curView], az = (P.az + orb.dAz) * Math.PI / 180, el = Math.max(3, Math.min(80, P.el + orb.dEl)) * Math.PI / 180, r = P.r * orb.kR;
