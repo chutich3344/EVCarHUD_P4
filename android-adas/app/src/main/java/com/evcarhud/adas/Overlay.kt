@@ -301,6 +301,19 @@ class Overlay(ctx: Context) : View(ctx) {
         val offTxt = when { off == null || calib -> "lệch làn --"; abs(off) < 5 -> "giữa làn"; off > 0 -> "lệch trái $off cm"; else -> "lệch phải ${-off} cm" }
         txt.color = if (sn != null && sn.ldw != '-') red else Color.rgb(120, 200, 255)
         cv.drawText("${sn?.vKmh?.roundToInt() ?: 0} km/h · $offTxt", x, top + 9.6f * u, txt)
+        // 23/11 toi: icon camera + nguon (70Mai / Sinjet / Phone) + kieu ket noi; xanh = dang co hinh, cam = dang noi
+        val tag = sn?.camTag ?: ""
+        if (tag.isNotEmpty()) {
+            val live = sn?.camLive == true
+            val col = if (live) Color.rgb(71, 224, 138) else Color.rgb(255, 176, 64)
+            val cy = top + 11.15f * u; val iw = 1.7f * u; val ih = 1.15f * u
+            fill.color = col
+            cv.drawRoundRect(RectF(x, cy - ih / 2, x + iw, cy + ih / 2), 0.25f * u, 0.25f * u, fill)
+            cv.drawRect(x + iw * 0.3f, cy - ih / 2 - 0.25f * u, x + iw * 0.62f, cy - ih / 2 + 0.05f * u, fill)
+            fill.color = Color.argb(230, 15, 20, 28); cv.drawCircle(x + iw / 2, cy, ih * 0.3f, fill)
+            txt.color = col
+            cv.drawText(if (live) tag else "$tag · đang nối", x + iw + 0.6f * u, top + 11.6f * u, txt)
+        }
         txt.clearShadowLayer()
         // 2 dong log (trang thai AI + thong bao) dua len GIUA-TREN, can giua man, ngang hang bien/chip.
         // Nam gon giua bien (trai) va cum chip (phai); dai qua thi nen chu (textScaleX) cho vua, khong de len.

@@ -78,6 +78,9 @@ class Snap(
     var cal = true     // camera da hieu chinh xong VA thi giac tin duoc (khong: vach openpilot chao -> canh 3D lam muot manh, bo khung vo ly)
     var lm: IntArray? = null   // kieu vach 4 vach openpilot (VehDet.marks): 0 khong ro, 1 trang dut, 2 trang lien, 3 vang dut, 4 vang lien, 5 vang doi
     var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
+    /** 23/11 toi: nguon camera dang dung (70Mai / Sinjet / Phone) + kieu ket noi, hien duoi dong lech lan (khi tat log van biet cam nao). */
+    var camTag = ""
+    var camLive = false
     var camM: Int? = null
     var limitSrc: String? = null   // bien lay tu app dan duong: "Waze" / "GOFA"
     var limitWhy: String? = null   // null = bien that; khac = toc do mac dinh (theo luat / ban do)
@@ -941,7 +944,7 @@ class AdasService : Service() {
         val offCm = off?.let { (it * 100).roundToInt() }
         val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-",
             batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
-        s.hood = prefs.hood
+        s.hood = prefs.hood; camTag(s)
         s.stat = if (prefs.showDbg) statLine(o) else ""   // dong test chi hien khi bat "Hien so lieu" (Ky thuat)
         signSnap(s, v)
         if (prefs.showDbg) s.dbg = calibInfo()
@@ -1131,6 +1134,11 @@ class AdasService : Service() {
         if (ok >= 0 && lim != null && v > lim + ok + 0.5f && s.limitWhy == null && prefs.beep && now - overBeepAt > 10_000) { overBeepAt = now; beeper.test() }
     }
 
+    private fun camTag(s: Snap) {
+        s.camTag = when (prefs.camSrc) { "70mai" -> "70Mai · Wi-Fi"; "mirror" -> "Sinjet · Wi-Fi"; else -> "Phone · camera sau" }
+        s.camLive = lastFrameAt > 0 && SystemClock.elapsedRealtime() - lastFrameAt < 2000
+    }
+
     private fun publishIdle() {
         logTick(null, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, null)
         publishScene()
@@ -1140,7 +1148,7 @@ class AdasService : Service() {
     private fun publishScene() {
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
             if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
-            .also { it.hood = prefs.hood; it.stat = if (prefs.showDbg) statLine(null) else ""; signSnap(it, it.vKmh); if (prefs.showDbg) it.dbg = calibInfo() })
+            .also { it.hood = prefs.hood; camTag(it); it.stat = if (prefs.showDbg) statLine(null) else ""; signSnap(it, it.vKmh); if (prefs.showDbg) it.dbg = calibInfo() })
     }
 
     // ---------------- tan suat + nhiet ----------------
