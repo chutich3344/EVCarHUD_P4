@@ -290,7 +290,7 @@ function setView(v) {
     if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); k0 = orb.kR; }
     if (pts.size === 1) { const t = performance.now(); if (t - lastTap < 300) { orb.dAz = 0; orb.dEl = 0; orb.kR = 1; placeCam(); } lastTap = t; } });
   el.addEventListener('pointermove', e => { const p = pts.get(e.pointerId); if (!p) return;
-    if (pts.size === 1) { orb.dAz -= (e.clientX - p[0]) * 180 / innerWidth; orb.dEl += (e.clientY - p[1]) * 90 / innerHeight;
+    if (pts.size === 1) { orb.dAz += (e.clientX - p[0]) * 180 / innerWidth; orb.dEl += (e.clientY - p[1]) * 90 / innerHeight;
       orb.dAz = Math.max(-170, Math.min(170, orb.dAz)); }
     pts.set(e.pointerId, [e.clientX, e.clientY]);
     if (pts.size === 2 && pinch0 > 0) { const [a, b] = [...pts.values()]; orb.kR = Math.max(0.35, Math.min(2.2, k0 * pinch0 / Math.max(20, Math.hypot(a[0] - b[0], a[1] - b[1])))); }
