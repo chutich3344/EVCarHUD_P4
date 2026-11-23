@@ -119,7 +119,7 @@ function put(m, y0, y1, x0, x1) { m.scale.set(Math.max(0.01, y1 - y0), Math.max(
 const jAsph = flat(0x333333, 0.017);
 const jEdge = [0, 1, 2, 3].map(() => flat(0xffffff, 0.019)), jCen = [0, 1].map(() => flat(0xffc21a, 0.019));
 const jZeb = [0, 1].map(() => flat(0xffffff, 0.019, zebraTex)), jStop = flat(0xffffff, 0.019);
-let crossAt = -99, crossX = 15, oIdxPrev = null, inOppPrev = false, jOn = false, jW = 9, jEndAt = -99, tlJ = false, tlC = null;
+let turnAt = -99, crossAt = -99, crossX = 15, oIdxPrev = null, inOppPrev = false, jOn = false, jW = 9, jEndAt = -99, tlJ = false, tlC = null;
 const shoulderL = ribbon(0x777777, 1, 0.005), shoulderR = ribbon(0x777777, 1, 0.005);
 // 23/11 (V14 Lite, sua 1 lan -> 3 lan): openpilot luon cho 4 vach. Duong 1 lan, vach ngoai (0/3) hay nam cach vach trong chi 1,5–2,3 m
 // (vach le / mep nhua) voi xac suat 0,3–0,5 -> truoc day ve thanh them 1 lan. Nay vach ngoai chi la vach chia lan khi tin cay (> 0,55, giu > 0,4)
@@ -461,7 +461,15 @@ function step(dt) {
   cur.v += ((d.v || 0) - cur.v) * a;
   // 23/11: 70mai luc dang tu hieu chinh / ong kinh meo -> vach openpilot quay loan -> canh 3D nhay. Chua hieu chinh: lam muot 1,2 s;
   // khung vach cong vo ly (lech > 7 m giua 10 m va 50 m, hoac 2 mep cat nhau) thi bo qua khung do
-  const uncal = d.cal === 0, wild = arr => Math.abs(interp(X_IDX, arr, 50) - interp(X_IDX, arr, 10)) > (uncal ? 5 : 7);
+  // 23/11 toi (video dem 0.1.132): dang RE thi vach cong that > 7 m -> truoc day bi coi la "vo ly", duong 3D dung thang con
+  // duong xanh re ra ngoai. Nay cho phep cong theo duong di openpilot (pl) + toc do quay xe (wz).
+  cur.wz = (cur.wz || 0) + ((d.wz || 0) - (cur.wz || 0)) * (1 - Math.exp(-dt / 0.3));
+  if (Math.abs(cur.wz) > 0.1) turnAt = t;
+  let plDev = 0;
+  if (d.pl && d.pl.length > 2) { const at = x => { for (let i = 1; i < d.pl.length; i++) if (d.pl[i][0] >= x) { const p0 = d.pl[i - 1], p1 = d.pl[i], u = (x - p0[0]) / Math.max(0.01, p1[0] - p0[0]); return p0[1] + (p1[1] - p0[1]) * u; } return d.pl[d.pl.length - 1][1]; }; plDev = Math.abs(at(50) - at(10)); }
+  const uncal = d.cal === 0;
+  const wLim = uncal ? 5 : Math.max(7, plDev + 3, Math.abs(cur.wz) * 60);
+  const wild = arr => Math.abs(interp(X_IDX, arr, 50) - interp(X_IDX, arr, 10)) > wLim;
   const bad = !d.ed || wild(d.ed[0]) || wild(d.ed[1]) || interp(X_IDX, d.ed[1], 30) - interp(X_IDX, d.ed[0], 30) < 2.5;
   const aL = bad && cur.ln ? 0 : 1 - Math.exp(-dt / (uncal ? 1.2 : 0.2)), aE = bad && cur.ed ? 0 : 1 - Math.exp(-dt / (uncal ? 1.2 : 0.3));
   cur.ln = (cur.ln || [0, 1, 2, 3].map(() => null)).map((c, k) => ema(c, d.ln[k], aL));
@@ -670,10 +678,12 @@ function step(dt) {
     let ry = ob.grp.rotation.y;
     const hh = tr.h || [], latD = hh.length > 2 ? Math.abs(hh[hh.length - 1][2] - hh[0][2]) : 0, latT = hh.length > 2 ? hh[hh.length - 1][0] - hh[0][0] : 0;
     // chay ngang that: van toc ngang ro + da dich ngang > 2,5 m trong lich su (khong phai nhieu vi tri cua xe dau)
-    if (ob.kind !== 'person' && tr.n > 3 && latT > 0.6 && latD > 2.5 && Math.abs(wy) > 1.5 && Math.abs(wy) > 0.8 * Math.abs(wx)) {
+    // 23/11 toi: xe MINH dang re (hoac vua re < 1,5 s) -> moi vat dung yen deu "chay ngang" trong khung xe -> KHONG coi la xe cat ngang / giao lo
+    const turning = t - turnAt < 1.5;
+    if (!turning && ob.kind !== 'person' && tr.n > 3 && latT > 0.6 && latD > 2.5 && Math.abs(wy) > 1.5 && Math.abs(wy) > 0.8 * Math.abs(wx)) {
       ry = -Math.atan2(wy, wx);
       if (x > 3 && x < 45) { crossX = crossAt < t - 6 ? x : crossX + (x - crossX) * 0.1; crossAt = t; }
-    } else if (ob.kind !== 'person' && t - crossAt < 6 && Math.abs(x - crossX) < 6 && (y < eLx - 1.5 || y > eRx + 1.5) && latD < 2.5 && !(tr.park >= 3)) {
+    } else if (!turning && ob.kind !== 'person' && t - crossAt < 6 && Math.abs(x - crossX) < 6 && (y < eLx - 1.5 || y > eRx + 1.5) && latD < 2.5 && !(tr.park >= 3)) {
       ry = y < 0 ? -Math.PI / 2 : Math.PI / 2;   // dang o hai ben duong ngang, chua ro huong: coi nhu dang di vao giao lo
     }
     // 23/11 (V14 Lite): xe dung yen (toc do that < 0,8 m/s) giu huong cu, khong xoay theo nhieu vi tri

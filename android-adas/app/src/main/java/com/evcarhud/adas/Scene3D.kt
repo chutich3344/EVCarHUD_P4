@@ -133,6 +133,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         sn.lm?.let { m -> sb.append(",\"lm\":[").append(m.joinToString(",")).append(']') }
         if (sn.wide != null) sb.append(",\"os\":").append(sn.wideSeq).append(",\"oa\":").append(sn.wideAge)
         if (!sn.cal) sb.append(",\"cal\":0")
+        if (live) sb.append(",\"wz\":").append(f(o.poseRz))   // 23/11 toi: toc do quay xe minh (rad/s) -> biet dang re
         // tuoi vach (ms): goi khong co ket qua AI moi thi bao vach dang dung la ket qua cu bao lau (man 3D lam mo vach > 1,5 s)
         if (!live) sb.append(",\"la\":").append(if (outAt > 0) SystemClock.elapsedRealtime() - outAt else 99999)
         if (sn.stat.isNotEmpty()) sb.append(",\"dbg\":1")   // bat "Ky thuat": ve them vach THO (chua lam muot) de so voi vach da ve
