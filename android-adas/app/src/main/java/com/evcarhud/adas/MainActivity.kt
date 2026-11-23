@@ -337,7 +337,7 @@ class MainActivity : Activity() {
             SettingsView.Cat("hien", "Hiển thị", { if (prefs.hidePip) "ẩn PiP" else listOfNotNull(if (prefs.showMap) "bản đồ" else null, if (prefs.showTemp) "nhiệt" else null).joinToString(" · ").ifEmpty { "gọn" } }) { listOf(
                 T("Chia đôi màn (camera | bản đồ)", "trái camera + ADAS, phải bản đồ · bật nhanh bằng nút ◫ trên màn", { prefs.splitScreen }, { b -> prefs.splitScreen = b; overlay.split = b; sizePips(root.width) }, true),
                 S("Cảnh lái 3D (kiểu Tesla)", "vẽ lại lane, đường đi, xe xung quanh từ AI · bật nhanh bằng nút 3D trên màn", listOf("Tắt", "Toàn màn", "Thay bản đồ"), { prefs.scene3d.coerceIn(0, 2) }, { k -> prefs.scene3d = k; if (k != 0) prefs.scene3dLast = k; sizePips(root.width) }, true),
-                S("Góc nhìn cảnh 3D", null, listOf("Sau xe", "Trên cao", "FSD"), { VIEWS3D.indexOf(prefs.scene3dView).coerceAtLeast(0) }, { k -> prefs.scene3dView = VIEWS3D[k]; scene?.view = VIEWS3D[k] }, true),
+                S("Góc nhìn cảnh 3D", null, listOf("Sau xe", "Trên cao", "Sát sau", "FSD"), { VIEWS3D.indexOf(prefs.scene3dView).coerceAtLeast(0) }, { k -> prefs.scene3dView = VIEWS3D[k]; scene?.view = VIEWS3D[k] }, true),
                 T("Ẩn cửa sổ nổi (PiP)", "ẩn nhanh bản đồ + ô nhiệt để xem camera gọn", { prefs.hidePip }, { b -> prefs.hidePip = b; showPips() }, false),
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),
                 S("Nguồn bản đồ", null, listOf("Google tối", "OpenStreetMap"), { if (prefs.mapSrc == "osm") 1 else 0 }, { k -> prefs.mapSrc = if (k == 1) "osm" else "google"; map.source = prefs.mapSrc }, false),
@@ -449,7 +449,7 @@ class MainActivity : Activity() {
     private fun mapName(k: String) = when (k) { "osm" -> "OpenStreetMap"; else -> "Google (thử nghiệm, nền tối)" }
 
     companion object {
-        val VIEWS3D = listOf("chase", "high", "fsd")
+        val VIEWS3D = listOf("chase", "high", "low", "fsd")
         private const val ABOUT = "Nhận diện làn đường, mép đường, xe phía trước và đường đi dùng mô hình openpilot " +
             "(driving_vision, driving_policy v0.10.3) của comma.ai, giấy phép MIT.\n\n" +
             "Đọc biển giao thông: mô hình YOLO11n 56 loại biển Việt Nam (github.com/Namvipcf/vietnamese-traffic-sign-yolo11, giấy phép MIT).\nHình biển mẫu: gói @road-signs/vn (github.com/karlnorling/road-signs, giấy phép MIT).\nNhận loại xe: YOLOX-Nano (Megvii, giấy phép Apache-2.0). Cảnh 3D: Three.js (giấy phép MIT). Font Be Vietnam Pro (SIL OFL 1.1).\n\n" +

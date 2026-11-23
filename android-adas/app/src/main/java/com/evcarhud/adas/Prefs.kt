@@ -58,7 +58,7 @@ class Prefs(ctx: Context) {
     var scene3dLast: Int
         get() = p.getInt("scene3dlast", 1)
         set(v) = p.edit().putInt("scene3dlast", v).apply()
-    /** Goc nhin canh 3D: "chase" sau xe, "high" tren cao, "fsd" thap sat sau xe kieu Tesla FSD (23/11). */
+    /** Goc nhin canh 3D: "chase" sau xe, "high" tren cao, "low" thap sat sau xe, "fsd" xeo 3/4 cao kieu Tesla FSD (23/11). */
     var scene3dView: String
         get() = p.getString("scene3dview", null) ?: if (p.getBoolean("scene3dhigh", false)) "high" else "chase"
         set(v) = p.edit().putString("scene3dview", v).apply()

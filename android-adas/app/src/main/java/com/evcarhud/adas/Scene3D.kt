@@ -34,7 +34,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
 
     private inner class Bridge {
         @JavascriptInterface fun setView(v: String) {
-            if (v !in listOf("chase", "high", "fsd")) return
+            if (v !in MainActivity.VIEWS3D) return
             post { view = v; sentView = v; onView?.invoke(v) }
         }
     }
