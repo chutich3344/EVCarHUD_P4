@@ -142,6 +142,13 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         // tuoi vach (ms): goi khong co ket qua AI moi thi bao vach dang dung la ket qua cu bao lau (man 3D lam mo vach > 1,5 s)
         if (!live) sb.append(",\"la\":").append(if (outAt > 0) SystemClock.elapsedRealtime() - outAt else 99999)
         if (sn.stat.isNotEmpty()) sb.append(",\"dbg\":1")   // bat "Ky thuat": ve them vach THO (chua lam muot) de so voi vach da ve
+        // 23/11 toi: bien bao + camera phat nguoi cung len man 3D (truoc day chi ve o man camera -> 3D toan man khong thay bien)
+        sn.limit?.let { l -> sb.append(",\"lim\":").append(l); if (sn.over) sb.append(",\"ov\":1"); sn.limitSrc?.let { sb.append(",\"ls\":\"").append(esc(it)).append('"') } }
+        sn.sign?.takeIf { !(it.cls == SignDet.SPEED && it.value == sn.limit) }?.let { g ->
+            sb.append(",\"sg\":{\"c\":").append(g.cls); g.value?.let { sb.append(",\"v\":").append(it) }
+            sb.append(",\"n\":\"").append(esc(SignDet.NAME.getOrElse(g.cls) { "" })).append("\"}")
+        }
+        sn.camType?.let { t -> sb.append(",\"cm\":{\"n\":\"").append(esc(CamDb.name(t))).append('"'); sn.camM?.let { sb.append(",\"m\":").append(it) }; sb.append('}') }
         sb.append(",\"ldw\":\"").append(sn.ldw).append('"')
         if (sn.offCm != null) sb.append(",\"off\":").append(sn.offCm)
         sb.append(",\"ob\":[")
@@ -150,6 +157,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         return sb.toString()
     }
 
+    private fun esc(t: String) = t.replace("\\", "\\\\").replace("\"", "\\\"")
     private fun arr(sb: StringBuilder, a: FloatArray) { sb.append('['); for (k in a.indices) { if (k > 0) sb.append(','); sb.append(f(a[k])) }; sb.append(']') }
 
     private class G(var c: String, var x: Float, var y: Float, var lead: Boolean)

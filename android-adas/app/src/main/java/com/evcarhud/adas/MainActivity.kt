@@ -88,7 +88,12 @@ class MainActivity : Activity() {
         overlay.split = prefs.splitScreen
         overlay.onSplit = { prefs.splitScreen = !prefs.splitScreen; overlay.split = prefs.splitScreen; sizePips(root.width); toast(if (prefs.splitScreen) "Chia đôi màn: trái camera, phải bản đồ" else "Toàn màn camera") }
         overlay.onLead = { x, y, w -> svc?.leadHint(x, y, w) }
-        overlay.avoid = { if (map.visibility == View.VISIBLE && map.width > 1) RectF(map.x, map.y, map.x + map.width, map.y + map.height) else null }
+        overlay.avoid = {
+            val sv = scene
+            if (map.visibility == View.VISIBLE && map.width > 1) RectF(map.x, map.y, map.x + map.width, map.y + map.height)
+            else if (swap3d && sv != null && sv.visibility == View.VISIBLE && sv.width > 1) RectF(sv.x, sv.y, sv.x + sv.width, sv.y + sv.height)   // khung 3D nho khi doi cho: cot bien tranh ra
+            else null
+        }
         overlay.onCalibDone = { ok ->
             if (ok) svc?.setManualVp(overlay.vpX, overlay.vpY)
             showPips()
@@ -210,7 +215,8 @@ class MainActivity : Activity() {
             overlay.pip = false; btnGear.visibility = View.GONE
             overlay.onTap = null
             overlay.layoutParams = FrameLayout.LayoutParams(-1, -1); overlay.x = 0f; overlay.y = 0f
-            showScene(px, py, pw, ph)
+            // 23/11 toi: khung 3D nho xuong goc DUOI-phai (tren-phai che chip HUD/LANE, nut cai dat va cot bien)
+            showScene(px, root.height - ph - 1.6f * u, pw, ph)
             var dx = 0f; var dy = 0f
             scene?.setOnTouchListener { _, e ->   // PiP 3D: khong xoay, cham = doi lai
                 if (e.action == android.view.MotionEvent.ACTION_DOWN) { dx = e.x; dy = e.y }

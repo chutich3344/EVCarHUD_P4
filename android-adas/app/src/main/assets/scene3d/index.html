@@ -28,11 +28,27 @@ body.day { --ink: #16191e; --sub: #3d4550; --chip: rgba(0,0,0,.08); background: 
 .tl .dot { width: 2.4vh; height: 2.4vh; border-radius: 50%; background: #373a40; }
 .tl .lb { font-size: 2.6vh; line-height: 1.1; } .tl .lb small { display: block; font-size: 1.9vh; color: #c8c8cd; font-weight: 600; }
 .tl .sec { font-size: 7vh; line-height: 1; font-variant-numeric: tabular-nums; min-width: 1ch; text-align: right; }
+/* 23/11 toi: bien toc do canh so km/h + bien vua qua + camera phat nguoi (giong man camera) */
+.row1 { display: flex; align-items: center; gap: 2.2vh; }
+.lim { position: relative; width: 11vh; height: 11vh; display: none; flex: none; }
+.lim img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.lim b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 5.4vh; color: #000; font-weight: 800; letter-spacing: -.03em; }
+.lim small { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: .4vh; font-size: 1.8vh; font-weight: 700; color: var(--sub); white-space: nowrap; }
+.lim.ov { animation: ovp .8s infinite alternate; } .lim.ov small { color: #ff3b3b; }
+@keyframes ovp { from { transform: scale(1); } to { transform: scale(1.1); } }
+.spd.ov { color: #ff3b3b; }
+.sgs { display: flex; flex-direction: column; gap: 1.2vh; margin-top: 3vh; }
+.sg { display: flex; align-items: center; gap: 1.4vh; font-size: 2.4vh; font-weight: 700; }
+.sg .ic { position: relative; width: 7vh; height: 7vh; flex: none; } .sg .ic img { width: 100%; height: 100%; }
+.sg .ic b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 3.4vh; color: #000; font-weight: 800; }
+.cam { display: flex; align-items: center; gap: 1.2vh; padding: .8vh 1.8vh .8vh .8vh; border-radius: 99px; background: rgba(255,138,61,.16); font-weight: 700; font-size: 2.4vh; }
+.cam i { width: 4.6vh; height: 4.6vh; border-radius: 50%; background: #ff8a3d; color: #141414; font-style: normal; font-size: 1.5vh; display: flex; align-items: center; justify-content: center; }
+.cam b { color: #ff8a3d; font-size: 3vh; }
 .wait { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); font-weight: 700; font-size: 3vh; color: var(--sub); }
 </style>
 </head>
 <body class="night">
-<div class="hud"><div class="spd" id="spd">0</div><div class="unit">km/h</div><div class="chips" id="chips"></div></div>
+<div class="hud"><div class="row1"><div><div class="spd" id="spd">0</div><div class="unit">km/h</div></div><div class="lim" id="lim"><img src="../bien/17.png" alt=""><b id="limN"></b><small id="limS"></small></div></div><div class="chips" id="chips"></div><div class="sgs" id="sgs"></div></div>
 <button class="vbtn" id="vbtn">🎥 Sau xe</button>
 <div class="tl" id="tl"><div class="dots"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><div class="lb" id="tlLb"></div><div class="sec" id="tlSec"></div></div>
 <div class="wait" id="wait">Đang chờ AI…</div>
@@ -809,6 +825,16 @@ function step(dt) {
   if (d.ldw === 'L' || d.ldw === 'R') chips.push(`<span class="chip dang">Lệch lane ${d.ldw === 'L' ? 'trái' : 'phải'}</span>`);
   else if (d.off != null) chips.push(`<span class="chip">Lệch lane ${d.off >= 0 ? '+' : ''}${d.off} cm</span>`);
   const html = chips.join(''); const ce = document.getElementById('chips'); if (ce.innerHTML !== html) ce.innerHTML = html;
+  // bien toc do + bien vua qua + camera (Kotlin gui lim/ov/ls, sg, cm)
+  const limE = document.getElementById('lim');
+  if (d.lim) { limE.style.display = 'block'; document.getElementById('limN').textContent = d.lim; limE.classList.toggle('ov', !!d.ov);
+    document.getElementById('limS').textContent = d.ov ? 'VƯỢT TỐC ĐỘ' : d.ls ? 'tối đa · ' + d.ls : 'tốc độ tối đa'; }
+  else limE.style.display = 'none';
+  document.getElementById('spd').classList.toggle('ov', !!(d.lim && d.ov));
+  let sh = '';
+  if (d.sg) sh += `<div class="sg"><span class="ic"><img src="../bien/${d.sg.c}.png" alt="">${d.sg.v ? `<b>${d.sg.v}</b>` : ''}</span><span>${d.sg.n}</span></div>`;
+  if (d.cm) sh += `<div class="cam"><i>CAM</i><span>${d.cm.n.replace(/^CAM /, '')}</span><b>${d.cm.m != null ? d.cm.m + ' m' : 'phía trước'}</b></div>`;
+  const se = document.getElementById('sgs'); if (se.innerHTML !== sh) se.innerHTML = sh;
   renderer.render(scene, cam);
 }
 window.step = step;
