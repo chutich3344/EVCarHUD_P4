@@ -253,9 +253,15 @@ class TileMap(ctx: Context) : View(ctx) {
         if (r != null) {
             routePath.reset()
             // tu vi tri xe toi het tuyen (bo doan da di), bo bot diem qua sat nhau
-            var i = r.cum.indexOfFirst { it >= Nav.along }.let { if (it <= 0) 0 else it - 1 }
-            routePath.moveTo(cx, cy)
-            var lx = cx; var ly = cy
+            // 23/11 (nguoi dung: "ve cheo duong chim bay"): truoc noi thang tu xe toi tuyen -> xe dang lech tuyen / tuyen cu
+            // thi thanh 1 doan cheo cat qua nha. Nay chi ve dung hinh tuyen, bat dau tu diem tren tuyen ung voi quang da di.
+            val k = r.cum.indexOfFirst { it >= Nav.along }.let { if (it <= 0) 1 else it }.coerceAtMost(r.lat.size - 1)
+            val seg = (r.cum[k] - r.cum[k - 1]).takeIf { it > 0 } ?: 1.0
+            val t = ((Nav.along - r.cum[k - 1]) / seg).coerceIn(0.0, 1.0)
+            val sx = px(r.lon[k - 1] + (r.lon[k] - r.lon[k - 1]) * t); val sy = py(r.lat[k - 1] + (r.lat[k] - r.lat[k - 1]) * t)
+            var i = k
+            routePath.moveTo(sx, sy)
+            var lx = sx; var ly = sy
             val lim = maxOf(width, height) * 3f
             while (i < r.lat.size) {
                 val x = px(r.lon[i]); val y = py(r.lat[i])
