@@ -371,11 +371,14 @@ class MirrorCam(
                     // MOI NHAT. Grab lien tiep: tra ngay (<12ms) = con hang ton -> bo, lay tiep; grab cho lau = da bat
                     // kip luong truc tiep -> dung. 70mai GIU NGUYEN (vua on dinh, day theo dot, khong co van de tre).
                     var cur = f
-                    if (!is70) {
+                    run {
                         // Phan biet "con hang ton" vs "da bat kip live" KHONG dua vao thoi gian giai ma mot khung
                         // (1080p giai ma >12ms se danh lua nguong cu -> dung vot ngay -> van tre 2s). Dua vao:
                         // PTS cua luong (dong ho trong khung) chay NHANH hon dong ho thuc bao nhieu. Con hang ton ->
                         // moi lan grab PTS nhay vot >> thoi gian thuc -> vot tiep; bang nhau -> da bat kip -> dung.
+                        // 70mai (23/11): cung vot. 70mai day khung theo DOT nhung khi co don hang (tre 2s) thi cac
+                        // khung ton nam san trong buffer -> grabImage tra lien tiep, PTS vot -> vot toi khung moi nhat;
+                        // het ton thi grabImage tra null -> break ngay (khong bo khung live, khong dung tang demux -> khong rung).
                         var k = 0
                         val wall0 = SystemClock.elapsedRealtime()
                         val pts0 = g.timestamp                        // us, PTS khung f vua lay
@@ -391,7 +394,7 @@ class MirrorCam(
                         drainSum += k; drainCyc++
                         if (SystemClock.elapsedRealtime() - drainLogAt > 3000) {
                             drainLogAt = SystemClock.elapsedRealtime()
-                            log("cam gương: vớt ${if (drainCyc > 0) drainSum / drainCyc else 0} khung tồn/chu kỳ (hết = đã bám live)")
+                            log("${if (is70) "70mai" else "cam gương"}: vớt ${if (drainCyc > 0) drainSum / drainCyc else 0} khung tồn/chu kỳ (hết = đã bám live)")
                             drainSum = 0; drainCyc = 0
                         }
                     }
