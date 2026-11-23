@@ -190,6 +190,13 @@ class AdasService : Service() {
     private var l3Since = 0L
     private var l3Hold = 0L
     private var l2n = 0
+    // Do tin thi giac: sai lech |toc do model (poseVx) - GPS|. Cam goc rong meo (70mai) lam model hong
+    // (poseVx ~0 du chay 50 km/h) -> van toc/cu ly xe truoc rac -> chan canh bao phanh oan.
+    private var poseErrF = Float.NaN
+    private var poseErrT = 0L
+    // EMA nhanh/cham cua cu ly xe truoc -> do "xe truoc co THAT SU lai gan khong" (chong phanh ao).
+    private var leadXfast = Float.NaN
+    private var leadXslow = Float.NaN
     private var ldwSide = '-'
     @Volatile private var lastMs = 0
 
@@ -744,6 +751,14 @@ class AdasService : Service() {
         val gpsFresh = wall - gpsAt < 3000 && gpsKmh >= 0
         val v = if (gpsFresh) gpsKmh else maxOf(0f, poseKmh)
         val vms = v / 3.6f
+        // Do tin THI GIAC: toc do model (poseVx) phai bam GPS khi dang chay. Cam goc rong meo (70mai) lam
+        // model doan sai ca van toc lan cu ly -> KHONG tin de bao phanh. Cam guong: poseVx ~ GPS -> tin.
+        if (gpsFresh && gpsKmh > 12) {
+            val e = kotlin.math.abs(o.poseVx - vms)
+            poseErrF = if (poseErrF.isNaN() || wall - poseErrT > 2500) e else poseErrF + 0.08f * (e - poseErrF)
+            poseErrT = wall
+        }
+        val visReliable = poseErrF.isNaN() || poseErrF < 2.5f   // sai < 2,5 m/s (~9 km/h) = tin
         val pL = o.laneProb[1]; val pR = o.laneProb[2]
         val off = if (pL > 0.5f && pR > 0.5f) -(o.laneY[1][0] + o.laneY[2][0]) / 2 else null
         // lech lan kieu openpilot (ldw.py): >= 50 km/h, vach gan + mo hinh doan dang troi sang lan ben
@@ -760,6 +775,11 @@ class AdasService : Service() {
         var leadM: Float? = null; var ttc: Float? = null; var level = 0
         if (o.leadProb > 0.5f && o.leadX > 0) {
             leadM = o.leadX
+            // cu ly xe truoc THAT SU co lai gan khong (dao ham leadX qua EMA nhanh/cham): model co the bao sai
+            // cu ly (bao gan 5-9m dung yen) -> neu khoang cach khong thuc su co lai thi KHONG phu do PHANH oan.
+            if (wall - vrelT > 1500 || leadXfast.isNaN()) { leadXfast = o.leadX; leadXslow = o.leadX }
+            else { leadXfast += 0.5f * (o.leadX - leadXfast); leadXslow += 0.12f * (o.leadX - leadXslow) }
+            val closingMeas = leadXslow - leadXfast   // >0 = cu ly dang co lai that su
             // toc do tuong doi: lead v cua mo hinh tru toc do xe theo chinh mo hinh (cung thang do, khong tre nhu GPS), lam muot
             val ego = if (o.poseVx > 0.5f) o.poseVx else vms
             val raw = o.leadV - ego
@@ -773,7 +793,12 @@ class AdasService : Service() {
             val t3 = when (prefs.fcwSens) { 0 -> 1.8f; 2 -> 1.2f; else -> 1.5f }
             if (v > 15 && ttc != null && ttc < t2 && vrel < -2f) level = 2
             if (v > 15 && ttc != null && ttc < t3 && vrel < -3f && o.leadX < 2f * Op.safeDist(v)) level = 3
-        } else vrelF = Float.NaN
+            // CHOT CHAN phanh ao:
+            //  (a) thi giac khong tin (cam goc rong meo lam model doan sai van toc/cu ly) -> khong canh bao/phanh.
+            //  (b) PHANH (muc 3) chi khi cu ly DO DUOC dang that su co lai; chi tin van toc model thi ha xuong muc 2.
+            if (level >= 2 && !visReliable) level = minOf(level, 1)
+            if (level >= 3 && closingMeas < 0.5f) level = 2
+        } else { vrelF = Float.NaN; leadXfast = Float.NaN; leadXslow = Float.NaN }
         // PHANH chi bat khi muc 3 keo dai >= 0,4 s; da bat thi giu 2 s (khong chop tat lien tuc)
         if (level >= 3) { if (l3Since == 0L) l3Since = wall } else l3Since = 0L
         if (level >= 3 && wall - l3Since < 400) level = 2
