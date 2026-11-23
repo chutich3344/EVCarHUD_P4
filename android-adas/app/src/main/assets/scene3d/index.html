@@ -165,33 +165,53 @@ function makeCar(kind, bodyMat) {
 // Low-poly tu dung theo kich thuoc that, giong o muc tuong doi.
 MATS.trim = new THREE.MeshStandardMaterial({ color: 0x14171b, roughness: 0.7 });
 function makeVF7(bodyMat) {
+  // chinh theo anh nguoi dung gui (23/11): nap capo dai doc, mui cao voi dai den chu V o mep tren, den pha dung o 2 goc duoi;
+  // noc noi + canh gio vuot qua kinh sau, cot D than xe gay goc; op den day chay doc suon, can sau den lon;
+  // duoi: dai den chu V do + 2 den dung hinh boomerang o 2 goc; mam 5 chau den 20".
   const grp = new THREE.Group(), L = 4.545, W = 1.89, X = x => L / 2 - x;   // x tinh tu duoi xe
   const parts = [
-    // than duoi: duoi xe dung, vai xe ~1,05 m, nap capo doc xuong mui thap
-    extrudeSide([[0.02, 0.36], [0, 1.0], [0.06, 1.16], [0.4, 1.17], [3.32, 1.13], [4.2, 1.0], [4.48, 0.94], [4.545, 0.82], [4.52, 0.36]], W, bodyMat, 0.08),
-    // kinh: mui doc coupe ve sau, kinh lai nghieng
-    extrudeSide([[0.38, 1.16], [1.5, 1.555], [2.78, 1.6], [3.36, 1.13]], W - 0.22, MATS.glass, 0.05),
-    // noc
-    extrudeSide([[1.35, 1.545], [2.8, 1.59], [2.78, 1.635], [1.45, 1.6]], W - 0.34, bodyMat, 0.04),
-    // cot C than xe (che bot kinh hong sau tao dang coupe)
-    extrudeSide([[0.38, 1.16], [0.8, 1.16], [1.66, 1.5], [1.5, 1.555]], W - 0.19, bodyMat, 0.03),
+    extrudeSide([[0.04, 0.36], [0, 0.62], [0.01, 1.02], [0.1, 1.11], [0.55, 1.14], [3.3, 1.07], [4.1, 0.99], [4.43, 0.93], [4.545, 0.86], [4.54, 0.55], [4.5, 0.36]], W, bodyMat, 0.08),
+    extrudeSide([[0.45, 1.13], [0.82, 1.5], [1.3, 1.565], [2.78, 1.585], [3.36, 1.075]], W - 0.24, MATS.glass, 0.05),
+    // noc noi: tran ra sau thanh canh gio
+    extrudeSide([[0.5, 1.54], [1.3, 1.585], [2.7, 1.6], [2.66, 1.635], [1.3, 1.625], [0.47, 1.57]], W - 0.3, bodyMat, 0.04),
+    // cot D than xe gay goc
+    extrudeSide([[0.42, 1.13], [0.82, 1.13], [0.98, 1.45], [0.84, 1.5]], W - 0.2, bodyMat, 0.03),
   ];
   parts.forEach(m => { m.position.z = L / 2; grp.add(m); });
-  // op nhua den: vom banh + suon duoi + can sau / can truoc
-  const clad = (w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), MATS.trim); m.position.set(x, y, z); grp.add(m); };
-  [-1, 1].forEach(sd => { clad(0.04, 0.16, 2.0, sd * (W / 2 + 0.005), 0.4, X(2.27));
-    [0.85, 3.69].forEach(ax => { const a = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.06, 6, 14, Math.PI), MATS.trim); a.rotation.y = Math.PI / 2; a.position.set(sd * (W / 2 + 0.01), 0.37, X(ax)); grp.add(a); });
-    const mir = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.12), MATS.trim); mir.position.set(sd * (W / 2 + 0.08), 1.12, X(3.3)); grp.add(mir); });
-  clad(W - 0.1, 0.16, 0.05, 0, 0.45, X(0) + 0.1); clad(W - 0.2, 0.2, 0.05, 0, 0.47, X(L) - 0.1);
-  wheels(grp, W, 0.37, [X(0.85), X(3.69)]);
-  // den: chu V dau xe (2 thanh nghieng gap o logo giua), dai den ngang duoi xe
-  const front = new THREE.MeshBasicMaterial({ color: 0xeaf6ff }), tail = new THREE.MeshBasicMaterial({ color: 0xff3a3a });
-  [-1, 1].forEach(sd => { const b = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.035, 0.03), front);
-    b.position.set(sd * 0.44, 0.9, X(L) - 0.1); b.rotation.z = sd * 0.12; grp.add(b); });
-  const logo = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.03), new THREE.MeshStandardMaterial({ color: 0xb8bec6, metalness: 0.8, roughness: 0.3 })); logo.position.set(0, 0.86, X(L) - 0.1); grp.add(logo);
-  const tb = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.05, 0.03), tail); tb.position.set(0, 1.07, X(0) + 0.1); grp.add(tb);
+  const box = (w, h, d, x, y, z, mat, rz) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat || MATS.trim); m.position.set(x, y, z); if (rz) m.rotation.z = rz; grp.add(m); return m; };
+  const ZR = X(0) + 0.09, ZF = X(L) - 0.09;    // mat duoi / mat dau (ngoai lop bevel)
+  [-1, 1].forEach(sd => {
+    // op suon den day, cao dan ve sau banh truoc
+    const sill = box(0.05, 0.2, 2.1, sd * (W / 2 + 0.01), 0.45, X(2.27)); sill.rotation.x = sd * 0 - 0.03;
+    [0.86, 3.7].forEach(ax => { const a = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.07, 6, 14, Math.PI), MATS.trim); a.rotation.y = Math.PI / 2; a.position.set(sd * (W / 2 + 0.015), 0.38, X(ax)); grp.add(a); });
+    // guong mau than xe tren chan den
+    box(0.06, 0.06, 0.1, sd * (W / 2 + 0.03), 1.1, X(3.25)); box(0.2, 0.12, 0.13, sd * (W / 2 + 0.13), 1.16, X(3.25), bodyMat);
+    // dau: den pha dung 2 goc duoi (hoc den + vien trang)
+    box(0.24, 0.28, 0.03, sd * 0.72, 0.62, ZF);
+    box(0.03, 0.24, 0.035, sd * 0.62, 0.64, ZF - 0.005, LIGHT.front, sd * 0.35);
+    // duoi: den dung hinh boomerang 2 goc
+    box(0.05, 0.36, 0.03, sd * (W / 2 - 0.1), 0.85, ZR + 0.01, LIGHT.tail, -sd * 0.14); box(0.02, 0.3, 0.03, sd * (W / 2 - 0.14), 0.85, ZR + 0.015, LIGHT.tailW, -sd * 0.14);
+  });
+  // can sau den lon + vien bac, mat ca-lang den duoi dau xe
+  box(W - 0.04, 0.3, 0.06, 0, 0.5, ZR - 0.01); box(W - 0.5, 0.03, 0.03, 0, 0.66, ZR + 0.02, LIGHT.chrome);
+  box(W - 0.6, 0.18, 0.03, 0, 0.62, ZR + 0.005);   // hoc bien so
+  box(W - 0.7, 0.16, 0.06, 0, 0.45, ZF + 0.01); box(W - 0.7, 0.03, 0.03, 0, 0.36, ZF - 0.02, LIGHT.chrome);
+  wheels(grp, W, 0.38, [X(0.86), X(3.7)]);
+  const hubG = new THREE.CylinderGeometry(0.27, 0.27, 0.02, 10); hubG.rotateZ(Math.PI / 2);
+  [X(0.86), X(3.7)].forEach(z => [-1, 1].forEach(sd => { const h = new THREE.Mesh(hubG, LIGHT.rim); h.position.set(sd * (W / 2 + 0.035), 0.38, z); grp.add(h); }));
+  // dai den chu V: 2 thanh nghieng gap o logo giua (dau trang, duoi do)
+  [-1, 1].forEach(sd => {
+    box(0.8, 0.032, 0.03, sd * 0.47, 0.88, ZF - 0.005, LIGHT.front, sd * 0.07);
+    box(0.13, 0.032, 0.03, sd * 0.06, 0.835, ZF - 0.005, LIGHT.front, -sd * 0.7);
+    box(0.78, 0.035, 0.03, sd * 0.48, 1.05, ZR + 0.005, LIGHT.tail, -sd * 0.05);
+    box(0.13, 0.035, 0.03, sd * 0.06, 1.005, ZR + 0.005, LIGHT.tail, sd * 0.7);
+  });
+  box(0.1, 0.07, 0.03, 0, 0.8, ZF - 0.012, LIGHT.chrome); box(0.1, 0.07, 0.03, 0, 0.97, ZR + 0.012, LIGHT.chrome);
+  box(0.5, 0.025, 0.02, 0, 1.535, X(0.52), LIGHT.tail);   // den phanh tren canh gio
   addShadow(grp, L, W); grp.userData.L = L; return grp;
 }
+const LIGHT = { front: new THREE.MeshBasicMaterial({ color: 0xeaf6ff }), tail: new THREE.MeshBasicMaterial({ color: 0xff3a3a }), tailW: new THREE.MeshBasicMaterial({ color: 0xffd9d9 }),
+  chrome: new THREE.MeshStandardMaterial({ color: 0xc9ced4, metalness: 0.85, roughness: 0.25 }), rim: new THREE.MeshStandardMaterial({ color: 0x2a2e33, metalness: 0.5, roughness: 0.4 }) };
 const ego = new THREE.Group(); ego.position.set(0, 0, 0.5); scene.add(ego);   // goc toa do = camera kinh lai, dau xe ~1,8 m phia truoc
 const egoBasic = makeCar('ego', MATS.ego), egoVf7 = makeVF7(MATS.ego); ego.add(egoBasic, egoVf7);
 let egoKind = 'vf7', egoGlb = null;
