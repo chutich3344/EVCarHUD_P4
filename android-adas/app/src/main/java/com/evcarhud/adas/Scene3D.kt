@@ -57,11 +57,12 @@ class Scene3D(ctx: Context) : WebView(ctx) {
     var egoFile: String? = null
     var egoFlip = false
     var egoWhite = false
+    var egoKind = "vf7"
     fun applyEgo() {
         if (!ready) return
         val f = egoFile?.takeIf { java.io.File(it).isFile }
         val u = if (f == null) "null" else "'file://" + f.replace("'", "") + "?t=" + java.io.File(f).lastModified() + "'"
-        evaluateJavascript("window.setEgoModel && setEgoModel($u, $egoFlip, $egoWhite)", null)
+        evaluateJavascript("window.setEgoModel && setEgoModel($u, $egoFlip, $egoWhite, '${if (egoKind == "basic") "basic" else "vf7"}')", null)
     }
 
     fun pause() { onPause() }

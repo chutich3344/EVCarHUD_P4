@@ -161,12 +161,47 @@ function makeCar(kind, bodyMat) {
   }
   addShadow(grp, L, W); grp.userData.L = L; return grp;
 }
-const ego = makeCar('ego', MATS.ego); ego.position.set(0, 0, 0.5); scene.add(ego);   // goc toa do = camera kinh lai, dau xe ~1,8 m phia truoc
-// mau xe minh tu file .glb nguoi dung chon (vd VinFast VF7): tu can dai 4,6 m, dat len mat duong, quay dau ve phia truoc
-let egoGlb = null;
-window.setEgoModel = function (url, flip, white) {
+// xe minh dang VinFast VF7 (23/11): 4545 x 1890 x 1635 mm, truc co so 2840, mui doc kieu coupe, den chu V dau xe, dai den ngang duoi xe.
+// Low-poly tu dung theo kich thuoc that, giong o muc tuong doi.
+MATS.trim = new THREE.MeshStandardMaterial({ color: 0x14171b, roughness: 0.7 });
+function makeVF7(bodyMat) {
+  const grp = new THREE.Group(), L = 4.545, W = 1.89, X = x => L / 2 - x;   // x tinh tu duoi xe
+  const parts = [
+    // than duoi: duoi xe dung, vai xe ~1,05 m, nap capo doc xuong mui thap
+    extrudeSide([[0.02, 0.36], [0, 1.0], [0.06, 1.16], [0.4, 1.17], [3.32, 1.13], [4.2, 1.0], [4.48, 0.94], [4.545, 0.82], [4.52, 0.36]], W, bodyMat, 0.08),
+    // kinh: mui doc coupe ve sau, kinh lai nghieng
+    extrudeSide([[0.38, 1.16], [1.5, 1.555], [2.78, 1.6], [3.36, 1.13]], W - 0.22, MATS.glass, 0.05),
+    // noc
+    extrudeSide([[1.35, 1.545], [2.8, 1.59], [2.78, 1.635], [1.45, 1.6]], W - 0.34, bodyMat, 0.04),
+    // cot C than xe (che bot kinh hong sau tao dang coupe)
+    extrudeSide([[0.38, 1.16], [0.8, 1.16], [1.66, 1.5], [1.5, 1.555]], W - 0.19, bodyMat, 0.03),
+  ];
+  parts.forEach(m => { m.position.z = L / 2; grp.add(m); });
+  // op nhua den: vom banh + suon duoi + can sau / can truoc
+  const clad = (w, h, d, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), MATS.trim); m.position.set(x, y, z); grp.add(m); };
+  [-1, 1].forEach(sd => { clad(0.04, 0.16, 2.0, sd * (W / 2 + 0.005), 0.4, X(2.27));
+    [0.85, 3.69].forEach(ax => { const a = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.06, 6, 14, Math.PI), MATS.trim); a.rotation.y = Math.PI / 2; a.position.set(sd * (W / 2 + 0.01), 0.37, X(ax)); grp.add(a); });
+    const mir = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.12), MATS.trim); mir.position.set(sd * (W / 2 + 0.08), 1.12, X(3.3)); grp.add(mir); });
+  clad(W - 0.1, 0.16, 0.05, 0, 0.45, X(0) + 0.1); clad(W - 0.2, 0.2, 0.05, 0, 0.47, X(L) - 0.1);
+  wheels(grp, W, 0.37, [X(0.85), X(3.69)]);
+  // den: chu V dau xe (2 thanh nghieng gap o logo giua), dai den ngang duoi xe
+  const front = new THREE.MeshBasicMaterial({ color: 0xeaf6ff }), tail = new THREE.MeshBasicMaterial({ color: 0xff3a3a });
+  [-1, 1].forEach(sd => { const b = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.035, 0.03), front);
+    b.position.set(sd * 0.44, 0.9, X(L) - 0.1); b.rotation.z = sd * 0.12; grp.add(b); });
+  const logo = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.03), new THREE.MeshStandardMaterial({ color: 0xb8bec6, metalness: 0.8, roughness: 0.3 })); logo.position.set(0, 0.86, X(L) - 0.1); grp.add(logo);
+  const tb = new THREE.Mesh(new THREE.BoxGeometry(W - 0.12, 0.05, 0.03), tail); tb.position.set(0, 1.07, X(0) + 0.1); grp.add(tb);
+  addShadow(grp, L, W); grp.userData.L = L; return grp;
+}
+const ego = new THREE.Group(); ego.position.set(0, 0, 0.5); scene.add(ego);   // goc toa do = camera kinh lai, dau xe ~1,8 m phia truoc
+const egoBasic = makeCar('ego', MATS.ego), egoVf7 = makeVF7(MATS.ego); ego.add(egoBasic, egoVf7);
+let egoKind = 'vf7', egoGlb = null;
+const refreshEgo = () => { egoBasic.visible = !egoGlb && egoKind === 'basic'; egoVf7.visible = !egoGlb && egoKind !== 'basic'; };
+refreshEgo();
+// mau xe minh tu file .glb nguoi dung chon: tu can dai 4,6 m, dat len mat duong, quay dau ve phia truoc. kind: 'vf7' | 'basic' khi khong co file
+window.setEgoModel = function (url, flip, white, kind) {
+  if (kind) egoKind = kind;
   if (egoGlb) { ego.remove(egoGlb); egoGlb = null; }
-  ego.children.forEach(c => { if (c !== ego.userData.shadow) c.visible = !url; });
+  refreshEgo();
   if (!url || !THREE.GLTFLoader) return;
   new THREE.GLTFLoader().load(url, g => {
     const m = g.scene; let box = new THREE.Box3().setFromObject(m), sz = box.getSize(new THREE.Vector3());
@@ -177,8 +212,8 @@ window.setEgoModel = function (url, flip, white) {
     m.position.x -= c.x; m.position.z -= c.z; m.position.y -= box.min.y;
     m.traverse(o => { if (o.isMesh) { o.castShadow = false; if (white && o.material) { const mats = Array.isArray(o.material) ? o.material : [o.material];
       mats.forEach(mt => { const n = (mt.name || '').toLowerCase(); if (mt.color && !/glass|window|kinh|tire|tyre|wheel|rim|light|lamp|black/.test(n) && !mt.transparent) mt.color.setHex(0xf4f5f7); }); } } });
-    egoGlb = m; ego.add(m);
-  }, undefined, e => { console.log('glb loi', e); ego.children.forEach(c => c.visible = true); });
+    egoGlb = m; ego.add(m); refreshEgo();
+  }, undefined, e => { console.log('glb loi', e); egoGlb = null; refreshEgo(); });
 };
 const glow = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 6.4), new THREE.MeshBasicMaterial({ color: 0x3e8bff, transparent: true, alphaMap: shadowTex, opacity: 0.9, depthWrite: false }));
 glow.rotation.x = -Math.PI / 2; glow.position.y = 0.03; glow.visible = false; scene.add(glow);
@@ -197,7 +232,7 @@ function applyTheme(t) {
   yelA.material.color.setHex(T.yel); yelB.material.color.setHex(T.yel); walkR.material.color.setHex(T.walk); walkL.material.color.setHex(T.walk);
   hemi.color.setHex(T.hemi[0]); hemi.groundColor.setHex(T.hemi[1]); hemi.intensity = T.hemi[2]; sun.intensity = T.sun;
   MATS.ego.color.setHex(T.ego); MATS.glass.color.setHex(T.glass);
-  ego.userData.shadow.material.opacity = T.shadow;
+  egoBasic.userData.shadow.material.opacity = T.shadow; egoVf7.userData.shadow.material.opacity = T.shadow;
   document.body.className = t;
 }
 // goc nhin: sau xe / tren cao / FSD (thap, sat sau xe, rong nhu man Tesla FSD)

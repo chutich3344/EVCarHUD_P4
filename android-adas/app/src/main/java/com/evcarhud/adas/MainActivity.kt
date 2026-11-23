@@ -155,7 +155,7 @@ class MainActivity : Activity() {
         scene = sc
         sc.view = prefs.scene3dView
         sc.onView = { v -> prefs.scene3dView = v }     // nut doi goc ngay tren man 3D
-        sc.egoFile = prefs.egoGlb.ifEmpty { null }; sc.egoFlip = prefs.egoFlip; sc.egoWhite = prefs.egoWhite
+        sc.egoFile = prefs.egoGlb.ifEmpty { null }; sc.egoFlip = prefs.egoFlip; sc.egoWhite = prefs.egoWhite; sc.egoKind = prefs.egoKind
         root.addView(sc, root.indexOfChild(overlay) + 1, FrameLayout.LayoutParams(1, 1))
     }
 
@@ -339,7 +339,7 @@ class MainActivity : Activity() {
                 T("Chia đôi màn (camera | bản đồ)", "trái camera + ADAS, phải bản đồ · bật nhanh bằng nút ◫ trên màn", { prefs.splitScreen }, { b -> prefs.splitScreen = b; overlay.split = b; sizePips(root.width) }, true),
                 S("Cảnh lái 3D (kiểu Tesla)", "vẽ lại lane, đường đi, xe xung quanh từ AI · bật nhanh bằng nút 3D trên màn", listOf("Tắt", "Toàn màn", "Thay bản đồ"), { prefs.scene3d.coerceIn(0, 2) }, { k -> prefs.scene3d = k; if (k != 0) prefs.scene3dLast = k; sizePips(root.width) }, true),
                 S("Góc nhìn cảnh 3D", null, listOf("Sau xe", "Trên cao", "Sát sau", "FSD"), { VIEWS3D.indexOf(prefs.scene3dView).coerceAtLeast(0) }, { k -> prefs.scene3dView = VIEWS3D[k]; scene?.view = VIEWS3D[k] }, true),
-                A("Mẫu xe 3D của mình", "chọn file .glb (vd VF7 tải từ Sketchfab) · tự co về dài 4,6 m", if (prefs.egoGlb.isEmpty()) "Mặc định" else "File .glb") { egoModelDialog() },
+                A("Mẫu xe 3D của mình", "chọn file .glb (vd VF7 tải từ Sketchfab) · tự co về dài 4,6 m", if (prefs.egoGlb.isNotEmpty()) "File .glb" else if (prefs.egoKind == "basic") "Cơ bản" else "VF7 trắng") { egoModelDialog() },
                 T("Ẩn cửa sổ nổi (PiP)", "ẩn nhanh bản đồ + ô nhiệt để xem camera gọn", { prefs.hidePip }, { b -> prefs.hidePip = b; showPips() }, false),
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),
                 S("Nguồn bản đồ", null, listOf("Google tối", "OpenStreetMap"), { if (prefs.mapSrc == "osm") 1 else 0 }, { k -> prefs.mapSrc = if (k == 1) "osm" else "google"; map.source = prefs.mapSrc }, false),
@@ -391,19 +391,22 @@ class MainActivity : Activity() {
     }
 
     private fun egoModelDialog() {
-        val items = arrayOf("Chọn file .glb…", "Dùng xe mặc định", (if (prefs.egoFlip) "✓ " else "") + "Quay đầu xe 180°", (if (prefs.egoWhite) "✓ " else "") + "Sơn trắng thân xe")
+        val noFile = prefs.egoGlb.isEmpty()
+        val items = arrayOf((if (noFile && prefs.egoKind != "basic") "✓ " else "") + "Xe VF7 trắng (dựng sẵn)", (if (noFile && prefs.egoKind == "basic") "✓ " else "") + "Xe cơ bản (cũ)",
+            (if (!noFile) "✓ " else "") + "Chọn file .glb…", (if (prefs.egoFlip) "✓ " else "") + "Quay đầu xe 180° (file .glb)", (if (prefs.egoWhite) "✓ " else "") + "Sơn trắng thân xe (file .glb)")
         AlertDialog.Builder(this).setTitle("Mẫu xe 3D của mình").setItems(items) { _, k ->
             when (k) {
-                0 -> try { @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), 8) } catch (e: Exception) { toast("Không mở được trình chọn file") }
-                1 -> { prefs.egoGlb = ""; applyEgo() }
-                2 -> { prefs.egoFlip = !prefs.egoFlip; applyEgo() }
-                3 -> { prefs.egoWhite = !prefs.egoWhite; applyEgo() }
+                0 -> { prefs.egoGlb = ""; prefs.egoKind = "vf7"; applyEgo() }
+                1 -> { prefs.egoGlb = ""; prefs.egoKind = "basic"; applyEgo() }
+                2 -> try { @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), 8) } catch (e: Exception) { toast("Không mở được trình chọn file") }
+                3 -> { prefs.egoFlip = !prefs.egoFlip; applyEgo() }
+                4 -> { prefs.egoWhite = !prefs.egoWhite; applyEgo() }
             }
         }.show()
     }
 
     private fun applyEgo() {
-        scene?.let { it.egoFile = prefs.egoGlb.ifEmpty { null }; it.egoFlip = prefs.egoFlip; it.egoWhite = prefs.egoWhite; it.applyEgo() }
+        scene?.let { it.egoFile = prefs.egoGlb.ifEmpty { null }; it.egoFlip = prefs.egoFlip; it.egoWhite = prefs.egoWhite; it.egoKind = prefs.egoKind; it.applyEgo() }
         refreshSettings()
     }
 

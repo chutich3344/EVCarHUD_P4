@@ -66,6 +66,10 @@ class Prefs(ctx: Context) {
     var egoGlb: String
         get() = p.getString("egoglb", "") ?: ""
         set(v) = p.edit().putString("egoglb", v).apply()
+    /** Xe minh khi khong co file .glb: "vf7" (mac dinh, dang VinFast VF7 trang) | "basic" (xe co ban cu). */
+    var egoKind: String
+        get() = p.getString("egokind", "vf7") ?: "vf7"
+        set(v) = p.edit().putString("egokind", v).apply()
     var egoFlip: Boolean
         get() = p.getBoolean("egoflip", false)
         set(v) = p.edit().putBoolean("egoflip", v).apply()
