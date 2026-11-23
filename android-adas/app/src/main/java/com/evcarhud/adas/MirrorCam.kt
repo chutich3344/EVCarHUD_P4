@@ -65,6 +65,10 @@ class MirrorCam(
     private var frAt = 0L
     // 70mai: da register thanh cong chua. true -> noi lai luong KHONG register nua (khoi keu "ting"), chi kiem mang.
     @Volatile private var registered70 = false
+    // Thong ke VOT khung (cam guong giam tre): tong so khung da vot + so chu ky, log trung binh moi ~3s.
+    private var drainSum = 0
+    private var drainCyc = 0
+    private var drainLogAt = 0L
 
     // 2 bo dem I420 luan phien (buffer chi can hop le trong luc goi onFrame dong bo)
     private val i420 = arrayOf(
@@ -365,13 +369,27 @@ class MirrorCam(
                     // kip luong truc tiep -> dung. 70mai GIU NGUYEN (vua on dinh, day theo dot, khong co van de tre).
                     var cur = f
                     if (!is70) {
+                        // Phan biet "con hang ton" vs "da bat kip live" KHONG dua vao thoi gian giai ma mot khung
+                        // (1080p giai ma >12ms se danh lua nguong cu -> dung vot ngay -> van tre 2s). Dua vao:
+                        // PTS cua luong (dong ho trong khung) chay NHANH hon dong ho thuc bao nhieu. Con hang ton ->
+                        // moi lan grab PTS nhay vot >> thoi gian thuc -> vot tiep; bang nhau -> da bat kip -> dung.
                         var k = 0
-                        while (k < 16 && want) {
-                            val t0 = SystemClock.elapsedRealtime()
+                        val wall0 = SystemClock.elapsedRealtime()
+                        val pts0 = g.timestamp                        // us, PTS khung f vua lay
+                        val budget = wall0 + 150L                     // tran an toan 150ms/chu ky (khong chiem CPU mai)
+                        while (k < 90 && want && SystemClock.elapsedRealtime() < budget) {
                             val nf: Frame? = try { g.grabImage() } catch (_: Exception) { null }
-                            if (nf == null) break                // het hang ton / loi -> giu khung moi nhat da co
+                            if (nf == null) break                     // het hang ton / loi -> giu khung moi nhat da co
                             cur = nf; k++
-                            if (SystemClock.elapsedRealtime() - t0 > 12) break   // grab cho lau = da bat kip live
+                            val ptsAdvMs = (g.timestamp - pts0) / 1000.0        // luong da tien (ms)
+                            val wallAdvMs = (SystemClock.elapsedRealtime() - wall0).toDouble()
+                            if (ptsAdvMs - wallAdvMs < 45) break      // luong khong con vuot dong ho -> da bat kip live
+                        }
+                        drainSum += k; drainCyc++
+                        if (SystemClock.elapsedRealtime() - drainLogAt > 3000) {
+                            drainLogAt = SystemClock.elapsedRealtime()
+                            log("cam gương: vớt ${if (drainCyc > 0) drainSum / drainCyc else 0} khung tồn/chu kỳ (hết = đã bám live)")
+                            drainSum = 0; drainCyc = 0
                         }
                     }
                     val now = SystemClock.elapsedRealtime()
