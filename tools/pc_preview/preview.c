@@ -435,6 +435,76 @@ int main(int argc, char **argv)
         obstacle_ui_phone(NULL, '-', false, false);
         run(300);
     }
+    if (getenv("TLVIDEO")) {                        /* 23/11: den giao thong (goi T1): kich ban dung den do -> xanh, 10 hinh/giay */
+        int style = atoi(getenv("TLVIDEO"));
+        obstacle_ui_tlight_style(style);
+        ui_set_mode(getenv("TLDAY") ? UI_MODE_DAY : UI_MODE_NIGHT);
+        ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+        ui_set_speed_limit(50);
+        int k = 0;
+        for (int f = 0; f < 200; f++) {             /* 20 s */
+            double t = f / 10.0;
+            int v = t < 4 ? (int)(32 - 8 * t) : t < 13 ? 0 : t < 18 ? (int)((t - 13) * 8) : 40;
+            if (v < 0) v = 0;
+            char a1[64];
+            if (v < 1) snprintf(a1, sizeof a1, "A1|-|0|0|0|0|0|0|0|0|1");
+            else snprintf(a1, sizeof a1, "A1|-|2|96|95|%d|0|0|0|%d|0", 8 + v / 2, v);
+            phone_adas_t pa;
+            xadas_frame_t xf;
+            phone_adas_parse(a1, strlen(a1), &pa);
+            phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &xf);
+            obstacle_ui_phone(&xf, pa.ldw, pa.pl > 50 && pa.pr > 50, false);
+            ui_set_speed(v);
+            if (f % 10 == 0) {                      /* app gui 1 goi/giay */
+                int sec = 15 - (int)t;              /* do: 15 .. 3 .. 0 */
+                if (t < 13) obstacle_ui_tlight('R', t < 1 ? -1 : sec < 0 ? 0 : sec);
+                else if (t < 18) obstacle_ui_tlight('G', 25 - (int)(t - 13));
+            }
+            run(100);
+            snprintf(p, sizeof p, "%s/tl_%05d.bmp", dir, k++); save_bmp(p);
+        }
+        return 0;
+    }
+    {                                               /* 23/11: den giao thong tu app LANE (goi T1) */
+        static const struct { char c; int s; int v; const char *a1; const char *nm; } sc[] = {
+            {'R', 24, 0, "A1|-|0|0|0|0|0|0|0|0|1", "tl_1_do_24"},
+            {'R', 3, 0, "A1|-|0|0|0|0|0|0|0|0|1", "tl_2_do_sap_het"},
+            {'G', 18, 12, "A1|-|2|96|95|14|0|0|0|12|0", "tl_3_xanh_18"},
+            {'Y', 3, 18, "A1|-|2|96|95|20|0|0|0|18|0", "tl_4_vang_3"},
+            {'R', -1, 20, "A1|-|2|96|95|30|0|0|0|20|0", "tl_5_do_khong_so"},
+        };
+        ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+        ui_set_speed_limit(50);
+        for (int md = 0; md < 4; md++) {
+            int st = md % 2 + 1;
+            ui_set_mode(md < 2 ? UI_MODE_NIGHT : UI_MODE_DAY);
+            obstacle_ui_tlight_style(st);
+            for (int i = 0; i < 5; i++) {
+                phone_adas_t pa;
+                xadas_frame_t f;
+                phone_adas_parse(sc[i].a1, strlen(sc[i].a1), &pa);
+                phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &f);
+                obstacle_ui_phone(&f, pa.ldw, pa.pl > 50 && pa.pr > 50, false);
+                ui_set_speed(sc[i].v);
+                obstacle_ui_tlight(sc[i].c, sc[i].s);
+                run(500);
+                snprintf(p, sizeof p, "%s/pa%d_%s_%s.bmp", dir, st, sc[i].nm, md < 2 ? "dem" : "ngay"); save_bmp(p);
+            }
+            ui_set_nav(true, 3, 350, 0, "Nguyễn Văn Linh", 0);    /* co dan duong: the bien chia doi */
+            ui_set_route("06:42", 4200, 9);
+            obstacle_ui_tlight('R', 24);
+            ui_set_speed(0);
+            run(800);
+            snprintf(p, sizeof p, "%s/pa%d_tl_6_dan_duong_%s.bmp", dir, st, md < 2 ? "dem" : "ngay"); save_bmp(p);
+            ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+            run(3600);
+        }
+        obstacle_ui_tlight(0, -1);
+        obstacle_ui_tlight_style(1);
+        ui_set_mode(UI_MODE_AUTO);
+        obstacle_ui_phone(NULL, '-', false, false);
+        run(300);
+    }
     {                                               /* 18/11: app Lan dan theo tuyen (goi D1), co va khong co Waze */
         static const char *pk[] = {
             "D1|3|350|0|4200|9|06:42|Nguyễn Văn Linh",
