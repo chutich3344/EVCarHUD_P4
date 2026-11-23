@@ -381,8 +381,13 @@ class AdasService : Service() {
         val w = c.size.width; val h = c.size.height; val f = c.focalPx
         val vx = vpX * w - w / 2.0
         val vy = vpY * h - h / 2.0
-        calYaw = atan(vx / f)
-        calPitch = -atan2(vy, sqrt(f * f + vx * vx))
+        if (c.fisheye) {            // mat ca equidistant: goc = ban kinh pixel / f
+            calYaw = vx / f
+            calPitch = -vy / f
+        } else {
+            calYaw = atan(vx / f)
+            calPitch = -atan2(vy, sqrt(f * f + vx * vx))
+        }
         calRoll = 0.0
         prefs.autoCalib = false
         saveCalib(); rebuildGeom()
@@ -404,7 +409,7 @@ class AdasService : Service() {
 
     private fun rebuildGeom() {
         val c = cam ?: return
-        val g = Op.Cam(c.size.width, c.size.height, c.focalPx, calPitch, calYaw, calRoll)
+        val g = Op.Cam(c.size.width, c.size.height, c.focalPx, calPitch, calYaw, calRoll, c.fisheye)
         geomAt = SystemClock.elapsedRealtime()
         ai.post { geom = g; warpKey = ""; ringCount = 0 }
     }
@@ -412,7 +417,7 @@ class AdasService : Service() {
     /** Thong tin hieu chinh cho Cai dat (do). */
     fun calibInfo(): String {
         val c = cam ?: return "Chưa có camera"
-        val hf = Math.toDegrees(2 * atan(c.size.width / 2 / c.focalPx))
+        val hf = if (c.fisheye) Math.toDegrees(c.size.width / c.focalPx) else Math.toDegrees(2 * atan(c.size.width / 2 / c.focalPx))
         fun d(r: Double) = "%.1f°".format(Math.toDegrees(r))
         return "Camera ${c.size.width}x${c.size.height}, góc ngang ${"%.0f".format(hf)}° (${c.focalSrc}${(c as? MirrorCam)?.let { " · " + it.status } ?: ""})\nCúi ${d(calPitch)} · lệch ${d(calYaw)} · nghiêng ${d(calRoll)}" +
             (if (prefs.autoCalib) (if (prefs.calibrated) " · tự hiệu chỉnh xong" else " · đang tự hiệu chỉnh") else " · chỉnh tay") +
