@@ -277,7 +277,7 @@ class AdasService : Service() {
         if (navOffLeft > 0) { navOffLeft--; hud?.sendNav("D1|0".toByteArray()) }   // ket thuc: bao HUD vai lan cho chac
     }
 
-    fun startNav(d: Dest) = Nav.start(this, d, prefs.hereKey)
+    fun startNav(d: Dest) = Nav.start(this, d, prefs.hereKey, prefs.routeMode)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }

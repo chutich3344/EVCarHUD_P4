@@ -165,4 +165,8 @@ class Prefs(ctx: Context) {
     var perf: Int
         get() = p.getInt("perf", 1)
         set(v) = p.edit().putInt("perf", v).apply()
+    /** Chon duong khi dan duong PiP: "fast" nhanh nhat / "short" ngan nhat. */
+    var routeMode: String
+        get() = p.getString("rmode", "fast") ?: "fast"
+        set(v) = p.edit().putString("rmode", v).apply()
 }
