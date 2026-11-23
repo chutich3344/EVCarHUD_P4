@@ -1022,6 +1022,7 @@ class AdasService : Service() {
             if (col == 'G' && (before == 'R' || before == 'Y') && v < 3 && prefs.beep) beeper.green()
             applyRate()
         }
+        if (col != null) pushTl(now)                                   // doi mau / doi so: bao HUD ngay (khong cho nhip 1 giay)
     }
     /** Dang dung cho den do/vang: AI openpilot nghi bot. */
     private fun tlRest(v: Float): Boolean {
@@ -1107,6 +1108,7 @@ class AdasService : Service() {
             }
             pushNav()
             pushSign(now)
+            pushTl(now)
             if (now - wazeTry > 30_000 && waze?.ok != true) { wazeTry = now; waze?.start() }
             if (now - lastNotif > 10_000) { lastNotif = now; goForeground(notifText()) }
             main.postDelayed(this, 1000)
@@ -1121,6 +1123,27 @@ class AdasService : Service() {
         if (v == sigSent && (v == 0 || now - sigAt < 5000)) return
         sigSent = v; sigAt = now
         h.sendSign("S1|$v".toByteArray())
+    }
+
+    private var tlSent = ""
+    private var tlSentAt = 0L
+    private var tlOffLeft = 0
+
+    /** Den giao thong -> HUD ("T1|R|25", giay "-" = khong doc duoc, "T1|-" = het): 1 lan/giay khi con thay den, ngay khi doi mau / doi so.
+     *  HUD tu bo sau 3 s khong co goi; het den thi bao "T1|-" 2 lan cho chac. */
+    private fun pushTl(now: Long) {
+        val h = hud ?: return
+        if (!hudOk) { tlSent = ""; return }
+        val c = tlTrack.col
+        val live = prefs.tlight && c != null && now - tlTrack.seenAt < 3000
+        val msg = if (live) "T1|$c|${tlTrack.cur(now) ?: "-"}" else "T1|-"
+        if (!live) {
+            if (tlSent != "T1|-") tlOffLeft = 2
+            if (tlOffLeft <= 0) { tlSent = msg; return }
+            tlOffLeft--
+        } else if (msg == tlSent && now - tlSentAt < 1000) return
+        tlSent = msg; tlSentAt = now
+        h.sendTl(msg.toByteArray())
     }
 
     private var thermalAt = 0L
