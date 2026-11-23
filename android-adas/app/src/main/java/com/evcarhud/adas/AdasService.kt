@@ -226,6 +226,7 @@ class AdasService : Service() {
     private var calPitch = 0.0
     private var calYaw = 0.0
     private var calRoll = 0.0
+    private val CAL70_PITCH = -0.22   // 70mai chuc xuong (diem tu duoi tam anh)
     private var gP = Double.NaN
     private var gR = 0.0
     private var geomAt = 0L
@@ -246,6 +247,10 @@ class AdasService : Service() {
         goForeground("Đang khởi động…")
         makeCam()
         calPitch = prefs.pitch.toDouble(); calYaw = prefs.yaw.toDouble(); calRoll = prefs.roll.toDouble()
+        // 70mai gan tren kinh, chuc xuong manh: diem tu nam DUOI tam anh -> pitch ~ -0.22 rad (do bang diem tu
+        // 1426,1087 @2880, f=1262). 70mai KHONG tu hieu chinh pitch (chi cam DT) nen phai co mac dinh dung.
+        // Neu pitch da luu ~0 (chua hieu chinh) thi nap mac dinh; giu lai neu nguoi dung da keo diem tu that.
+        if (prefs.camSrc == "70mai" && kotlin.math.abs(calPitch) < 0.02) { calPitch = CAL70_PITCH; calYaw = 0.0 }
         startGravity()
         rebuildGeom()
         ai.post {
@@ -347,7 +352,7 @@ class AdasService : Service() {
     /** Doi nguon camera (dien thoai <-> cam guong Wi-Fi). */
     fun switchCam() {
         // cam guong: goc lap tu 3 clip 17/11 (cui -0,04, lech 0,09); tu hieu chinh yaw chay tiep. Dien thoai: lay lai tu trong luc
-        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = 0.0; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; gP = Double.NaN }
+        if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = CAL70_PITCH; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; gP = Double.NaN }
         prefs.calibrated = false; yawGood = 0
         saveCalib()
         rebuildCamGuarded()
@@ -399,7 +404,7 @@ class AdasService : Service() {
     fun setAuto(on: Boolean) {
         prefs.autoCalib = on
         if (on) {
-            if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = 0.0; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; calRoll = 0.0; gP = Double.NaN }
+            if (prefs.camSrc == "mirror") { calPitch = -0.04; calYaw = 0.09; calRoll = 0.0 } else if (prefs.camSrc == "70mai") { calPitch = CAL70_PITCH; calYaw = 0.0; calRoll = 0.0 } else { calYaw = 0.0; calRoll = 0.0; gP = Double.NaN }
             prefs.calibrated = false; yawGood = 0
             saveCalib(); rebuildGeom()
             clog?.line("bat tu hieu chinh = hoc lai tu dau")
