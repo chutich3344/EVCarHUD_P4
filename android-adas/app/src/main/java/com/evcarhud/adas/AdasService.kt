@@ -78,6 +78,10 @@ class Snap(
     var limitWhy: String? = null   // null = bien that; khac = toc do mac dinh (theo luat / ban do)
     var sign: SignDet.Hit? = null
     var over = false
+    /** Den giao thong (R/Y/G, null = khong thay), so giay con lai (dem lui), hop den/bang dem lan quet gan nhat (moi < 0,8 s). */
+    var tl: Char? = null
+    var tlSec: Int? = null
+    var tlLamps: List<TLight.Lamp>? = null
 }
 
 /**
@@ -161,6 +165,10 @@ class AdasService : Service() {
     private var ldwHoldUntil = 0L
     // ---- doc bien giao thong ----
     private var signDet: SignDet? = null
+    // ---- den giao thong + dem giay (TLight.kt) ----
+    private var tlight: TLight? = null
+    private val tlTrack = TLight.Track()
+    private var tlResAt = 0L
     private var signDb: SignDb? = null
     private var road: RoadInfo? = null
     private var objs: List<SignDet.Obj>? = null
@@ -245,6 +253,7 @@ class AdasService : Service() {
         signDb = SignDb(this); camDb = CamDb(this); road = RoadInfo { m -> clog?.line(m) }
         waze = WazeModLink(this, { m -> clog?.line(m) }) { b -> onWaze(b) }.also { it.start() }
         signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
+        tlight = TLight(this) { r -> main.post { onTLight(r) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
             it.onCam = { m -> onCam(m) }
@@ -284,7 +293,7 @@ class AdasService : Service() {
         Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
-        waze?.stop(); signDet?.release(); road?.release(); signDb?.flush(); camDb?.flush()
+        waze?.stop(); signDet?.release(); tlight?.release(); road?.release(); signDb?.flush(); camDb?.flush()
         clog?.line("dung app"); clog?.close()
         super.onDestroy()
     }
@@ -551,6 +560,11 @@ class AdasService : Service() {
             // pin nong: doc bien thua hon, bo nhan loai xe (19/11: pin 43 do khi chay pho)
             sd.objsOn = true   // nhan loai xe gio chi tren vung quanh xe truoc (192x192), du nhe de luon bat
             sd.offer(im, cam?.flip == true, (if (prefs.perf == 0) 2L else 1L) * when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
+        }
+        // den giao thong: chi khi xe cham/dung (gan giao lo), thua; nong thi thua hon, rat nong thi tat
+        if (prefs.tlight && hot < 3) tlight?.let { tl ->
+            val v = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
+            if (v < TL_MAX_KMH) tl.offer(im, cam?.flip == true, (if (v < 3) 700L else 1000L) * when (hot) { 0 -> 1; 1 -> 2; else -> 3 } * (if (prefs.perf == 0) 2 else 1))
         }
         val hz = targetHz
         if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
@@ -823,7 +837,8 @@ class AdasService : Service() {
         val src = when (prefs.camSrc) { "mirror" -> "cam gương"; "70mai" -> "cam 70mai"; else -> "cam ĐT" }
         val lg = clog?.let { "log ${it.short}" } ?: ""
         val sg = if (prefs.signs) " · biển ${signDet?.info ?: "-"}" else ""
-        return "$ai$det · $cal · $src · $lg$sg"
+        val tg = if (prefs.tlight) " · đèn ${tlight?.info ?: "-"}" else ""
+        return "$ai$det · $cal · $src · $lg$sg$tg"
     }
     private var clog: CloudLog? = null
     private var logAt = 0L
@@ -978,6 +993,29 @@ class AdasService : Service() {
     fun hudStatus() = hudMsg + (if (prefs.hudMac.isNotEmpty()) " · ${prefs.hudMac}" else "")
     fun heatInfo() = "pin ${batt.roundToInt()}° · " + when (hot) { 0 -> "bình thường"; 1 -> "ấm, giảm nhẹ"; 2 -> "nóng, giảm còn 3 lần/giây"; else -> "quá nóng, đã dừng AI" }
 
+    // ---------------- den giao thong ----------------
+    private fun onTLight(r: TLight.Res) {
+        val now = SystemClock.elapsedRealtime()
+        tlResAt = now
+        val before = tlTrack.col
+        tlTrack.update(r, now)
+        val col = tlTrack.col
+        if (col != before) {
+            clog?.line("DEN ${before ?: '-'} -> ${col ?: '-'}${tlTrack.cur(now)?.let { " con $it s" } ?: ""}")
+            val v = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
+            // dang dung cho den do/vang -> chuyen xanh: nhac nhe
+            if (col == 'G' && (before == 'R' || before == 'Y') && v < 3 && prefs.beep) beeper.green()
+            applyRate()
+        }
+    }
+    /** Dang dung cho den do/vang: AI openpilot nghi bot. */
+    private fun tlRest(v: Float): Boolean {
+        val c = tlTrack.col ?: return false
+        return prefs.tlight && (c == 'R' || c == 'Y') && v < 3 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 3000
+    }
+    /** Giu camera mo khi dung xe lau (xe do > 30 s) ma vua thay den trong 2 phut: van doc den / dem giay cho toi luc xanh. */
+    private fun tlWait() = prefs.tlight && tlTrack.seenAt > 0 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 120_000
+
     /** Gan vao Snap: bien toc do (giu 15 phut neu khong gap bien moi), bien vua qua 8 s, keu khi vuot > 3 km/h. */
     private fun signSnap(s: Snap, v: Float) {
         val now = SystemClock.elapsedRealtime()
@@ -998,6 +1036,7 @@ class AdasService : Service() {
         if (nl != null && (limit == null || limit == nl || navLimAt > limitAt)) { s.limit = nl; s.limitSrc = if (waze?.ok == true) "Waze" else "GOFA" }
         if (s.limit == null && prefs.defLimit && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
+        if (prefs.tlight && tlTrack.col != null) { s.tl = tlTrack.col; s.tlSec = tlTrack.cur(now); if (now - tlResAt < 800) s.tlLamps = tlTrack.lamps }
         val lim = s.limit
         s.over = lim != null && v > lim + 3
         // chi keu khi vuot bien that; toc do mac dinh chi hien chu (tranh keu sai tren duong ngoai do thi 80-90)
@@ -1024,11 +1063,13 @@ class AdasService : Service() {
         // che do (cai dat): tiet kiem toi da 3 lan/giay (5 khi > 80 km/h / xe gan); toi da bo gioi han muc nong 1
         if (prefs.perf == 0) hz = if (v > 80 || lastNear) 5 else 3
         hz = when (hot) { 1 -> if (prefs.perf == 2) hz else if (v > 80) minOf(hz, 6) else minOf(hz, 4); 2 -> minOf(hz, 3); 3 -> 0; else -> hz }
+        // dung den do / vang (xe < 3 km/h, den moi thay < 3 s): AI openpilot nghi bot, nhuong may cho doc den + dem giay
+        if (tlRest(v)) hz = minOf(hz, 2)
         if (parked || model == null) hz = 0
         targetHz = hz
         val c = cam ?: return
         // Khong can camera: AI dung va khong ai xem man hinh -> tat han camera
-        if (hz == 0 && !uiVisible) { if (c.isOpen) c.close() }
+        if (hz == 0 && !uiVisible && !tlWait()) { if (c.isOpen) c.close() }
         else { if (!c.isOpen) { c.open(); camOpenAt = SystemClock.elapsedRealtime() }; c.setRate(if (hz == 0) 15 else hz) }
     }
 
@@ -1141,6 +1182,8 @@ class AdasService : Service() {
 
     companion object {
         private const val TAG = "AdasService"
+        /** Den giao thong chi quet khi xe duoi toc do nay (gan giao lo / cho den). */
+        private const val TL_MAX_KMH = 35f
         private const val CH = "adas"
         private const val NID = 7
         const val ACTION_STOP = "stop"
