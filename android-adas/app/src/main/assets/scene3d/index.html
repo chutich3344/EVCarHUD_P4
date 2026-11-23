@@ -19,11 +19,15 @@ body.day { --ink: #16191e; --sub: #3d4550; --chip: rgba(0,0,0,.08); background: 
 .chip.lead { background: #2f7bff; color: #fff; }
 .chip.warn { background: #ffb020; color: #1a1300; }
 .chip.dang { background: #ff3b3b; color: #fff; }
+.vbtn { position: absolute; right: 2.5vw; bottom: 4vh; font-weight: 700; font-size: 2.6vh; padding: 1.2vh 2.2vh; border-radius: 99px;
+  background: var(--chip); color: var(--ink); border: 0; -webkit-tap-highlight-color: transparent; backdrop-filter: blur(6px); }
+.vbtn:active { transform: scale(.95); }
 .wait { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); font-weight: 700; font-size: 3vh; color: var(--sub); }
 </style>
 </head>
 <body class="night">
 <div class="hud"><div class="spd" id="spd">0</div><div class="unit">km/h</div><div class="chips" id="chips"></div></div>
+<button class="vbtn" id="vbtn">🎥 Sau xe</button>
 <div class="wait" id="wait">Đang chờ AI…</div>
 <script src="three.min.js"></script>
 <script>
@@ -106,6 +110,10 @@ const oppLine = ribbon(0xffffff, 1, 0.012, 12); oppLine.material.alphaMap = dash
 const walkR = ribbon(0x555555, 1, 0.004), walkL = ribbon(0x555555, 1, 0.004);
 const wallO = wallMesh();
 let oppW = 0, oppAt = -99, oppMax = 0, parkW = 0, parkAt = -99, parkMax = 0;
+// 23/11 (video so sanh): duong 2 lan 2 chieu - openpilot coi lan nguoc chieu la 1 lan cua minh (mep trai = mep duong that).
+// Con >= 2,5 m giua vach trai lan minh va mep trai -> do la lan NGUOC CHIEU: vach trai lan minh = tim vang, xe ben do quay dau.
+// Chi bo khi thay xe ben trai chay CUNG chieu ro rang (duong 1 chieu nhieu lan).
+let inOpp = false, sameAt = -99, inOppAt = -99;
 
 // ---- xe low-poly ----
 function profileShape(pts) { const s = new THREE.Shape(); pts.forEach((p, i) => i ? s.lineTo(p[0], p[1]) : s.moveTo(p[0], p[1])); s.closePath(); return s; }
@@ -173,11 +181,21 @@ function applyTheme(t) {
   ego.userData.shadow.material.opacity = T.shadow;
   document.body.className = t;
 }
+// goc nhin: sau xe / tren cao / FSD (thap, sat sau xe, rong nhu man Tesla FSD)
+const VIEWS = { chase: 'Sau xe', high: 'Trên cao', fsd: 'FSD' }, VORDER = ['chase', 'high', 'fsd'];
+let curView = 'chase';
 function setView(v) {
+  if (!VIEWS[v]) v = 'chase'; curView = v;
   if (v === 'high') { cam.fov = 50; cam.position.set(0, 22, 12); cam.lookAt(0, 0, -24); }
+  else if (v === 'fsd') { cam.fov = 58; cam.position.set(0, 2.6, 7.6); cam.lookAt(0, 1.0, -30); }
   else { cam.fov = 46; cam.position.set(0, 5.2, 13.5); cam.lookAt(0, 0.8, -22); }
   cam.updateProjectionMatrix();
+  document.getElementById('vbtn').textContent = '🎥 ' + VIEWS[v];
 }
+document.getElementById('vbtn').addEventListener('click', () => {
+  const v = VORDER[(VORDER.indexOf(curView) + 1) % VORDER.length]; setView(v);
+  try { window.LaneApp && window.LaneApp.setView(v); } catch (e) {}
+});
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
 addEventListener('resize', resize);
 
@@ -210,11 +228,18 @@ window.feed = function (j) {
     (d.ob || []).forEach((o, i) => { if (used.has(i) || GRP[o[0]] !== tr.g) return;
       const dd = ((o[1] - px) / (0.15 * Math.abs(px) + 3)) ** 2 + ((o[2] - py) / 1.6) ** 2; if (dd < bd) { bd = dd; bi = i; } });
     if (bi >= 0) { const o = d.ob[bi]; used.add(bi);
-      const nvx = (o[1] - tr.x) / Math.max(dt, t - tr.t), nvy = (o[2] - tr.y) / Math.max(dt, t - tr.t);
-      tr.vx = tr.n > 1 ? 0.7 * tr.vx + 0.3 * nvx : 0; tr.vy = tr.n > 1 ? 0.7 * tr.vy + 0.3 * nvy : 0;
+      // van toc tuong doi: hoi quy tuyen tinh tren ~1,5 s lich su (YOLO 4 lan/giay, xe xa nhay vi tri -> sai phep tru 2 diem)
+      (tr.h = tr.h || []).push([t, o[1], o[2]]); while (tr.h.length > 2 && t - tr.h[0][0] > 1.5) tr.h.shift();
+      const span = t - tr.h[0][0];
+      if (span >= 0.6) {
+        let st = 0, sx = 0, sy = 0, stt = 0, stx = 0, sty = 0; const m = tr.h.length;
+        for (const q of tr.h) { const u = q[0] - t; st += u; sx += q[1]; sy += q[2]; stt += u * u; stx += u * q[1]; sty += u * q[2]; }
+        const den = stt - st * st / m;
+        if (den > 1e-4) { tr.vx = (stx - st * sx / m) / den; tr.vy = (sty - st * sy / m) / den; }
+      } else if (tr.n <= 1) { tr.vx = 0; tr.vy = 0; }
       tr.vx = Math.max(-25, Math.min(25, tr.vx)); tr.vy = Math.max(-4, Math.min(4, tr.vy));
-      // xe chay NGUOC CHIEU: lai gan nhanh hon toc do minh > 3 m/s (dung yen thi chi lai gan dung bang toc do minh)
-      if (tr.n > 3) tr.onc = Math.max(-5, Math.min(5, (tr.onc || 0) + (tr.vx < -(cur.v + 3) ? 1 : tr.vx > -(cur.v * 0.5) ? -1 : 0)));
+      // xe chay NGUOC CHIEU: lai gan nhanh hon toc do minh > 3 m/s (dung yen thi chi lai gan dung bang toc do minh). Chi tin khi xe < 35 m
+      if (span >= 0.6 && o[1] < 35) tr.onc = Math.max(-5, Math.min(5, (tr.onc || 0) + (tr.vx < -(cur.v + 3) ? 1 : tr.vx > -(cur.v * 0.4) ? -1 : 0)));
       tr.x = o[1]; tr.y = o[2]; tr.t = t; tr.n++; tr.lead = o[3] ? 1 : 0; tr.cls[o[0]] = (tr.cls[o[0]] || 0) + 1; tr.miss = 0;
     } else tr.miss++;
   }
@@ -243,10 +268,14 @@ function step(dt) {
   setRibbon(shoulderL, eL.map(v => v - 0.3), eL.map(v => v - 0.12));
   setRibbon(shoulderR, eR.map(v => v + 0.12), eR.map(v => v + 0.3));
   // phan duong nguoc chieu / le phai: lon dan khi thay xe ngoai mep, giu 8 s roi thu lai
-  const oT = t - oppAt < 8 ? Math.max(6.5, Math.min(11, oppMax)) : 0, pT = t - parkAt < 8 ? Math.max(3, Math.min(7.5, parkMax)) : 0;
+  const oT = t - oppAt < 8 && !inOpp ? Math.max(6.5, Math.min(11, oppMax)) : 0, pT = t - parkAt < 8 ? Math.max(3, Math.min(7.5, parkMax)) : 0;
   const ga = 1 - Math.exp(-dt / 0.6); oppW += (oT - oppW) * ga; parkW += (pT - parkW) * ga;
   if (t - oppAt > 8) oppMax = 0; if (t - parkAt > 8) parkMax = 0;
-  const two = oppW > 0.4;
+  const gapL = at(cur.ln[1], 10) - at(cur.ed[0], 10);
+  // co tre: xe to che mep duong lam mep trai nhay vao trong -> giu che do 2 lan them 4 s
+  if (gapL > 2.5 && cur.lp[1] > 0.25) inOppAt = t;
+  inOpp = cur.v * 3.6 < 60 && t - sameAt > 10 && (t - inOppAt < 0.5 || (inOpp && t - inOppAt < 4));
+  const two = oppW > 0.4 && !inOpp;
   [oppRoad, oppEdge, yelA, yelB, wallO, walkL].forEach(m => m.visible = two);
   oppLine.visible = oppW > 5.5;
   if (two) {
@@ -258,6 +287,9 @@ function step(dt) {
     setRibbon(walkL, oL.map(v => v - 3.2), oL.map(v => v - 0.18));
     setWall(wallO, oL.map(v => v - 3.3), 0.7);
   }
+  // duong 2 lan: xe ngoai mep trai = xe do / le trai
+  walkL.visible = two || (inOpp && t - oppAt < 8);
+  if (inOpp && walkL.visible) setRibbon(walkL, eL.map(v => v - 4.5), eL.map(v => v - 0.3));
   walkR.visible = parkW > 0.4;
   if (walkR.visible) setRibbon(walkR, eR.map(v => v + 0.3), eR.map(v => v + 0.3 + parkW));
   // khi da co phan duong ben kia / le do xe thi bo tuong mo (truoc day xe ben kia dung sau tuong)
@@ -270,10 +302,12 @@ function step(dt) {
     const dE = Math.min(Math.abs(y10 - e0), Math.abs(y10 - e1));
     const inside = y10 > e0 - 0.4 && y10 < e1 + 0.4;
     lines[k].visible = cur.lp[k] > (k === 1 || k === 2 ? 0.25 : 0.4) && inside;
+    // duong 2 lan: vach 0 (ngoai lan nguoc chieu) chi la vach le -> ve lien, khong ve them 1 lan
+    const shoulder = inOpp && k === 0;
     // duong 2 chieu (thay xe nguoc chieu ben trai trong 5 s): vach trai lan minh = vach tim vang lien
-    const center = k === 1 && t - oncAt < 5 && !two;
+    const center = k === 1 && ((t - oncAt < 5 && !two) || inOpp);
     lines[k].material.color.setHex(center ? (theme === 'night' ? 0xffc21a : 0xe2a400) : T.line);
-    const solid = dE < 0.9 || center; if ((lines[k].material.alphaMap === null) !== solid) { lines[k].material.alphaMap = solid ? null : dashTex; lines[k].material.needsUpdate = true; }
+    const solid = dE < 0.9 || center || shoulder; if ((lines[k].material.alphaMap === null) !== solid) { lines[k].material.alphaMap = solid ? null : dashTex; lines[k].material.needsUpdate = true; }
     lines[k].material.opacity = Math.min(1, 0.35 + cur.lp[k]);
     const w = (k === 1 || k === 2) ? 0.09 : 0.075;
     setRibbon(lines[k], Y.map(v => v - w), Y.map(v => v + w), odo);
@@ -319,11 +353,14 @@ function step(dt) {
     const eLx = at(cur.ed[0], xc), eRx = at(cur.ed[1], xc);
     const outL = y < eLx - 0.6, outR = y > eRx + 0.6;
     if (tr.n >= 3 && ob.kind !== 'person' && x > 3 && x < 60) {
-      if (outL && eLx - y < 14) { oppAt = t; oppMax = Math.max(oppMax, eLx - 0.3 - y + 2.2); }
+      if (outL && eLx - y < 14) { oppAt = t; if (!inOpp) oppMax = Math.max(oppMax, eLx - 0.3 - y + 2.2); }
       if (outR && y - eRx < 10) { parkAt = t; parkMax = Math.max(parkMax, y - eRx - 0.3 + 1.6); }
     }
     // ben phan nguoc chieu: mac dinh quay dau ve phia minh, tru khi vet cho thay chay cung chieu ro rang
-    const faceUs = (tr.onc || 0) >= 3 || (two && y < eLx - 0.2 && (tr.onc || 0) > -3);
+    const l1x = at(cur.ln[1], xc);
+    if (ob.kind !== 'person' && tr.n > 10 && cur.v > 4 && x > 4 && x < 30 && y < l1x - 0.3 && y > eLx - 0.3 && (tr.onc || 0) <= -4 && tr.vx > -cur.v * 0.3) sameAt = t;
+    const withUs = (tr.onc || 0) <= -3 && cur.v > 3 && tr.vx > -cur.v * 0.4;    // dang chay cung chieu ro rang
+    const faceUs = (tr.onc || 0) >= 3 || (!withUs && ((two && y < eLx - 0.2) || (inOpp && y < l1x - 0.2 && y > eLx - 0.6)));
     const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6); ob.grp.rotation.y = -yaw + (faceUs ? Math.PI : 0);
     const fade = Math.min(tr.a, fadeOut, x > 70 ? Math.max(0, (95 - x) / 25) : 1);
     let col = faceUs && ob.kind !== 'person' ? T.onc : T.car;

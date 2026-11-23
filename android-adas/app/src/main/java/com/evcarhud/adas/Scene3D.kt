@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.os.SystemClock
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlin.math.PI
@@ -28,6 +29,15 @@ class Scene3D(ctx: Context) : WebView(ctx) {
     private var sentView = ""
     /** Che do ngay/dem: 0 tu dong theo mat troi, 1 luon dem, 2 luon ngay. */
     var themeMode = 0
+    /** Nguoi dung bam nut doi goc tren man 3D -> luu cai dat. */
+    var onView: ((String) -> Unit)? = null
+
+    private inner class Bridge {
+        @JavascriptInterface fun setView(v: String) {
+            if (v !in listOf("chase", "high", "fsd")) return
+            post { view = v; sentView = v; onView?.invoke(v) }
+        }
+    }
 
     init {
         setBackgroundColor(Color.rgb(21, 24, 29))
@@ -38,6 +48,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         webViewClient = object : WebViewClient() {
             override fun onPageFinished(v: WebView?, url: String?) { ready = true }
         }
+        addJavascriptInterface(Bridge(), "LaneApp")
         loadUrl("file:///android_asset/scene3d/index.html")
     }
 

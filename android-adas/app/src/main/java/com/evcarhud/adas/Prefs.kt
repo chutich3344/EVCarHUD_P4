@@ -58,10 +58,10 @@ class Prefs(ctx: Context) {
     var scene3dLast: Int
         get() = p.getInt("scene3dlast", 1)
         set(v) = p.edit().putInt("scene3dlast", v).apply()
-    /** Goc nhin canh 3D: false sau xe, true tren cao. */
-    var scene3dHigh: Boolean
-        get() = p.getBoolean("scene3dhigh", false)
-        set(v) = p.edit().putBoolean("scene3dhigh", v).apply()
+    /** Goc nhin canh 3D: "chase" sau xe, "high" tren cao, "fsd" thap sat sau xe kieu Tesla FSD (23/11). */
+    var scene3dView: String
+        get() = p.getString("scene3dview", null) ?: if (p.getBoolean("scene3dhigh", false)) "high" else "chase"
+        set(v) = p.edit().putString("scene3dview", v).apply()
     /** Cong tac tat NHANH het cua so noi (PiP: ban do + o nhiet) de xem camera gon. Mac dinh TAT (van hien PiP). */
     var hidePip: Boolean
         get() = p.getBoolean("hidepip", false)
