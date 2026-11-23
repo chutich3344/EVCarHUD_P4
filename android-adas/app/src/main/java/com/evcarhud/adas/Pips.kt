@@ -80,12 +80,19 @@ class TileMap(ctx: Context) : View(ctx) {
     var autoDayNight = false
         set(v) { if (field != v) { field = v; invalidate() } }
     private var err = ""
-    private val zoom = 16
+    /** Muc o ban do dang tai (nguyen) + muc zoom hien thi (le, chuyen muot). */
+    private var zoom = 16
+    private var zf = 16f
     private var lat = 0.0
     private var lon = 0.0
     private var bearing = 0f
     private var fix = false
-    private val mem = LruCache<String, Bitmap>(48)
+    private var vKmh = 0f
+    // noi suy giua 2 lan GPS (1 lan/giay) cho xe chay muot, khong giat tung buoc
+    private var aLat = 0.0; private var aLon = 0.0; private var aBr = 0f
+    private var bLat = 0.0; private var bLon = 0.0; private var bBr = 0f
+    private var fixAt = 0L
+    private val mem = LruCache<String, Bitmap>(96)
     private val loading = HashSet<String>()
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -104,10 +111,46 @@ class TileMap(ctx: Context) : View(ctx) {
     fun update(s: Snap) {
         if (!s.hasFix) { if (fix) { fix = false; invalidate() }; return }
         // chi lay huong khi xe dang chay (dung yen GPS bao huong lung tung)
-        val b = if (s.vKmh > 5f) s.bearing else bearing
-        if (s.lat == lat && s.lon == lon && b == bearing && fix) return
-        lat = s.lat; lon = s.lon; bearing = b; fix = true
+        val b = if (s.vKmh > 5f) s.bearing else bBr
+        vKmh = s.vKmh
+        // dang dan duong va xe nam tren tuyen: ve xe ngay tren vach (vi tri bam tuyen), huong theo doan tuyen
+        var tl = s.lat; var to = s.lon; var tb = b
+        if (Nav.active && Nav.onRoute && Nav.snapBearing >= 0) { tl = Nav.snapLat; to = Nav.snapLon; if (s.vKmh > 5f) tb = Nav.snapBearing }
+        if (tl == bLat && to == bLon && tb == bBr && fix) return
+        if (!fix) { aLat = tl; aLon = to; aBr = tb } else { aLat = lat; aLon = lon; aBr = bearing }
+        bLat = tl; bLon = to; bBr = tb; fixAt = android.os.SystemClock.uptimeMillis()
+        if (!fix) { lat = tl; lon = to; bearing = tb }
+        fix = true
         invalidate()
+    }
+
+    /**
+     * Zoom tu dong khi dan duong: theo toc do (nhanh thi nhin xa), gan cho re < 300 m phong to 17,
+     * gan dich < 500 m phong to dan 17 -> 18. Khong dan duong: giu 16 nhu cu.
+     */
+    private fun targetZoom(): Float {
+        if (!Nav.active || Nav.route == null) return 16f
+        var z = when { vKmh > 70 -> 15f; vKmh > 40 -> 15.5f; else -> 16f }
+        val dt = Nav.nextDist()
+        val dd = Nav.remainM()
+        if (dt in 0..300) z = maxOf(z, 17f - dt / 300f * 0.5f)
+        if (dd in 0..500) z = maxOf(z, 18f - (dd.coerceAtLeast(100) - 100) / 400f)
+        return z
+    }
+
+    /** 1 nhip ve: noi suy vi tri/huong + zoom. true = con dang chuyen dong -> ve tiep nhip sau. */
+    private fun step(): Boolean {
+        val t = ((android.os.SystemClock.uptimeMillis() - fixAt) / 1000f).coerceIn(0f, 1f)
+        lat = aLat + (bLat - aLat) * t; lon = aLon + (bLon - aLon) * t
+        val db = ((bBr - aBr + 540f) % 360f) - 180f
+        bearing = (aBr + db * t + 360f) % 360f
+        val tz = targetZoom()
+        zf += (tz - zf) * 0.12f
+        if (kotlin.math.abs(tz - zf) < 0.01f) zf = tz
+        zoom = kotlin.math.floor(zf + 0.001f).toInt().coerceIn(14, 18)
+        val moving = t < 1f || zf != tz
+        if (moving) postInvalidateDelayed(50)          // ~20 hinh/giay la du muot, do nong may hon 60
+        return moving
     }
 
     /** Ban ngay? Goc cao mat troi > -6 do (hoang hon dan su) tai vi tri GPS + gio hien tai.
@@ -133,11 +176,12 @@ class TileMap(ctx: Context) : View(ctx) {
         cv.save(); cv.clipPath(clip)
         cv.drawColor(Color.rgb(21, 26, 34))
         if (fix) {
+            step()
             val n = 1 shl zoom
             val fx = (lon + 180) / 360 * n
             val latR = Math.toRadians(lat)
             val fy = (1 - ln(tan(latR) + 1 / cos(latR)) / PI) / 2 * n
-            val ts = 256f * (w / 300f).coerceIn(0.8f, 1.6f)
+            val ts = 256f * (w / 300f).coerceIn(0.8f, 1.6f) * Math.pow(2.0, (zf - zoom).toDouble()).toFloat()
             val wz = !Nav.active && WazeNav.active
             val cx = w / 2; val cy = if (Nav.active || wz) h * 0.74f else h * 0.58f   // dan duong: xe thap xuong, thay xa phia truoc
             // xoay ca ban do quanh vi tri xe: huong chay len tren -> can phu kin hinh tron ban kinh = duong cheo
@@ -147,11 +191,17 @@ class TileMap(ctx: Context) : View(ctx) {
             cv.save(); cv.rotate(-bearing, cx, cy)
             for (tx in tx0..tx1) for (ty in ty0..ty1) {
                 if (ty < 0 || ty >= n) continue
-                val bm = tile(((tx % n) + n) % n, ty) ?: continue
                 val left = cx + ((tx - fx) * ts).toFloat(); val top = cy + ((ty - fy) * ts).toFloat()
                 // google: dao mau toi, TRU KHI auto ngay/dem dang la ban ngay -> giu ban do sang.
                 val useDark = source == "google" && !(autoDayNight && isDay())
-                cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), if (useDark) dark else null)
+                val xx = ((tx % n) + n) % n
+                val bm = tile(xx, ty)
+                if (bm != null) cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), if (useDark) dark else null)
+                else mem.get("${zoom - 1}/${xx / 2}/${ty / 2}")?.let { pb ->      // vua doi muc zoom: tam ve 1/4 o muc tren cho khoi trong
+                    val q = pb.width / 2
+                    cv.drawBitmap(pb, android.graphics.Rect((xx % 2) * q, (ty % 2) * q, (xx % 2) * q + q, (ty % 2) * q + q),
+                        RectF(left, top, left + ts, top + ts), if (useDark) dark else null)
+                }
             }
             if (source != "google") cv.drawColor(Color.argb(70, 0, 0, 0))   // lam toi nhe cho de nhin ban dem
             drawRoute(cv, n, fx, fy, ts, cx, cy)
@@ -203,9 +253,15 @@ class TileMap(ctx: Context) : View(ctx) {
         if (r != null) {
             routePath.reset()
             // tu vi tri xe toi het tuyen (bo doan da di), bo bot diem qua sat nhau
-            var i = r.cum.indexOfFirst { it >= Nav.along }.let { if (it <= 0) 0 else it - 1 }
-            routePath.moveTo(cx, cy)
-            var lx = cx; var ly = cy
+            // 23/11 (nguoi dung: "ve cheo duong chim bay"): truoc noi thang tu xe toi tuyen -> xe dang lech tuyen / tuyen cu
+            // thi thanh 1 doan cheo cat qua nha. Nay chi ve dung hinh tuyen, bat dau tu diem tren tuyen ung voi quang da di.
+            val k = r.cum.indexOfFirst { it >= Nav.along }.let { if (it <= 0) 1 else it }.coerceAtMost(r.lat.size - 1)
+            val seg = (r.cum[k] - r.cum[k - 1]).takeIf { it > 0 } ?: 1.0
+            val t = ((Nav.along - r.cum[k - 1]) / seg).coerceIn(0.0, 1.0)
+            val sx = px(r.lon[k - 1] + (r.lon[k] - r.lon[k - 1]) * t); val sy = py(r.lat[k - 1] + (r.lat[k] - r.lat[k - 1]) * t)
+            var i = k
+            routePath.moveTo(sx, sy)
+            var lx = sx; var ly = sy
             val lim = maxOf(width, height) * 3f
             while (i < r.lat.size) {
                 val x = px(r.lon[i]); val y = py(r.lat[i])
@@ -214,8 +270,8 @@ class TileMap(ctx: Context) : View(ctx) {
                 i++
             }
             p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
-            p.strokeWidth = ts * 0.075f; p.color = Color.rgb(6, 40, 26); cv.drawPath(routePath, p)
-            p.strokeWidth = ts * 0.05f; p.color = Color.rgb(74, 222, 128); cv.drawPath(routePath, p)
+            p.strokeWidth = height * 0.08f; p.color = Color.rgb(6, 40, 26); cv.drawPath(routePath, p)   // net co dinh, khong day len khi zoom
+            p.strokeWidth = height * 0.055f; p.color = if (Nav.onRoute || Nav.route == null) Color.rgb(74, 222, 128) else Color.rgb(150, 160, 170); cv.drawPath(routePath, p)   // lech tuyen: vach xam cho toi khi co duong moi
             p.strokeCap = Paint.Cap.BUTT
         }
         // bieu tuong o dich: tram sac (tia set) / diem den (co) - quay nguoc de luon dung thang
@@ -324,6 +380,17 @@ class TileMap(ctx: Context) : View(ctx) {
         val rm = Nav.remainM()
         val info = if (Nav.arrived) "" else (if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')) + " · ${(Nav.remainS() + 59) / 60} phút"
         bannerCore(cv, w, h, trn, s?.exit ?: 0, big, st, info, "")
+        // chip duoi bang: dang tim duong lai (do) / vua doi tuyen (xanh)
+        if (Nav.rerouting || Nav.noteFresh()) {
+            val t = Nav.msg
+            p.textSize = h * 0.065f; p.typeface = bold
+            val tw = minOf(p.measureText(t), w - h * 0.2f); val y0 = h * 0.27f
+            p.style = Paint.Style.FILL; p.color = if (Nav.rerouting) Color.rgb(220, 50, 60) else Color.rgb(16, 150, 90)
+            cv.drawRoundRect(RectF(w / 2 - tw / 2 - h * 0.04f, y0, w / 2 + tw / 2 + h * 0.04f, y0 + h * 0.1f), h * 0.05f, h * 0.05f, p)
+            p.color = Color.WHITE; p.textAlign = Paint.Align.CENTER
+            cv.drawText(fit(t, tw + 1f), w / 2, y0 + h * 0.072f, p)
+            p.textAlign = Paint.Align.LEFT
+        }
     }
 
     private fun fit(t: String, maxW: Float): String {
@@ -413,13 +480,14 @@ class TileMap(ctx: Context) : View(ctx) {
 
     private fun tile(x: Int, y: Int): Bitmap? {
         val src = source
-        val k = "$zoom/$x/$y"
+        val z = zoom                                  // zoom doi lien tuc khi dan duong: chot muc o luc xin
+        val k = "$z/$x/$y"
         mem.get(k)?.let { return it }
         wantCell()                                    // giu san 4G/5G de tai tile khi dang bam Wi-Fi cam
         if (loading.add(k)) io.execute {
-            val f = File(dir, "${src}_${zoom}_${x}_$y.png")
+            val f = File(dir, "${src}_${z}_${x}_$y.png")
             val url = when (src) {
-                "google" -> "https://mt1.google.com/vt/lyrs=m&hl=vi&x=$x&y=$y&z=$zoom"
+                "google" -> "https://mt1.google.com/vt/lyrs=m&hl=vi&x=$x&y=$y&z=$z"
                 else -> "https://tile.openstreetmap.org/$k.png"
             }
             var e = ""

@@ -100,7 +100,7 @@ class MainActivity : Activity() {
     }
 
     private fun goNav(d: Dest) {
-        Nav.start(this, d, prefs.hereKey)
+        Nav.start(this, d, prefs.hereKey, prefs.routeMode)
         if (!prefs.showMap) { prefs.showMap = true; showPips() }
         toast("Dẫn đường tới ${d.name}")
     }
@@ -283,6 +283,7 @@ class MainActivity : Activity() {
                 if (Nav.active) A("Kết thúc dẫn đường", Nav.dest?.name, null) { Nav.stop(); refreshSettings() } else null,
                 A("Cách dùng", "mở trạm từ app EVCarHUD Charge, hoặc chia sẻ link HERE WeGo / Google Maps vào app này", null) { },
                 A("Khoá HERE (tính đường)", if (prefs.hereKey.isEmpty()) "chưa có, đang dùng OSRM" else "đã lưu …" + prefs.hereKey.takeLast(4), null) { hereKeyDialog() },
+                S("Chọn đường", "nhanh nhất: theo kẹt xe nếu có khoá HERE · ngắn nhất: ít km nhất", listOf("Nhanh nhất", "Ngắn nhất"), { if (prefs.routeMode == "short") 1 else 0 }, { k -> prefs.routeMode = if (k == 1) "short" else "fast"; Nav.mode = prefs.routeMode }, false),
             ) },
             SettingsView.Cat("nang", "Hiệu năng & nhiệt", { arrayOf("tiết kiệm", "cân bằng", "tối đa")[prefs.perf.coerceIn(0, 2)] }) { listOf(
                 S("Chế độ", "tiết kiệm: AI 3 lần/giây, đọc biển thưa hơn · tối đa: chỉ giảm khi pin ≥ 43°", listOf("Tiết kiệm", "Cân bằng", "Tối đa"), { prefs.perf }, { k -> prefs.perf = k }, true),
