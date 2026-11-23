@@ -678,7 +678,7 @@ function step(dt) {
   const centerAt = x => (at(cur.ln[1], x) + at(cur.ln[2], x)) / 2;
   let leadInfo = null; glow.visible = false;
   const placed = []; let nPark = 0;   // chan cac xe chong len nhau (xe may xep hang 2 ben truoc day bi ve thanh 1 cuc)
-  tracks.sort((p, q) => p.sx - q.sx);
+  tracks.sort((p, q) => ((t - p.t > 0.15) - (t - q.t > 0.15)) || p.sx - q.sx);   // xe vua nhan dat truoc, bong dang mo xep sau
   for (const tr of tracks) {
     if (tr.n < 2 && t - tr.born < 0.25) continue;            // 1 lan nhan thoang qua: chua ve
     const tx = tr.x + tr.vx * Math.min(0.6, t - tr.t), ty = tr.y + tr.vy * Math.min(0.6, t - tr.t);
@@ -702,9 +702,11 @@ function step(dt) {
     // 23/11 toi (Reality): KHONG xep/day xe cho do chong. Trung gan het voi xe da ve (2 lan nhan cung 1 xe) -> an ban sau;
     // chong nhe (2 xe sat nhau that) -> giu dung vi tri do duoc.
     const x = tr.sx;
-    const dup = placed.find(p => Math.abs(p.y - y) < (p.w + Wd) / 2 * 0.55 && Math.min(x + L, p.x + p.l) - Math.max(x, p.x) > 0.6 * Math.min(L, p.l));
+    // xe dang mo dan (khong con nhan moi > 0,15 s) ngay sau/truoc 1 xe vua nhan cung lan, cach < 3 m -> la bong cu cua chinh xe do, an
+    const stale = t - tr.t > 0.15;
+    const dup = placed.find(p => { if (Math.abs(p.y - y) >= (p.w + Wd) / 2 * 0.55) return false; const ov = Math.min(x + L, p.x + p.l) - Math.max(x, p.x); return ov > 0.6 * Math.min(L, p.l) || (stale && !p.stale && ov > -3); });
     if (dup) { ob.grp.visible = false; continue; }
-    placed.push({ x, y, l: L, w: Wd });
+    placed.push({ x, y, l: L, w: Wd, stale });
     const xc = x + (ob.kind === 'person' ? 0 : L / 2);
     ob.grp.position.set(y, 0, -xc);
     if ((tr.onc || 0) >= 3 && y < centerAt(xc)) oncAt = t;
