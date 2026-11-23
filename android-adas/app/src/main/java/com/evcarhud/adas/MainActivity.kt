@@ -165,7 +165,7 @@ class MainActivity : Activity() {
     // ---------------- canh 3D kieu Tesla ----------------
     private fun ensureScene(): Scene3D = scene ?: Scene3D(this).also { sc ->
         scene = sc
-        sc.view = prefs.scene3dView
+        sc.view = prefs.scene3dView; sc.deco = prefs.scene3dDeco
         sc.onView = { v -> prefs.scene3dView = v }     // nut doi goc ngay tren man 3D
         sc.egoFile = prefs.egoGlb.ifEmpty { null }; sc.egoFlip = prefs.egoFlip; sc.egoWhite = prefs.egoWhite; sc.egoKind = prefs.egoKind
         root.addView(sc, root.indexOfChild(overlay) + 1, FrameLayout.LayoutParams(1, 1))
@@ -381,6 +381,7 @@ class MainActivity : Activity() {
                 T("Chia đôi màn (camera | bản đồ)", "trái camera + ADAS, phải bản đồ · bật nhanh bằng nút ◫ trên màn", { prefs.splitScreen }, { b -> prefs.splitScreen = b; overlay.split = b; sizePips(root.width) }, true),
                 S("Cảnh lái 3D (kiểu Tesla)", "vẽ lại lane, đường đi, xe xung quanh từ AI · bật nhanh bằng nút 3D trên màn", listOf("Tắt", "Toàn màn", "Thay bản đồ"), { prefs.scene3d.coerceIn(0, 2) }, { k -> prefs.scene3d = k; if (k != 0) prefs.scene3dLast = k; sizePips(root.width) }, true),
                 S("Góc nhìn cảnh 3D", null, listOf("Sau xe", "Trên cao", "Sát sau", "V14"), { VIEWS3D.indexOf(prefs.scene3dView).coerceAtLeast(0) }, { k -> prefs.scene3dView = VIEWS3D[k]; scene?.view = VIEWS3D[k] }, true),
+                T("Cây + nhà minh hoạ trong 3D", "chỉ là hình trang trí, không phải cây/nhà thật camera thấy", { prefs.scene3dDeco }, { b -> prefs.scene3dDeco = b; scene?.deco = b }, true),
                 A("Mẫu xe 3D của mình", "chọn file .glb (vd VF7 tải từ Sketchfab) · tự co về dài 4,6 m", if (prefs.egoGlb.isNotEmpty()) "File .glb" else if (prefs.egoKind == "basic") "Cơ bản" else "VF7 trắng") { egoModelDialog() },
                 T("Ẩn cửa sổ nổi (PiP)", "ẩn nhanh bản đồ + ô nhiệt để xem camera gọn", { prefs.hidePip }, { b -> prefs.hidePip = b; showPips() }, false),
                 T("Bản đồ góc", "kéo để đổi góc", { prefs.showMap }, { b -> prefs.showMap = b; showPips() }, false),

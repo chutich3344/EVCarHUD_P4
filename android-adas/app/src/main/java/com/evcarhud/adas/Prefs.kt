@@ -74,6 +74,10 @@ class Prefs(ctx: Context) {
     var egoFlip: Boolean
         get() = p.getBoolean("egoflip", false)
         set(v) = p.edit().putBoolean("egoflip", v).apply()
+    /** 23/11 toi: cay + nha minh hoa trong canh 3D (khong co du lieu that -> mac dinh TAT, nguoi dung thay "gia"). */
+    var scene3dDeco: Boolean
+        get() = p.getBoolean("scene3ddeco", false)
+        set(v) = p.edit().putBoolean("scene3ddeco", v).apply()
     var egoWhite: Boolean
         get() = p.getBoolean("egowhite", false)
         set(v) = p.edit().putBoolean("egowhite", v).apply()

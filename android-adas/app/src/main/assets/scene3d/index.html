@@ -119,6 +119,17 @@ function put(m, y0, y1, x0, x1) { m.scale.set(Math.max(0.01, y1 - y0), Math.max(
 const jAsph = flat(0x333333, 0.017);
 const jEdge = [0, 1, 2, 3].map(() => flat(0xffffff, 0.019)), jCen = [0, 1].map(() => flat(0xffc21a, 0.019));
 const jZeb = [0, 1].map(() => flat(0xffffff, 0.019, zebraTex)), jStop = flat(0xffffff, 0.019);
+// 23/11 toi: cot den giao thong 3D o vach dung (ben phai, can vuon ra long duong): den sang dung mau app doc duoc
+const tlG = new THREE.Group(); junc.add(tlG);
+const tlLamp = [];
+{ const gm = new THREE.MeshLambertMaterial({ color: 0x5a6068 }), bm = new THREE.MeshLambertMaterial({ color: 0x15181c });
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 5.4, 10), gm); pole.position.set(0, 2.7, 0); tlG.add(pole);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.12, 0.12), gm); arm.position.set(-1.7, 5.25, 0); tlG.add(arm);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.4, 0.36), bm); box.position.set(-3.1, 4.55, 0); tlG.add(box);
+  for (let i = 0; i < 3; i++) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 10), new THREE.MeshBasicMaterial({ color: 0x2a2d31 }));
+    l.position.set(-3.1, 5.0 - i * 0.45, 0.19); tlG.add(l); tlLamp.push(l); }
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), new THREE.MeshBasicMaterial({ color: 0xff3b30, transparent: true, opacity: 0.28, depthWrite: false }));
+  tlG.add(halo); tlG.userData.halo = halo; }
 let turnAt = -99, crossAt = -99, crossX = 15, oIdxPrev = null, inOppPrev = false, jOn = false, jW = 9, jEndAt = -99, tlJ = false, tlC = null;
 const shoulderL = ribbon(0x777777, 1, 0.005), shoulderR = ribbon(0x777777, 1, 0.005);
 // 23/11 (V14 Lite, sua 1 lan -> 3 lan): openpilot luon cho 4 vach. Duong 1 lan, vach ngoai (0/3) hay nam cach vach trong chi 1,5–2,3 m
@@ -512,6 +523,14 @@ function step(dt) {
       const yC = oIdxPrev !== null ? interp(X_IDX, cur.ln[oIdxPrev], xr) : eL0;
       put(jStop, Math.max(eL0, yC) + 0.1, eR0, xa - 1.0, xa - 0.6);
       jStop.visible = jStop.visible && xa - 1 > 2;
+      jStop.material.color.setHex(tlC === 'R' ? 0xff3b30 : 0xffffff);   // den do: vach dung to do
+      tlG.visible = !!tlC;
+      if (tlC) {
+        tlG.position.set(eR0 + 0.9, 0, -(xa - 0.8));
+        const on = { R: 0, Y: 1, G: 2 }[tlC], cs = [0xff3b30, 0xffcc00, 0x30d158];
+        tlLamp.forEach((l, i) => l.material.color.setHex(i === on ? cs[i] : 0x2a2d31));
+        const h = tlG.userData.halo; h.material.color.setHex(cs[on]); h.position.copy(tlLamp[on].position);
+      }
       // via he bo tron 4 goc
       cornerMat.color.setHex(T0.walk);
       corners.forEach(m => { const [sx, sz] = m.userData.s; m.position.set(sx < 0 ? rL : rR, 0, -(crossX + sz * w / 2)); });
@@ -580,7 +599,9 @@ function step(dt) {
   if (medW > 0.3) { const a0 = eL.map(v => v - 0.3), a1 = a0.map(v => v - medW); setRibbon(med, a1, a0); setWall(medWallA, a0, 0.16); setWall(medWallB, a1, 0.16); }
   wallL.visible = !two || hw; wallR.visible = true;
   setWall(wallL, eL.map(v => v - 0.45), 0.7); setWall(wallR, eR.map(v => v + 0.45 + parkW), 0.7);
-  placeScenery(x => at(cur.ed[0], x) - 0.45 - (two ? medW + oppW + 3.3 : inOpp ? 4.2 : 0), x => at(cur.ed[1], x) + 0.45 + parkW, hw);
+  // 23/11 toi: cay/nha chi la trang tri, khong co du lieu that -> chi ve khi bat trong Cai dat (d.deco)
+  [trunkI, crownI, houseI].forEach(m => { m.visible = !!d.deco; });
+  if (d.deco) placeScenery(x => at(cur.ed[0], x) - 0.45 - (two ? medW + oppW + 3.3 : inOpp ? 4.2 : 0), x => at(cur.ed[1], x) + 0.45 + parkW, hw);
   for (let k = 0; k < 4; k++) {
     const ln = cur.ln[k], Y = sample(ln), y10 = at(ln, 10), e0 = at(cur.ed[0], 10), e1 = at(cur.ed[1], 10);
     const dE = Math.min(Math.abs(y10 - e0), Math.abs(y10 - e1));
@@ -672,7 +693,13 @@ function step(dt) {
     const parked = tr.park >= 4 && ob.kind !== 'person';
     const leftOfCen = y < l1x - 0.2 && (yel || inOpp || (!two && !oneWay && t - oncAt < 15));
     const faceUs = !(parked && y > 0) && ((tr.onc || 0) >= 3 || (!withUs && !parked && ((two && y < eLx - 0.2) || (leftOfCen && y > eLx - 0.6 - (two ? 0 : 3)))));
-    const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6); ob.grp.rotation.y = -yaw + (faceUs ? Math.PI : 0);
+    const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6);
+    // 23/11 toi (video dem): xe dau 2 ben bi doi "quay mat ve minh" <-> "cung chieu" lien tuc -> xoay vong 180 do.
+    // Chot huong: chi doi khi trang thai moi giu >= 1 s va xe co chay that (> 2 m/s); xe dau thi khong doi nua.
+    if (tr.fu === undefined) tr.fu = faceUs;
+    if (faceUs !== tr.fu && !parked && Math.hypot(tr.vx + cur.v, tr.vy) > 2) { tr.fuT = (tr.fuT || 0) + dt; if (tr.fuT > 1) { tr.fu = faceUs; tr.fuT = 0; } } else tr.fuT = 0;
+    const faceUsL = tr.n < 4 ? faceUs : tr.fu;
+    ob.grp.rotation.y = -yaw + (faceUsL ? Math.PI : 0);
     // 23/11: xe chay NGANG (nga tu, minh dung cho): quay theo huong di that
     const wx = tr.vx + cur.v, wy = tr.vy;
     let ry = ob.grp.rotation.y;
@@ -680,15 +707,23 @@ function step(dt) {
     // chay ngang that: van toc ngang ro + da dich ngang > 2,5 m trong lich su (khong phai nhieu vi tri cua xe dau)
     // 23/11 toi: xe MINH dang re (hoac vua re < 1,5 s) -> moi vat dung yen deu "chay ngang" trong khung xe -> KHONG coi la xe cat ngang / giao lo
     const turning = t - turnAt < 1.5;
-    if (!turning && ob.kind !== 'person' && tr.n > 3 && latT > 0.6 && latD > 2.5 && Math.abs(wy) > 1.5 && Math.abs(wy) > 0.8 * Math.abs(wx)) {
+    // 23/11 toi: xe cat ngang phai GIU dieu kien >= 0,6 s, dich ngang > 3,5 m, khong phai xe dau -> moi dung giao lo (truoc day nhieu cu ly ban dem tao nga tu gia lien tuc)
+    // xe cat ngang that phai DI VAO long duong (giua 2 mep); xe dau ngoai le chi "troi" ngang do sai so cu ly ban dem
+    if (y > eLx + 0.3 && y < eRx - 0.3 && Math.abs(wy) > 1.2) tr.inRd = t;
+    const crossNow = t - (tr.inRd || -99) < 2 && !turning && !parked && (tr.park || 0) < 2 && ob.kind !== 'person' && tr.n > 5 && latT > 0.8 && latD > 3.5 && Math.abs(wy) > 1.8 && Math.abs(wy) > Math.abs(wx);
+    tr.crT = crossNow ? (tr.crT || 0) + dt : 0;
+    if (crossNow) {
       ry = -Math.atan2(wy, wx);
-      if (x > 3 && x < 45) { crossX = crossAt < t - 6 ? x : crossX + (x - crossX) * 0.1; crossAt = t; }
-    } else if (!turning && ob.kind !== 'person' && t - crossAt < 6 && Math.abs(x - crossX) < 6 && (y < eLx - 1.5 || y > eRx + 1.5) && latD < 2.5 && !(tr.park >= 3)) {
+      if (tr.crT > 0.6 && x > 3 && x < 45) { crossX = crossAt < t - 6 ? x : crossX + (x - crossX) * 0.1; crossAt = t; }
+    } else if (jOn && !turning && ob.kind !== 'person' && t - crossAt < 6 && Math.abs(x - crossX) < 6 && (y < eLx - 1.5 || y > eRx + 1.5) && latD < 2.5 && !(tr.park >= 3)) {
       ry = y < 0 ? -Math.PI / 2 : Math.PI / 2;   // dang o hai ben duong ngang, chua ro huong: coi nhu dang di vao giao lo
     }
     // 23/11 (V14 Lite): xe dung yen (toc do that < 0,8 m/s) giu huong cu, khong xoay theo nhieu vi tri
     const wsp = Math.hypot(wx, wy);
-    if (tr.ry !== undefined && tr.n > 6 && wsp < 0.8 && Math.abs(ry - tr.ry) < 2.5) ry = tr.ry;
+    if (tr.ry !== undefined && tr.n > 6 && parked) {   // xe dau: nam doc theo duong, giu dau/duoi nhu cu (khong quay vong)
+      const ad = a => Math.abs(Math.atan2(Math.sin(a - tr.ry), Math.cos(a - tr.ry)));
+      ry = ad(-yaw) <= ad(-yaw + Math.PI) ? -yaw : -yaw + Math.PI;
+    } else if (tr.ry !== undefined && tr.n > 6 && wsp < 1.2) ry = tr.ry;   // dung yen / gan dung: giu nguyen huong
     // quay muot (khong giat 90 do moi khung khi van toc nhieu)
     if (tr.ry === undefined) tr.ry = ry;
     const dr = Math.atan2(Math.sin(ry - tr.ry), Math.cos(ry - tr.ry)), dry = dr * Math.min(1, dt / 0.25); tr.ry += dry;
@@ -706,7 +741,7 @@ function step(dt) {
       if (ob.grp.userData.tail) ob.grp.userData.tail.color.setHex(tr.brk ? 0xff2a2a : 0x5a1414);
     }
     const fade = Math.min(tr.a, fadeOut, x > 70 ? Math.max(0, (95 - x) / 25) : 1);
-    let col = parked ? T.park : faceUs && ob.kind !== 'person' ? T.onc : T.car;
+    let col = parked ? T.park : faceUsL && ob.kind !== 'person' ? T.onc : T.car;
     if (parked) nPark++;
     if (tr.lead && d.ld) {
       col = T.lead; const vrel = d.ld.v - cur.v, ttc = vrel < -0.5 ? x / -vrel : 99;
