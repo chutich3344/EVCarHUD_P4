@@ -844,7 +844,7 @@ static bool tl_paint(void)
         if (!big) lv_obj_set_style_text_font(s_tl_lab, &ui_font_txt20, 0);
         lv_obj_set_pos(s_tl_lab, rx, h / 2 - (int)lv_obj_get_style_text_font(s_tl_lab, 0)->line_height / 2);
     } else {
-        char num[8];
+        char num[12];
         snprintf(num, sizeof num, "%d", sec > 999 ? 999 : sec);
         const lv_font_t *nf = big ? &ui_font_d190 : &ui_font_d96;
         int fs = big ? 190 : 96, capF = fs * 727 / 1000;
