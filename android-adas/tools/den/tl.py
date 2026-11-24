@@ -37,8 +37,11 @@ def countdown(img,box,col,sides=('R','L','B')):
             r=_cd(reg0,k,col,s)
             if r: v,(X0,Y0,X1,Y1)=r; return (v,side,(rx0+X0/k,ry0+Y0/k,rx0+X1/k,ry0+Y1/k))
     return None
+from read7v import read7v
 def _cd(reg0,k,col,s):
     reg=cv2.resize(reg0,None,fx=k,fy=k,interpolation=cv2.INTER_CUBIC)
+    rf=reg.astype(np.float32); B,G_,R=rf[...,0],rf[...,1],rf[...,2]
+    chan = R-0.5*(G_+B) if col=='R' else (G_-0.5*R if col=='G' else (R+G_)/2-B)
     hsv=cv2.cvtColor(reg,cv2.COLOR_BGR2HSV)
     _,ms=color_of(hsv,95,60); m=ms[col]
     if m.sum()>=8:   # quang LED (nhat la so do) -> chi giu net sang that: >= 60% do sang cua net sang nhat
@@ -73,6 +76,12 @@ def _cd(reg0,k,col,s):
     else: parts=[mm]
     parts=[p for p in parts if p.any()]
     if not parts: return None
+    # doc theo do sang tuong doi tren kenh mau (chong quang LED); khong duoc thi doc mat na 7 doan
+    if len(parts)==2 or hx is not None:
+        cuts=[(X0,X0+sp),(X0+sp,X1)] if (hx is not None and 0.2*W<hx<0.95*W) or W>0.95*H else [(X0,X1)]
+        vs=[read7v(chan[Y0:Y1,a:b])[0] for a,b in cuts]
+        if vs and vs[-1] is not None and all(v is not None for v in vs):
+            return int(''.join(map(str,vs))),(X0,Y0,X1,Y1)
     vals=[]
     for p in parts:
         cols=np.where(p.any(0))[0]; q=p[:,cols[0]:cols[-1]+1]
