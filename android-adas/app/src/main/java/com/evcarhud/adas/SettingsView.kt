@@ -57,7 +57,7 @@ class SettingsView(ctx: Context, private val cats: List<Cat>, private val onClos
         super.onSizeChanged(w, h, ow, oh)
         if (w == 0 || h == 0) return
         u = minOf(w / 1600f, h / 720f)
-        val railW = (390 * u).toInt()
+        val railW = (450 * u).toInt()   // rong hon cho chu danh muc to (textScale 1.3) khong bi cat
         val mx = (36 * u).toInt(); val my = (24 * u).toInt()
         railScroll.layoutParams = LayoutParams(railW, h - 2 * my).apply { leftMargin = mx; topMargin = my }
         paneBox.layoutParams = LayoutParams(w - railW - 2 * mx - (22 * u).toInt(), h - 2 * my).apply { leftMargin = mx + railW + (22 * u).toInt(); topMargin = my }
@@ -75,8 +75,11 @@ class SettingsView(ctx: Context, private val cats: List<Cat>, private val onClos
         cornerRadius = r * u; setColor(fill); setStroke(maxOf(1, (1.2f * u).toInt()), stroke)
     }
 
+    // Chu Cai dat to hon ~30% (nguoi dung: "ko doc dc gi" 23/11). Hang bo tron wrap_content + 2 cot deu nam
+    // trong ScrollView nen chu to chi lam cuon dai them, khong vo layout ("to qua cho no cuon cung dc").
+    private val textScale = 1.3f
     private fun tv(t: String, size: Float, color: Int = Color.WHITE, bold: Boolean = false) = TextView(context).apply {
-        text = t; textSize = 0f; setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, size * u); setTextColor(color)
+        text = t; textSize = 0f; setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, size * u * textScale); setTextColor(color)
         typeface = if (bold) fBold else fSemi; includeFontPadding = false
     }
 

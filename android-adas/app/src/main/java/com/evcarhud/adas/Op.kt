@@ -74,10 +74,13 @@ object Op {
         doubleArrayOf(1 / fl, 0.0, -MW / 2.0 / fl, 0.0, 1 / fl, -cy / fl, 0.0, 0.0, 1.0)
 
     /**
-     * Camera dien thoai (pinhole) da xoay dung chieu, kich thuoc w x h, tieu cu f px.
+     * Camera da xoay dung chieu, kich thuoc w x h, tieu cu f px.
      * Hieu chinh: pitch/yaw cua huong "truoc mat xe" so voi camera.
+     * fisheye = true: ong kinh mat ca equidistant (r = f*theta) nhu 70mai goc rong;
+     *   false: ong kinh thuong (pinhole) nhu camera dien thoai / cam guong.
      */
-    class Cam(val w: Int, val h: Int, val f: Double, pitch: Double, yaw: Double, roll: Double = 0.0) {
+    class Cam(val w: Int, val h: Int, val f: Double, pitch: Double, yaw: Double, roll: Double = 0.0,
+              val fisheye: Boolean = false) {
         val cx = w / 2.0
         val cy = h / 2.0
         /** view-cua-camera <- calib (device) : dung de chieu diem 3D len anh. */
@@ -90,8 +93,15 @@ object Op {
             val vy = m[3] * x + m[4] * y + m[5] * z
             val vz = m[6] * x + m[7] * y + m[8] * z
             if (vz < 0.5) return false
-            out[o] = (cx + f * vx / vz).toFloat()
-            out[o + 1] = (cy + f * vy / vz).toFloat()
+            if (fisheye) {
+                val rxy = kotlin.math.sqrt(vx * vx + vy * vy) + 1e-9
+                val r = f * kotlin.math.atan2(rxy, vz)
+                out[o] = (cx + r * vx / rxy).toFloat()
+                out[o + 1] = (cy + r * vy / rxy).toFloat()
+            } else {
+                out[o] = (cx + f * vx / vz).toFloat()
+                out[o + 1] = (cy + f * vy / vz).toFloat()
+            }
             return true
         }
     }
@@ -113,8 +123,16 @@ object Op {
                 val ry = m[3] * u + m[4] * v + m[5]
                 val rz = m[6] * u + m[7] * v + m[8]
                 if (rz <= 1e-6) return false
-                var sx = (cam.cx + cam.f * rx / rz).roundToInt()
-                var sy = (cam.cy + cam.f * ry / rz).roundToInt()
+                var sx: Int; var sy: Int
+                if (cam.fisheye) {
+                    val rxy = kotlin.math.sqrt(rx * rx + ry * ry) + 1e-9
+                    val r = cam.f * kotlin.math.atan2(rxy, rz)
+                    sx = (cam.cx + r * rx / rxy).roundToInt()
+                    sy = (cam.cy + r * ry / rxy).roundToInt()
+                } else {
+                    sx = (cam.cx + cam.f * rx / rz).roundToInt()
+                    sy = (cam.cy + cam.f * ry / rz).roundToInt()
+                }
                 if (flip) { sx = cam.w - 1 - sx; sy = cam.h - 1 - sy }
                 if (sx < 0 || sy < 0 || sx >= cam.w || sy >= cam.h) return false
                 out[0] = sx; out[1] = sy

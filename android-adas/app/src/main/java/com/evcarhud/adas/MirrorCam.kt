@@ -78,8 +78,11 @@ class MirrorCam(
     private var bufI = 0
 
     override val size: Size get() = Size(W, H)
-    override val focalPx: Double get() = (if (is70) 450.0 else 520.0) * W / 1280.0
-    override val focalSrc = if (is70) "cam 70mai Wi-Fi" else "cam gương Wi-Fi"
+    // 70mai: ong kinh mat ca goc rong -> tieu cu equidistant (f = 1262 px o ngang 2880 = 0.438*W,
+    //   kiem bang openpilot tren clip 70mai that: pose/cu ly ve dung). Cam guong: pinhole ~520 px o 1280.
+    override val focalPx: Double get() = (if (is70) 561.0 else 520.0) * W / 1280.0
+    override val fisheye: Boolean get() = is70
+    override val focalSrc = if (is70) "cam 70mai mắt cá" else "cam gương Wi-Fi"
     override val flip = false
     override val isOpen get() = want
     @Volatile var status = "chưa mở"
@@ -366,13 +369,16 @@ class MirrorCam(
                     // CAM GUONG: cat tre ~2s = khung bi DON HANG (giai ma/TCP cham hon luc toi) -> grabImage luon tra
                     // khung CU. Khac phuc chac (khong ep max_delay=0 gay rung): VOT bo khung ton dong, chi giu khung
                     // MOI NHAT. Grab lien tiep: tra ngay (<12ms) = con hang ton -> bo, lay tiep; grab cho lau = da bat
-                    // kip luong truc tiep -> dung. 70mai GIU NGUYEN (vua on dinh, day theo dot, khong co van de tre).
+                    // kip luong truc tiep -> dung. 23/11: AP DUNG CA 70mai (Kevin bao 70mai van tre 2s).
                     var cur = f
-                    if (!is70) {
+                    run {
                         // Phan biet "con hang ton" vs "da bat kip live" KHONG dua vao thoi gian giai ma mot khung
                         // (1080p giai ma >12ms se danh lua nguong cu -> dung vot ngay -> van tre 2s). Dua vao:
                         // PTS cua luong (dong ho trong khung) chay NHANH hon dong ho thuc bao nhieu. Con hang ton ->
                         // moi lan grab PTS nhay vot >> thoi gian thuc -> vot tiep; bang nhau -> da bat kip -> dung.
+                        // 70mai (23/11): cung vot. 70mai day khung theo DOT nhung khi co don hang (tre 2s) thi cac
+                        // khung ton nam san trong buffer -> grabImage tra lien tiep, PTS vot -> vot toi khung moi nhat;
+                        // het ton thi grabImage tra null -> break ngay (khong bo khung live, khong dung tang demux -> khong rung).
                         var k = 0
                         val wall0 = SystemClock.elapsedRealtime()
                         val pts0 = g.timestamp                        // us, PTS khung f vua lay
@@ -388,7 +394,7 @@ class MirrorCam(
                         drainSum += k; drainCyc++
                         if (SystemClock.elapsedRealtime() - drainLogAt > 3000) {
                             drainLogAt = SystemClock.elapsedRealtime()
-                            log("cam gương: vớt ${if (drainCyc > 0) drainSum / drainCyc else 0} khung tồn/chu kỳ (hết = đã bám live)")
+                            log("${if (is70) "70mai" else "cam gương"}: vớt ${if (drainCyc > 0) drainSum / drainCyc else 0} khung tồn/chu kỳ (hết = đã bám live)")
                             drainSum = 0; drainCyc = 0
                         }
                     }
@@ -396,7 +402,7 @@ class MirrorCam(
                     lastFrameAt = now                           // luong con song (watchdog theo doi)
                     if (now - lastDeliver < (if (is70) 70 else 55)) continue   // ~14fps 70mai / ~18fps cam gương
                     lastDeliver = now
-                    deliver(cur)
+                    deliver(cur ?: continue)        // cur luon non-null (f non-null + vot chi gan khung that), guard cho chac
                 }
             } catch (e: Throwable) {
                 status = "lỗi ffmpeg ${if (udp) "UDP" else "TCP"}"
