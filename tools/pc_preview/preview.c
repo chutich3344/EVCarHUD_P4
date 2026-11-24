@@ -437,7 +437,8 @@ int main(int argc, char **argv)
     }
     if (getenv("TLSTOP")) {                         /* 24/11: dung den do 60 s khong dan duong (truoc: 30 s la ve man cho, mat den) */
         int nosig = atoi(getenv("TLSTOP")) == 2;    /* 2: Waze/GOFA khong noi HUD */
-        if (nosig) ui_set_signal(false);
+        if (nosig) { hlp_dash_on_disconnect(); ui_set_nav(false, 0, -1, 0, "", 0); run(4000); }
+        if (nosig && getenv("TLSHOT")) { snprintf(p, sizeof p, "%s/lane_0_cho_truoc.bmp", dir); save_bmp(p); }
         ui_set_mode(UI_MODE_NIGHT);
         ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
         ui_set_speed_limit(50);
@@ -455,6 +456,7 @@ int main(int argc, char **argv)
             for (int j = 0; j < 10; j++) {
                 obstacle_ui_phone(&xf, pa.ldw, pa.pl > 50 && pa.pr > 50, false);
                 if (!nosig) ui_set_speed(v);
+                else hlp_dash_lane(v);                  /* chi co app LANE: A1 lam nguon (phone_adas.c) */
                 run(100);
             }
             if (f < 62) obstacle_ui_tlight('R', 62 - f);

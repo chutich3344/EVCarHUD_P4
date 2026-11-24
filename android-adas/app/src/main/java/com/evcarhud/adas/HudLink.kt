@@ -34,6 +34,7 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
     private var navPending: ByteArray? = null
     private var sigPending: ByteArray? = null
     private var tlPending: ByteArray? = null
+    private var kPending: ByteArray? = null
     private var wid = 0
     private var stopped = true
     private var mac = ""
@@ -57,7 +58,7 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
         stopped = true
         main.removeCallbacksAndMessages(null)
         stopScan()
-        chr = null; busy = false; pending = null; navPending = null; sigPending = null; tlPending = null
+        chr = null; busy = false; pending = null; navPending = null; sigPending = null; tlPending = null; kPending = null
         gatt?.let { try { it.disconnect(); it.close() } catch (_: Exception) {} }
         gatt = null
     }
@@ -77,6 +78,12 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
     /** Goi den giao thong T1 (1 lan/giay khi thay den + ngay khi doi): ghi co phan hoi, khong bi goi A1 de mat. */
     fun sendTl(data: ByteArray) {
         tlPending = data
+        if (!busy) flush()
+    }
+
+    /** Goi gio K1 (khi noi + 1 phut/lan): HUD khong co Waze / GOFA van co dong ho. */
+    fun sendClock(data: ByteArray) {
+        kPending = data
         if (!busy) flush()
     }
 
@@ -118,6 +125,7 @@ class HudLink(private val ctx: Context, private val onState: (String, Boolean) -
         navPending?.let { navPending = null; write(it, true); return }
         sigPending?.let { sigPending = null; write(it, true); return }
         tlPending?.let { tlPending = null; write(it, true); return }
+        kPending?.let { kPending = null; write(it, true); return }
         val p = pending ?: return
         pending = null
         write(p, false)
