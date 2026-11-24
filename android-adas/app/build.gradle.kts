@@ -26,6 +26,10 @@ android {
             storePassword = "evcarhudlan"
             keyAlias = "lan"
             keyPassword = "evcarhudlan"
+            // 24/11: OPPO bao "APK contains no signature files" voi 0.1.140 (file tren GitHub van dung chu ky v2).
+            // Ky them v1 (JAR) de trinh cai nao chi doc v1 / lo tai hong v2 van cai duoc.
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
     buildTypes {
