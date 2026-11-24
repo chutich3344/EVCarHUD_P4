@@ -765,6 +765,7 @@ static bool tl_paint(void)
     lv_area_t a;
     bool live = tl_live();
     if (!live && s_tl_col) { s_tl_col = 0; s_tl_sec = -1; }
+    ui_hold_drive(live);                                         /* do den lau: khong ve man cho */
     bool warn = eff_level() >= OBS_CAUTION;                      /* xe truoc gan / qua gan: o canh bao giu cho */
     if (!live || warn || !ui_xa_slot(&a)) {
         if (!lv_obj_has_flag(s_tl, LV_OBJ_FLAG_HIDDEN)) { vis(s_tl, false); s_tl_sig[0] = 0; s_tl_cell = false; vis(s_xc, s_xc_on); }
@@ -844,7 +845,7 @@ static bool tl_paint(void)
         if (!big) lv_obj_set_style_text_font(s_tl_lab, &ui_font_txt20, 0);
         lv_obj_set_pos(s_tl_lab, rx, h / 2 - (int)lv_obj_get_style_text_font(s_tl_lab, 0)->line_height / 2);
     } else {
-        char num[8];
+        char num[12];
         snprintf(num, sizeof num, "%d", sec > 999 ? 999 : sec);
         const lv_font_t *nf = big ? &ui_font_d190 : &ui_font_d96;
         int fs = big ? 190 : 96, capF = fs * 727 / 1000;

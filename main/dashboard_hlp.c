@@ -253,10 +253,27 @@ static void civil_from_days(int64_t z, int *day, int *month)
     *month = (int)(mp < 10 ? mp + 3 : mp - 9);
 }
 
+/* 24/11: app LANE (4556d005, phone_adas.c) lam nguon chinh khi khong co Waze / GOFA: goi A1 (1-10 goi/giay) giu tin hieu
+ * + toc do GPS dien thoai, de HUD roi man cho "--:--" va hien cac chuc nang LANE (den, khoang cach, bien S1, dan duong D1). */
+#define LANE_STALE_MS 4000
+static uint32_t lane_tick;
+static bool lane_seen;
+static bool lane_live(void) { return lane_seen && lv_tick_elaps(lane_tick) < LANE_STALE_MS; }
+
+void hlp_dash_lane(int kmh)
+{
+    lane_seen = true;
+    lane_tick = lv_tick_get();
+    bool waze_fresh = have_state && lv_tick_elaps(last_state_tick) < 3000;   /* Waze dang gui toc do: de Waze lam */
+    if (ext_on || waze_fresh) return;                                       /* GOFA dang noi: GOFA gui toc do */
+    set_signal(true);                                                       /* "da ket noi" do ble_link bao khi noi */
+    ui_set_speed(kmh);
+}
+
 static void watch_cb(lv_timer_t *t)
 {
     (void)t;
-    if (signal_ok && !ext_on && lv_tick_elaps(last_rx_tick) > STALE_MS) set_signal(false);
+    if (signal_ok && !ext_on && !lane_live() && lv_tick_elaps(last_rx_tick) > STALE_MS) set_signal(false);
     update_gps();
 
     if (has_clock) {                                 /* dong ho: moc tu `hi`, tu dem tiep */

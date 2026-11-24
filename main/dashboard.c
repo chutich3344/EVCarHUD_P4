@@ -1536,11 +1536,21 @@ static void set_screen(int s)
 }
 
 /* Chua co du lieu -> man cho; dang dan duong -> chi dan; canh bao gan -> canh bao; cao toc; chay thuong. */
+/* 24/11: dang co den giao thong tu app LANE (obstacle_ui): khong ve man cho (do den > 30 s, hoac Waze/GOFA chua noi HUD),
+ * de o duoi bien con cho hien den + giay. */
+static bool hold_drive;
+void ui_hold_drive(bool on)
+{
+    if (on == hold_drive) return;
+    hold_drive = on;
+    update_screen();
+}
+
 static void update_screen(void)
 {
     int s;
     if (nav_on && (nav_is_ts || nav_is_pn || wz_hold)) s = SCR_NAV;              /* dan toi tram sac / dang giu dan duong: ca khi mat tin hieu */
-    else if (!sig_ok || (!nav_on && !moving)) s = SCR_STANDBY;
+    else if ((!sig_ok || (!nav_on && !moving)) && !hold_drive) s = SCR_STANDBY;   /* dang thay den giao thong: giu man chay */
     else if (nav_on) s = SCR_NAV;
     else if (ev_now && ev_now->dist <= ALERT_M) s = SCR_CRUISE;   /* man Toc do o co nho + dai canh bao */
     else if (on_highway()) s = SCR_HIGHWAY;

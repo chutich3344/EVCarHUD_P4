@@ -82,6 +82,7 @@ bool phone_nav_parse(const char *s, size_t n, phone_nav_t *p)
 #include "board.h"
 #include "obstacle_ui.h"
 #include "adas_feed.h"
+#include "dashboard_hlp.h"
 
 static const char *TAG = "lan_dt";
 static unsigned s_cnt;
@@ -95,6 +96,22 @@ void phone_adas_on_write(const char *s, size_t n)
         board_ui_lock();
         ui_phone_nav(nv.on, nv.turn, nv.dist_m, nv.exit_n, nv.remain_m, nv.remain_min, nv.eta, nv.street);
         board_ui_unlock();
+        return;
+    }
+    if (n >= 4 && n < 32 && strncmp(s, "K1|", 3) == 0) {          /* "K1|unix|tz phut": gio dien thoai (app LANE, khi noi + 1 phut/lan) */
+        char b[32];
+        memcpy(b, s, n);
+        b[n] = 0;
+        char *e = NULL;
+        long long u = strtoll(b + 3, &e, 10);
+        int tz = (e && *e == '|') ? atoi(e + 1) : 7 * 60;
+        if (u > 1700000000LL) {
+            static bool s_k;
+            if (!s_k) { s_k = true; ESP_LOGI(TAG, "gio tu app LANE %lld tz %d", u, tz); }
+            board_ui_lock();
+            hlp_dash_set_clock((int64_t)u, tz, UI_TSRC_PHONE);
+            board_ui_unlock();
+        }
         return;
     }
     if (n >= 4 && n < 16 && strncmp(s, "T1|", 3) == 0) {          /* "T1|R|25" den giao thong + giay (app LANE), "T1|-" = het */
@@ -129,6 +146,7 @@ void phone_adas_on_write(const char *s, size_t n)
     xadas_frame_t f;
     phone_adas_to_xadas(&p, adas_feed_legal_m(p.kmh), &f);
     board_ui_lock();
+    hlp_dash_lane(p.kmh);                                        /* khong co Waze / GOFA: LANE lam nguon chinh */
     obstacle_ui_phone(&f, p.ldw, p.pl > 50 && p.pr > 50, p.level >= 3);
     board_ui_unlock();
 }
