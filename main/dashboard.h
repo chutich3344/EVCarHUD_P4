@@ -49,6 +49,7 @@ void ui_set_speed_limit(int kmh);                 /* 0 = chua biet: an bien, kho
 void ui_set_phone_limit(int kmh);                 /* bien doc tu camera app Lan (goi S1), dung khi Waze/GOFA khong co */
 void ui_set_time(int hour, int minute, int wday); /* wday: 0 = Chu nhat ... 6 = Thu bay, -1 = chua biet */
 int ui_get_speed(void);
+void ui_hold_drive(bool on);                      /* true: giu man chay (khong ve man cho) - den giao thong app LANE */
 bool ui_is_night(void);                          /* giao dien dang Dem (canh bao vat can lay mau theo) */
 /* Canh bao vat can phuong an E: vi tri bien gioi han dang hien (toa do man hinh) + gia tri bien.
  * hide = true: an bien (o vat can de len cho do), false: hien lai. Tra ve false neu man hien tai khong co bien (man cho). */

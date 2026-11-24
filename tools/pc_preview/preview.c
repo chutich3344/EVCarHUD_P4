@@ -435,6 +435,34 @@ int main(int argc, char **argv)
         obstacle_ui_phone(NULL, '-', false, false);
         run(300);
     }
+    if (getenv("TLSTOP")) {                         /* 24/11: dung den do 60 s khong dan duong (truoc: 30 s la ve man cho, mat den) */
+        int nosig = atoi(getenv("TLSTOP")) == 2;    /* 2: Waze/GOFA khong noi HUD */
+        if (nosig) ui_set_signal(false);
+        ui_set_mode(UI_MODE_NIGHT);
+        ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+        ui_set_speed_limit(50);
+        int k = 0;
+        for (int f = 0; f < 80; f++) {              /* 1 hinh / giay, 80 s */
+            int v = f < 3 ? 20 - 7 * f : f < 64 ? 0 : (f - 64) * 4;
+            if (v < 0) v = 0;
+            char a1[64];
+            if (v < 1) snprintf(a1, sizeof a1, "A1|-|0|0|0|0|0|0|0|0|1");
+            else snprintf(a1, sizeof a1, "A1|-|2|96|95|%d|0|0|0|%d|0", 8 + v / 2, v);
+            phone_adas_t pa;
+            xadas_frame_t xf;
+            phone_adas_parse(a1, strlen(a1), &pa);
+            phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &xf);
+            for (int j = 0; j < 10; j++) {
+                obstacle_ui_phone(&xf, pa.ldw, pa.pl > 50 && pa.pr > 50, false);
+                if (!nosig) ui_set_speed(v);
+                run(100);
+            }
+            if (f < 62) obstacle_ui_tlight('R', 62 - f);
+            else if (f < 76) obstacle_ui_tlight('G', 30 - (f - 62));
+            snprintf(p, sizeof p, "%s/st_%05d.bmp", dir, k++); save_bmp(p);
+        }
+        return 0;
+    }
     if (getenv("TLVIDEO")) {                        /* 23/11: den giao thong (goi T1): kich ban dung den do -> xanh, 10 hinh/giay */
         int style = atoi(getenv("TLVIDEO"));
         obstacle_ui_tlight_style(style);
