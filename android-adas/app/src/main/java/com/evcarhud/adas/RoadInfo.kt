@@ -225,11 +225,31 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
                     ang = Math.toDegrees(Math.asin(dot.coerceIn(-1.0, 1.0)))
                 }
                 if (!l && !r) continue
-                if (out.any { abs(it[0] - bs) < 8 }) continue
-                out += floatArrayOf(bs.toFloat(), if (l && r) 2f else if (l) -1f else 1f, ang.toFloat())
+                val sd = if (l && r) 2f else if (l) -1f else 1f
+                val mj = cls(w, me).toFloat()
+                // 24/11 toi: 2 nhanh trai/phai cung 1 nut (2 way rieng) = cat ngang ca 2 ben; giu cap duong lon nhat
+                val ex0 = out.firstOrNull { abs(it[0] - bs) < 8 }
+                if (ex0 != null) { if (ex0[1] != sd) ex0[1] = 2f; if (mj > ex0[3]) { ex0[3] = mj; ex0[2] = ang.toFloat() }; continue }
+                out += floatArrayOf(bs.toFloat(), sd, ang.toFloat(), mj)
             }
         }
-        return out.sortedBy { it[0] }.take(4)
+        return out.filter { it[3] > 0 }.sortedBy { it[0] }.take(5)   // bo loi vao nha/bai xe
+    }
+
+    /**
+     * 24/11 toi (Kevin: 3D ve nga tu lung tung): Sai Gon hem/loi vao nha (service, residential ngan) cach nhau 20-30 m,
+     * truoc day moi hem cat ngang deu thanh nga tu day du. Cap nhanh: 0 = loi vao/bai xe (service, khong ve),
+     * 1 = hem/duong nho (chi ve loi re, khong dung nga tu), 2 = duong that (dung nga tu, cho den tin hieu dung nga tu).
+     */
+    private fun cls(w: Way, me: Way): Int {
+        fun rk(h: String) = when (h.removeSuffix("_link")) { "motorway", "trunk" -> 5; "primary" -> 4; "secondary" -> 3; "tertiary" -> 2; "service" -> 0; else -> 1 }
+        val a = rk(w.hw); val b = rk(me.hw)
+        if (a == 0) return 0
+        if (a >= 2) return 2
+        if (b >= 2) return 1                 // hem nho cat duong lon: chi loi re
+        var len = 0.0                        // 2 duong nho cat nhau: chi tinh nga tu khi duong kia dai (khong phai hem cut)
+        for (i in 1 until w.lat.size) len += Math.hypot((w.lat[i] - w.lat[i - 1]) * 110540.0, (w.lon[i] - w.lon[i - 1]) * 111320.0 * cos(Math.toRadians(w.lat[i])))
+        return if (len >= 150) 2 else 1
     }
 
     private fun bearingOf(a1: Double, o1: Double, a2: Double, o2: Double): Float {

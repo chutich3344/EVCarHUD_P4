@@ -117,6 +117,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         val sb = StringBuilder(2600)
         sb.append("{\"v\":").append(f(sn.vKmh / 3.6f))
         sb.append(",\"th\":\"").append(if (isNight(sn)) "night" else "day").append('"')
+        if (sn.camTag.isNotEmpty()) sb.append(",\"cam\":\"").append(esc(sn.camTag)).append('"')   // 24/11: hien nguon cam tren canh 3D
         if (sentView != view) { sb.append(",\"view\":\"").append(view).append('"'); sentView = view }
         sb.append(",\"ln\":[")
         for (i in 0..3) { if (i > 0) sb.append(','); arr(sb, o.laneY[i]) }
@@ -138,7 +139,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         if (deco) sb.append(",\"deco\":1")
         // 23/11 toi: gui CA KHI RONG (co ban do, khong co nhanh) -> trang 3D biet "ban do noi khong co giao lo" de khong dung nga tu tu den gia
         sn.rd?.let { r -> sb.append(",\"rd\":{\"ow\":").append(r[0]).append(",\"dv\":").append(r[1]).append(",\"n\":").append(r[2]).append('}') }
-        sn.br?.let { b -> sb.append(",\"br\":[").append(b.joinToString(",") { "[" + f(it[0], 1) + "," + it[1].toInt() + "," + it[2].toInt() + "]" }).append("],\"bra\":").append(sn.brAt) }
+        sn.br?.let { b -> sb.append(",\"br\":[").append(b.joinToString(",") { "[" + f(it[0], 1) + "," + it[1].toInt() + "," + it[2].toInt() + "," + (if (it.size > 3) it[3].toInt() else 2) + "]" }).append("],\"bra\":").append(sn.brAt) }
         tlPos(sn)?.let { sb.append(",\"tlx\":[").append(f(it[0], 1)).append(',').append(f(it[1], 1)).append(']') }
         if (live) sb.append(",\"wz\":").append(f(o.poseRz))   // 23/11 toi: toc do quay xe minh (rad/s) -> biet dang re
         // tuoi vach (ms): goi khong co ket qua AI moi thi bao vach dang dung la ket qua cu bao lau (man 3D lam mo vach > 1,5 s)

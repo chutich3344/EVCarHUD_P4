@@ -143,6 +143,10 @@ const jZeb = [0, 1].map(() => flat(0xffffff, 0.019, zebraTex)), jStop = flat(0xf
 const tlG = new THREE.Group(); scene.add(tlG); tlG.visible = false;
 // 23/11 toi: duong nhanh theo ban do OSM (d.br): mat duong + 2 mep trang, tu mep duong minh ra ngoai 30 m, dung goc
 let brs = [], brA = null, osmAt = -99;
+// 24/11 toi (Kevin: 've nga tu lung tung', cam dien thoai ban dem): xe cat ngang chi dung nga tu khi ban do CO duong that (mj 2)
+// trong +-20 m quanh cho do; khong co ban do ma ban dem -> khong dung (cu ly ban dem nhay, xe dau/den duong bi tuong la cat ngang)
+let lastTh = 'day';
+const crOk = x => (now() - osmAt < 5) ? brs.some(b => b.mj >= 2 && Math.abs(b.x - x) < 20) : lastTh !== 'night';
 const brG = [0, 1, 2, 3].map(() => { const g = new THREE.Group(); g.visible = false; scene.add(g);
   const mk = (c, w, h) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: c })); m.rotation.x = -Math.PI / 2; m.position.y = h; g.add(m); return m; };
   g.userData.a = mk(0x333333, 1, 0.026); g.userData.e1 = mk(0xffffff, 1, 0.03); g.userData.e2 = mk(0xffffff, 1, 0.03); return g; });
@@ -590,8 +594,10 @@ function step(dt) {
     // 23/11 toi (log dem 70mai: co/den long do, den duong cam bi bao nham la den -> nga tu gia): co ban do OSM thi den chi dung
     // nga tu khi ban do CO giao lo trong +-30 m quanh cho den; khong co ban do ma la ban dem -> chi hien the den, khong dung nga tu.
     if (d.bra !== undefined) osmAt = t;
+    lastTh = d.th || lastTh;
     const tlAt = tlP ? tlP.x : 25;
-    const tlOk = t - osmAt < 5 ? brs.some(b => Math.abs(b.x - tlAt) < 30) : d.th !== 'night';
+    // 24/11 toi: chi tinh duong THAT (mj 2) quanh cho den, hem nho / loi vao nha khong tinh
+    const tlOk = t - osmAt < 5 ? brs.some(b => b.mj >= 2 && Math.abs(b.x - tlAt) < 30) : d.th !== 'night';
     if (tlC && tlOk && !jOn && t - jEndAt > 10) {
       const lx = d.ld && d.ld.p > 0.5 && d.ld.v < 3 && d.ld.x < 45 ? d.ld.x : -1;
       crossX = tlP ? tlP.x + jW / 2 + 1.5 : lx > 0 ? lx + 4.6 + 1.6 + 3.4 + jW / 2 : 25; crossAt = t; tlJ = true;
@@ -599,9 +605,9 @@ function step(dt) {
     if (tlJ && jOn && tlP && t - tlP.at < 0.5) crossX += (tlP.x + jW / 2 + 1.5 - crossX) * Math.min(1, dt / 0.8);   // bam theo lan do moi
     if (tlC && jOn && (tlJ ? tlOk : true)) crossAt = t;
     // duong nhanh / cat ngang theo ban do: moi lan GPS (d.bra doi) nap lai, giua 2 lan tru theo quang duong
-    if (d.bra !== undefined && d.bra !== brA) { brA = d.bra; brs = (d.br || []).map(b => ({ x: b[0], side: b[1], ang: b[2] })); }
+    if (d.bra !== undefined && d.bra !== brA) { brA = d.bra; brs = (d.br || []).map(b => ({ x: b[0], side: b[1], ang: b[2], mj: b[3] === undefined ? 2 : b[3] })); }
     brs.forEach(b => b.x -= Math.max(0, cur.v) * dt); brs = brs.filter(b => b.x > -12);
-    { const cx = brs.find(b => b.side === 2 && b.x > 8 && b.x < 70);   // duong cat ngang ca 2 ben = nga tu (ban do)
+    { const cx = brs.find(b => b.side === 2 && b.mj >= 2 && b.x > 8 && b.x < 70);   // duong cat ngang ca 2 ben = nga tu (ban do)
       if (cx && !jOn && t - jEndAt > 10) { crossX = cx.x; crossAt = t; }
       if (cx && jOn && Math.abs(cx.x - crossX) < 15) crossAt = t; }
     // be ngang duong cat ngang ~ be ngang duong chinh (7–14 m), chot luc bat dau giao lo
@@ -617,8 +623,8 @@ function step(dt) {
         if (!g.visible) return;
         const yE = b.side > 0 ? interp(X_IDX, cur.ed[1], Math.max(0, b.x)) + 0.3 : interp(X_IDX, cur.ed[0], Math.max(0, b.x)) - 0.3;
         g.position.set(yE, 0, -b.x); g.rotation.y = b.side * Math.max(-50, Math.min(50, b.ang)) * Math.PI / 180;
-        const u = g.userData; u.a.material.color.setHex(Tb.road); u.a.scale.set(30, 6, 1); u.a.position.set(b.side * 15, 0.026, 0);
-        [u.e1, u.e2].forEach((e, k) => { e.material.color.setHex(Tb.line); e.scale.set(29, 0.14, 1); e.position.set(b.side * 15.5, 0.03, k ? 2.9 : -2.9); }); });
+        const u = g.userData; u.a.material.color.setHex(Tb.road); const hw = b.mj >= 2 ? 3 : 2; u.a.scale.set(30, hw * 2, 1);   // 24/11: hem nho ve hep 4 m u.a.position.set(b.side * 15, 0.026, 0);
+        [u.e1, u.e2].forEach((e, k) => { e.material.color.setHex(Tb.line); e.scale.set(29, 0.14, 1); e.position.set(b.side * 15.5, 0.03, k ? hw - 0.1 : 0.1 - hw); }); });
     }
     if (jOn) {
       const T0 = THEMES[theme], w = jW, xa = crossX - w / 2 - 3.4;          // vach di bo rong 3 m truoc giao lo
@@ -868,7 +874,7 @@ function step(dt) {
     tr.crT = crossNow ? (tr.crT || 0) + dt : 0;
     if (crossNow) {
       ry = -Math.atan2(wy, wx);
-      if (tr.crT > 0.6 && x > 3 && x < 45) { crossX = crossAt < t - 6 ? x : crossX + (x - crossX) * 0.1; crossAt = t; }
+      if (tr.crT > 0.6 && x > 3 && x < 45 && crOk(x)) { crossX = crossAt < t - 6 ? x : crossX + (x - crossX) * 0.1; crossAt = t; }
     } else if (jOn && !turning && ob.kind !== 'person' && t - crossAt < 6 && Math.abs(x - crossX) < 6 && (y < eLx - 1.5 || y > eRx + 1.5) && latD < 2.5 && !(tr.park >= 3)) {
       ry = y < 0 ? -Math.PI / 2 : Math.PI / 2;   // dang o hai ben duong ngang, chua ro huong: coi nhu dang di vao giao lo
     }
@@ -922,6 +928,7 @@ function step(dt) {
     ke.classList.toggle('ov', !!(d.lim && d.ov));
   }
   const chips = [];
+  if (d.cam) chips.push(`<span class="chip">📷 ${d.cam}</span>`);   // 24/11 (Kevin): 3D chua hien dang dung cam nao
   {  // LANE x/y: so lan cung chieu tu vach chia 2 chieu (hoac mep trai) toi mep phai
     const e0 = at(cur.ed[0], 10), e1 = at(cur.ed[1], 10);
     const leftB = yel ? at(cur.ln[cen], 10) : inOpp ? at(cur.ln[1], 10) : e0;
