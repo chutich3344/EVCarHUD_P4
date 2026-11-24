@@ -144,7 +144,6 @@ def analyse(im):
             # chong den duong / den pha: den giao thong = cham sang nho trong vo hop toi
             litf=ms0[col].mean(); bright=(hb[...,2]>150).mean(); darkf=(hb[...,2]<90).mean()
             if bright>0.45 or darkf<0.25 or litf>0.4 or hb[...,2].max()<VMAX: col=None   # den LED dang sang luon chay ~255
-            elif col=='R' and no_entry(hb,ms0['R']): col=None
         if not col: lamps.append(dict(box=bi,conf=float(r[4]),col=None,cd=None)); continue
         bw,bh=bi[2]-bi[0],bi[3]-bi[1]
         own=countdown(im,bi,col,('I',)) if 0.9*bh<=bw<=1.7*bh else None
