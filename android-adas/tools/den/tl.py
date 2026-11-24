@@ -41,6 +41,8 @@ def _cd(reg0,k,col,s):
     reg=cv2.resize(reg0,None,fx=k,fy=k,interpolation=cv2.INTER_CUBIC)
     hsv=cv2.cvtColor(reg,cv2.COLOR_BGR2HSV)
     _,ms=color_of(hsv,95,60); m=ms[col]
+    if m.sum()>=8:   # quang LED (nhat la so do) -> chi giu net sang that: >= 60% do sang cua net sang nhat
+        vv=hsv[...,2]; vref=np.percentile(vv[m],95); m=m&(vv>=0.6*vref)
     m=cv2.morphologyEx(m.astype(np.uint8),cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
     n,lab,st,_=cv2.connectedComponentsWithStats(m)
     comps=[st[i] for i in range(1,n) if st[i,4]>=6]

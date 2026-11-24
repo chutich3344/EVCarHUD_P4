@@ -30,9 +30,14 @@ import kotlin.math.roundToInt
 class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
     /** Toa do chuan hoa 0..1 theo anh hien thi. cd* = khung bang dem (neu doc duoc). */
     class Lamp(val col: Char, val conf: Float, val x1: Float, val y1: Float, val x2: Float, val y2: Float,
-               val sec: Int?, val cx1: Float = 0f, val cy1: Float = 0f, val cx2: Float = 0f, val cy2: Float = 0f)
+               val sec: Int?, val cx1: Float = 0f, val cy1: Float = 0f, val cx2: Float = 0f, val cy2: Float = 0f,
+               /** Mui ten sang trong hop: 'U' di thang / 'L' re trai / 'R' re phai (null = khong co), mau mui ten. */
+               val arrow: Char? = null, val arrowCol: Char? = null)
     /** Ket qua 1 lan quet: mau den chinh (R/Y/G, null = khong thay), so giay doc duoc (null = khong co/khong doc duoc). */
-    class Res(val col: Char?, val sec: Int?, val lamps: List<Lamp>, val ms: Long)
+    class Res(val col: Char?, val sec: Int?, val lamps: List<Lamp>, val ms: Long) {
+        /** Huong duoc di theo mui ten XANH trong lan quet nay (vd "U", "UL"). */
+        val go: String get() = lamps.filter { it.arrow != null && it.arrowCol == 'G' }.mapNotNull { it.arrow }.distinct().sorted().joinToString("")
+    }
 
     private val th = HandlerThread("tlight").apply { start() }
     private val h = Handler(th.looper)
@@ -135,7 +140,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         val keep = ArrayList<FloatArray>()
         for (c in cand) if (keep.none { iou(it, c) > 0.4f }) keep += c
 
-        class L(val b: IntArray, val conf: Float, val col: Char?, val cd: Cd?)
+        class L(val b: IntArray, val conf: Float, val col: Char?, val cd: Cd?, val ar: Pair<Char, Char?>? = null)
         val lamps = ArrayList<L>(); val cds = ArrayList<L>()
         for (k in keep.take(8)) {
             val b = intArrayOf(max(0, k[0].toInt()), max(0, k[1].toInt()), min(w, k[2].toInt()), min(hh, k[3].toInt()))
@@ -145,8 +150,10 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
             val bw = b[2] - b[0]; val bh = b[3] - b[1]
             if (col == null) { lamps += L(b, k[4], null, null); continue }
             val own = if (bw >= 0.9f * bh && bw <= 1.7f * bh) countdown(b, col, true) else null
-            if (own != null && own.v in 10..99) { cds += L(b, k[4], col, own); continue }   // hop nay chinh la bang dem
-            lamps += L(b, k[4], col, countdown(b, col, false))
+            val ar = try { arrow(b) } catch (e: Throwable) { null }
+            // 24/11: bang dem bi YOLO bat thanh "den" luc con 1 chu so (0..9) cung phai nhan ra (truoc chi nhan 10..99)
+            if (ar == null && own != null && own.v in 0..99) { cds += L(b, k[4], col, own); continue }   // hop nay chinh la bang dem
+            lamps += L(b, k[4], col, countdown(b, col, false), ar)
         }
         val all = lamps + cds
         val lampsF = lamps.filter { l -> all.none { o -> o !== l && o.cd != null && inside(l.b, o.cd.box, 0.4f) } }
@@ -162,7 +169,8 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         val res = (lit + cds).map { l ->
             val c = l.cd
             Lamp(l.col!!, l.conf, l.b[0] / fw, l.b[1] / fh, l.b[2] / fw, l.b[3] / fh, c?.v,
-                (c?.box?.get(0) ?: 0) / fw, (c?.box?.get(1) ?: 0) / fh, (c?.box?.get(2) ?: 0) / fw, (c?.box?.get(3) ?: 0) / fh)
+                (c?.box?.get(0) ?: 0) / fw, (c?.box?.get(1) ?: 0) / fh, (c?.box?.get(2) ?: 0) / fw, (c?.box?.get(3) ?: 0) / fh,
+                l.ar?.first, l.ar?.second)
         }
         lastMs = SystemClock.elapsedRealtime() - t0
         info = "${lastMs} ms · ${lit.size} đèn${if (col != null) " $col${sec ?: ""}" else ""}"
@@ -203,6 +211,76 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         return col
     }
 
+    // ---------------- mui ten ----------------
+    /**
+     * Mui ten sang trong hop den (24/11: nga tu den tron DO + mui ten XANH di thang, app chi bao DO).
+     * Loi sang (V >= 80% sang nhat) -> dong khe -> thanh phan khong dac (dien tich/khung < 0,62: bong tron chay trang bi loai)
+     * nam trong vo toi. Huong: dau mui ten (chu V) rong hon than: tren rong hon duoi = di thang; trai cao hon phai = re trai...
+     * Mau: vien quanh loi. Den VN tich hop mui ten xanh tren nen bong do sang: camera chay loi mui ten thanh trang, vien do
+     * -> loi trang + dia quanh phan lon do sang thi mui ten la XANH (anh Kevin 24/11 ra dung 'U' xanh).
+     */
+    private fun arrow(b: IntArray): Pair<Char, Char?>? {
+        val bw = b[2] - b[0]; val bh = b[3] - b[1]
+        val X0 = max(0, (b[0] - 0.1f * bw).toInt()); val Y0 = max(0, (b[1] - 0.1f * bh).toInt())
+        val X1 = min(w, (b[2] + 0.1f * bw).toInt()); val Y1 = min(hh, (b[3] + 0.1f * bh).toInt())
+        val k = max(1, (40f / max(8, min(bw, bh))).roundToInt())
+        val W = (X1 - X0) * k; val H = (Y1 - Y0) * k
+        if (W < 8 || H < 8 || W * H > 120_000) return null
+        val hA = IntArray(W * H); val sA = IntArray(W * H); val vA2 = IntArray(W * H)
+        var vmax = 0
+        for (j in 0 until H) for (i in 0 until W) {
+            val hv = hsv(rgbF(X0 + (i + 0.5f) / k - 0.5f, Y0 + (j + 0.5f) / k - 0.5f)); val p = j * W + i
+            hA[p] = hv shr 16; sA[p] = (hv shr 8) and 255; vA2[p] = hv and 255; if (vA2[p] > vmax) vmax = vA2[p]
+        }
+        if (vmax < 150) return null
+        val th = max(170f, 0.8f * vmax)
+        var core = BooleanArray(W * H) { vA2[it] >= th }
+        val kc = max(3, (0.12f * min(bw, bh) * k).toInt() or 1)
+        core = ero(dil(core, W, H, kc / 2), W, H, kc / 2)
+        val lab = IntArray(W * H); val cc = comps(core, W, H, lab)
+        var best: Pair<Char, Char?>? = null; var bestA = 0
+        for ((idx, c) in cc.withIndex()) {
+            val cx = c[0]; val cy = c[1]; val cw = c[2]; val ch = c[3]; val a = c[4]
+            if (a < 10 || max(cw, ch) < 6) continue
+            if (a.toFloat() / (cw * ch) > 0.62f) continue   // bong tron / khoi dac
+            val id = idx + 1
+            fun on(i: Int, j: Int) = lab[(cy + j) * W + cx + i] == id
+            val t = max(1, (0.35f * ch).toInt()); val l = max(1, (0.35f * cw).toInt())
+            var wTop = 0; var wBot = 0; var hL = 0; var hR = 0
+            for (i in 0 until cw) { if ((0 until t).any { on(i, it) }) wTop++; if ((ch - t until ch).any { on(i, it) }) wBot++ }
+            for (j in 0 until ch) { if ((0 until l).any { on(it, j) }) hL++; if ((cw - l until cw).any { on(it, j) }) hR++ }
+            val d = when {
+                ch >= 0.8f * cw && wTop >= 1.5f * max(1, wBot) -> 'U'
+                cw >= 0.8f * ch && hL >= 1.5f * max(1, hR) -> 'L'
+                cw >= 0.8f * ch && hR >= 1.5f * max(1, hL) -> 'R'
+                else -> null
+            } ?: continue
+            val mm = BooleanArray(W * H) { lab[it] == id }
+            val d1 = dil(mm, W, H, k + 1); val d15 = dil(mm, W, H, (3 * k + 3) / 2); val d3 = dil(mm, W, H, 3 * k + 2); val d25 = dil(mm, W, H, (5 * k + 5) / 2)
+            // phai nam trong vo toi
+            var fs = 0L; var fn = 0
+            for (p in mm.indices) if (d3[p] && !d15[p]) { fs += vA2[p]; fn++ }
+            if (fn > 0 && fs / fn > 110) continue
+            // mau vien + loi
+            var nr = 0; var ny = 0; var ng = 0; var nok = 0
+            for (p in mm.indices) if (d1[p] && sA[p] > 70 && vA2[p] > 80) {
+                nok++; val hh0 = hA[p]
+                when { hh0 < 12 || hh0 > 165 -> nr++; hh0 < 35 -> ny++; hh0 in 45..96 -> ng++ }
+            }
+            val mx = maxOf(nr, ny, ng)
+            var col: Char? = if (mx >= max(4, (0.25f * nok).toInt())) (if (mx == ng) 'G' else if (mx == nr) 'R' else 'Y') else null
+            if (col == 'R') {
+                var dn = 0; var dr = 0; var cs = 0L; var cn = 0
+                for (p in mm.indices) if (mm[p]) { cs += sA[p]; cn++ }
+                val dIn = dil(mm, W, H, (k + 2) / 2)
+                for (p in mm.indices) if (d25[p] && !dIn[p]) { dn++; val hh0 = hA[p]; if (sA[p] > 70 && vA2[p] > 70 && (hh0 < 12 || hh0 > 165)) dr++ }
+                if (dn > 0 && dr > 0.45f * dn && cn > 0 && cs / cn < 70) col = 'G'
+            }
+            if (a > bestA) { bestA = a; best = d to col }
+        }
+        return best
+    }
+
     // ---------------- bang dem giay ----------------
     class Cd(val v: Int, val box: IntArray)
 
@@ -236,6 +314,9 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
             val hv = hsv(rgbF(rx0 + (i + 0.5f) / k - 0.5f, ry0 + (j + 0.5f) / k - 0.5f))
             vv[j * W + i] = hv and 255; m[j * W + i] = colOf(hv, 95, 60) == col
         }
+        // 24/11 (log 07:07: so do hay doc thanh 8/88): quang LED do lam sang ca doan tat -> chi giu net >= 60% do sang net sang nhat
+        val vs = ArrayList<Int>(); for (p in m.indices) if (m[p]) vs += vv[p]
+        if (vs.size >= 8) { vs.sort(); val vref = vs[(vs.size * 0.95f).toInt().coerceAtMost(vs.size - 1)]; for (p in m.indices) if (m[p] && vv[p] < 0.6f * vref) m[p] = false }
         val mc = close3(m, W, H)
         val cc = comps(mc, W, H).filter { it[4] >= 6 }
         if (cc.isEmpty()) return null
@@ -384,7 +465,13 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         /** Mau duoc chon o lan quet vua roi (de ghi log). */
         var want: Char? = null; private set
 
+        /** Mui ten xanh: huong -> [lan dau, lan cuoi, so lan]. [go] = huong duoc di da khop >= 2 lan quet, moi nhat <= 2,5 s. */
+        private val goSeen = HashMap<Char, LongArray>()
+        var go: String = ""; private set
+
         fun update(r: Res, now: Long) {
+            for (d in r.go) { val a = goSeen[d]; if (a == null || now - a[1] > 2500) goSeen[d] = longArrayOf(now, now, 1) else { a[1] = now; a[2]++ } }
+            go = goSeen.filter { now - it.value[1] <= 2500 && it.value[2] >= 2 }.keys.sorted().joinToString("")
             if (r.col == null) { if (now - seenAt > 3000) { col = null; sec = -1; lamps = emptyList(); streak.clear() }; want = null; return }
             seenAt = now; lamps = r.lamps
             val present = r.lamps.map { it.col }.toSet().ifEmpty { setOf(r.col) }
@@ -413,7 +500,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         }
         /** So giay hien tai (dem lui theo dong ho), null = khong co / da het. */
         fun cur(now: Long): Int? { if (sec < 0) return null; val v = sec - ((now - secAt) / 1000).toInt(); return if (v >= 0) v else null }
-        fun clear() { col = null; sec = -1; lamps = emptyList(); cand = null; candN = 0; streak.clear() }
+        fun clear() { col = null; sec = -1; lamps = emptyList(); cand = null; candN = 0; streak.clear(); goSeen.clear(); go = "" }
     }
 
     companion object {
