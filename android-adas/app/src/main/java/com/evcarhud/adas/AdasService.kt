@@ -617,7 +617,14 @@ class AdasService : Service() {
         // den giao thong: chi khi xe cham/dung (gan giao lo), thua; nong thi thua hon, rat nong thi tat
         if (prefs.tlight && hot < 3) tlight?.let { tl ->
             val v = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
-            if (v < TL_MAX_KMH) tl.offer(im, cam?.flip == true, (if (v < 3) 700L else 1000L) * when (hot) { 0 -> 1; 1 -> 2; else -> 3 } * (if (prefs.perf == 0) 2 else 1))
+            // 24/11 ("den hien cham, bat tu xa cham, so doi mau cham"): log thuc te quet ~1,7 s/lan khi dung (700 ms x2 vi nong 1).
+            // Nay: dung 450 ms (dung cho do thi AI openpilot da nghi con 2 lan/giay nen du may), chay 600 ms + quet phong to den xa;
+            // nong 1 chi x1,5; tiet kiem x1,5.
+            if (v < TL_MAX_KMH) {
+                val base = if (v < 3) 450f else if (v < 35) 600f else 900f   // 35..50 km/h: van quet (thua) de bat den tu xa
+                val k = when (hot) { 0 -> 1f; 1 -> 1.5f; else -> 2.5f } * (if (prefs.perf == 0) 1.5f else 1f)
+                tl.offer(im, cam?.flip == true, (base * k).toLong(), zoom = v >= 3 && hot < 2)
+            }
         }
         val hz = targetHz
         val per = if (hz > 0) 1000L / hz else 0L
@@ -1358,7 +1365,7 @@ class AdasService : Service() {
     companion object {
         private const val TAG = "AdasService"
         /** Den giao thong chi quet khi xe duoi toc do nay (gan giao lo / cho den). */
-        private const val TL_MAX_KMH = 35f
+        private const val TL_MAX_KMH = 50f
         private const val CH = "adas"
         private const val NID = 7
         const val ACTION_STOP = "stop"

@@ -1,5 +1,5 @@
 import sys,cv2,numpy as np
-sys.path.insert(0,__file__.rsplit('/',1)[0]); from det import yolox
+sys.path.insert(0,__file__.rsplit('/',1)[0]); from det import yolox,iou
 RX0,RX1,RY0,RY1=0.22,0.78,0.0,0.5
 def color_of(hsv,vmin=150,smin=90):
     h,s,v=hsv[...,0].astype(int),hsv[...,1].astype(int),hsv[...,2].astype(int)
@@ -98,15 +98,43 @@ def _cd(reg0,k,col,s):
 def inside(b,o,th=0.6):
     ix=max(0,min(b[2],o[2])-max(b[0],o[0])); iy=max(0,min(b[3],o[3])-max(b[1],o[1]))
     return ix*iy>th*max(1,(b[2]-b[0])*(b[3]-b[1]))
+ZOOM=None
+VMAX=242
+NIGHT_V=80
+def no_entry(hb,mr):
+    # 24/11: bien cam di nguoc chieu (dia do + vach TRANG NGANG) bi YOLO bat thanh den do. Mui ten xanh tich hop (loi trang
+    # DOC/chu V) khong bi loai: chi loai khi vach trang rong >= 55% dia do va det (cao <= 45% rong).
+    ys,xs=np.where(mr)
+    if len(xs)<6: return False
+    x0,x1,y0,y1=xs.min(),xs.max()+1,ys.min(),ys.max()+1; dw=x1-x0
+    if dw<5: return False
+    wt=((hb[y0:y1,x0:x1,1]<70)&(hb[y0:y1,x0:x1,2]>150)).astype(np.uint8)
+    n,lab,st,_=cv2.connectedComponentsWithStats(wt)
+    for i in range(1,n):
+        bx,by,bw,bh,a=st[i]
+        if bw>=0.55*dw and bh<=0.45*bw and a>=3: return True
+    return False
+CONF=0.25
 def analyse(im):
     H,W=im.shape[:2]
-    x0,x1,y0,y1=int(RX0*W),int(RX1*W),int(RY0*H),int(RY1*H)
+    night=cv2.cvtColor(im[:H//2:8,::8],cv2.COLOR_BGR2HSV)[...,2].mean()<NIGHT_V
+    ry1=min(RY1,0.5) if night else RY1
+    x0,x1,y0,y1=int(RX0*W),int(RX1*W),int(RY0*H),int(ry1*H)
     iw=(x1-x0)//32*32; ih=(y1-y0)//32*32
     crop=im[y0:y1,x0:x1]; k=yolox(crop,iw,ih); sx=(x1-x0)/iw; sy=(y1-y0)/ih
+    bs=[[x0+r[0]*sx,y0+r[1]*sy,x0+r[2]*sx,y0+r[3]*sy,r[4]] for r in k]
+    if ZOOM and not night:   # 24/11 "bat tu xa cham": quet them dai chan troi giua khung o do phan giai cao hon (den xa nho)
+        zx0,zx1,zy0,zy1=int(ZOOM[0]*W),int(ZOOM[1]*W),int(ZOOM[2]*H),int(ZOOM[3]*H); zw,zh=ZOOM[4],ZOOM[5]
+        kz=yolox(im[zy0:zy1,zx0:zx1],zw,zh); qx=(zx1-zx0)/zw; qy=(zy1-zy0)/zh
+        bs+=[[zx0+r[0]*qx,zy0+r[1]*qy,zx0+r[2]*qx,zy0+r[3]*qy,r[4]] for r in kz]
+        bs.sort(key=lambda r:-r[4]); kk=[]
+        for r in bs:
+            if all(iou(r,q)<0.4 for q in kk): kk.append(r)
+        bs=kk
     lamps=[]; cds=[]
-    for r in k:
-        if r[4]<0.25: continue
-        b=[x0+r[0]*sx,y0+r[1]*sy,x0+r[2]*sx,y0+r[3]*sy]
+    for r in bs:
+        if r[4]<CONF: continue
+        b=r[:4]
         bi=[int(max(0,b[0])),int(max(0,b[1])),int(min(W,b[2])),int(min(H,b[3]))]
         if bi[2]-bi[0]<4 or bi[3]-bi[1]<4: continue
         if any(inside(bi,l['box']) for l in lamps+cds): continue
@@ -115,7 +143,8 @@ def analyse(im):
         if col:
             # chong den duong / den pha: den giao thong = cham sang nho trong vo hop toi
             litf=ms0[col].mean(); bright=(hb[...,2]>150).mean(); darkf=(hb[...,2]<90).mean()
-            if bright>0.45 or darkf<0.25 or litf>0.4: col=None
+            if bright>0.45 or darkf<0.25 or litf>0.4 or hb[...,2].max()<VMAX: col=None   # den LED dang sang luon chay ~255
+            elif col=='R' and no_entry(hb,ms0['R']): col=None
         if not col: lamps.append(dict(box=bi,conf=float(r[4]),col=None,cd=None)); continue
         bw,bh=bi[2]-bi[0],bi[3]-bi[1]
         own=countdown(im,bi,col,('I',)) if 0.9*bh<=bw<=1.7*bh else None
