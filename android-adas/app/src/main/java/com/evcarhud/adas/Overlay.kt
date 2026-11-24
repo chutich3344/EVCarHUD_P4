@@ -417,17 +417,39 @@ class Overlay(ctx: Context) : View(ctx) {
         }
         // the giua-tren, duoi 2 dong log
         val sec = sn.tlSec
-        val w = 21f * u; val hgt = 7f * u; val x0 = width / 2f - w / 2; val y0 = 6.8f * u
+        // 24/11: den tron do/vang nhung co MUI TEN XANH -> bao huong duoc di (mau xanh), so dem van la cua den tron
+        val go = if (col != 'G') sn.tlGo else ""
+        val goTxt = when {
+            go.isEmpty() -> null
+            'U' in go -> "ĐƯỢC ĐI THẲNG" + (if ('L' in go) " · RẼ TRÁI" else "") + (if ('R' in go) " · RẼ PHẢI" else "")
+            'L' in go && 'R' in go -> "ĐƯỢC RẼ TRÁI · PHẢI"
+            'L' in go -> "ĐƯỢC RẼ TRÁI"
+            else -> "ĐƯỢC RẼ PHẢI"
+        }
+        val green = Color.rgb(48, 209, 88)
+        val w = if (goTxt != null) 27f * u else 21f * u; val hgt = 7f * u; val x0 = width / 2f - w / 2; val y0 = 6.8f * u
         fill.color = Color.argb(215, 10, 12, 16); cv.drawRoundRect(x0, y0, x0 + w, y0 + hgt, 1.5f * u, 1.5f * u, fill)
         for ((i, k) in "RYG".withIndex()) {
-            fill.color = if (k == col) c else Color.rgb(55, 58, 64)
-            cv.drawCircle(x0 + 2.4f * u, y0 + 1.45f * u + i * 2.05f * u, 0.85f * u, fill)
+            fill.color = if (k == col) c else if (k == 'G' && goTxt != null) green else Color.rgb(55, 58, 64)
+            val cy = y0 + 1.45f * u + i * 2.05f * u
+            if (k == 'G' && goTxt != null) {   // bong xanh ve hinh mui ten huong duoc di
+                val d = if ('U' in go) 'U' else go[0]
+                val r0 = 0.9f * u; val cx = x0 + 2.4f * u
+                val p = android.graphics.Path()
+                when (d) {
+                    'U' -> { p.moveTo(cx, cy - r0); p.lineTo(cx + r0, cy); p.lineTo(cx + 0.35f * r0, cy); p.lineTo(cx + 0.35f * r0, cy + r0); p.lineTo(cx - 0.35f * r0, cy + r0); p.lineTo(cx - 0.35f * r0, cy); p.lineTo(cx - r0, cy) }
+                    'L' -> { p.moveTo(cx - r0, cy); p.lineTo(cx, cy - r0); p.lineTo(cx, cy - 0.35f * r0); p.lineTo(cx + r0, cy - 0.35f * r0); p.lineTo(cx + r0, cy + 0.35f * r0); p.lineTo(cx, cy + 0.35f * r0); p.lineTo(cx, cy + r0) }
+                    else -> { p.moveTo(cx + r0, cy); p.lineTo(cx, cy - r0); p.lineTo(cx, cy - 0.35f * r0); p.lineTo(cx - r0, cy - 0.35f * r0); p.lineTo(cx - r0, cy + 0.35f * r0); p.lineTo(cx, cy + 0.35f * r0); p.lineTo(cx, cy + r0) }
+                }
+                p.close(); cv.drawPath(p, fill)
+            } else cv.drawCircle(x0 + 2.4f * u, cy, 0.85f * u, fill)
         }
         txt.clearShadowLayer(); txt.textAlign = Paint.Align.LEFT
-        txt.typeface = fBold; txt.textSize = 1.7f * u; txt.color = c
-        cv.drawText(when (col) { 'R' -> "ĐÈN ĐỎ"; 'Y' -> "ĐÈN VÀNG"; else -> "ĐÈN XANH" }, x0 + 4.6f * u, y0 + 2.7f * u, txt)
+        txt.typeface = fBold; txt.textSize = 1.7f * u; txt.color = if (goTxt != null) green else c
+        cv.drawText(goTxt ?: when (col) { 'R' -> "ĐÈN ĐỎ"; 'Y' -> "ĐÈN VÀNG"; else -> "ĐÈN XANH" }, x0 + 4.6f * u, y0 + 2.7f * u, txt)
         txt.typeface = fSemi; txt.textSize = 1.3f * u; txt.color = Color.rgb(200, 200, 205)
-        cv.drawText(if (sec != null) "còn" else "chưa thấy số đếm", x0 + 4.6f * u, y0 + 5.0f * u, txt)
+        val l2 = if (goTxt != null) "đèn tròn ${if (col == 'R') "đỏ" else "vàng"}${if (sec != null) " · còn" else ""}" else if (sec != null) "còn" else "chưa thấy số đếm"
+        cv.drawText(l2, x0 + 4.6f * u, y0 + 5.0f * u, txt)
         if (sec != null) {
             txt.typeface = fBold; txt.textSize = 5.2f * u; txt.color = c; txt.textAlign = Paint.Align.RIGHT
             cv.drawText("$sec", x0 + w - 1.4f * u, y0 + 5.6f * u, txt)

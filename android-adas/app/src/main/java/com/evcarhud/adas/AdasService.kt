@@ -92,6 +92,8 @@ class Snap(
     var tl: Char? = null
     var tlSec: Int? = null
     var tlLamps: List<TLight.Lamp>? = null
+    /** Huong duoc di theo mui ten xanh ("U" di thang, "L" re trai, "R" re phai; "" = khong co). */
+    var tlGo = ""
 }
 
 /**
@@ -1116,14 +1118,21 @@ class AdasService : Service() {
         val now = SystemClock.elapsedRealtime()
         tlResAt = now
         val before = tlTrack.col
+        val goBefore = tlTrack.go
         tlTrack.update(r, now)
+        if ('U' in tlTrack.go && 'U' !in goBefore) {
+            clog?.line("DEN mui ten xanh di thang (den tron ${tlTrack.col ?: '-'})")
+            val v0 = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
+            if (v0 < 3 && prefs.beep && (tlTrack.col == 'R' || tlTrack.col == 'Y')) beeper.green()
+            applyRate()
+        }
         val col = tlTrack.col
         // log tung lan quet (toi da 1 dong / 1,5 s) khi thay den: mau, tin cay %, tam x,y %, rong x cao % -> doi chieu loi tu xa
         if (r.lamps.isNotEmpty() && now - tlLogAt > 1500) {
             tlLogAt = now
             fun p(x: Float) = (x * 100).roundToInt()
-            clog?.line("DENQ hien ${col ?: '-'} chon ${tlTrack.want ?: '-'} quet ${r.col ?: '-'}${r.sec?.let { "/$it" } ?: ""} · " +
-                r.lamps.joinToString(" · ") { l -> "${l.col}${p(l.conf)} @${p((l.x1 + l.x2) / 2)},${p((l.y1 + l.y2) / 2)} ${p(l.x2 - l.x1)}x${p(l.y2 - l.y1)}${l.sec?.let { " so $it" } ?: ""}" })
+            clog?.line("DENQ hien ${col ?: '-'}${if (tlTrack.go.isNotEmpty()) " di ${tlTrack.go}" else ""} chon ${tlTrack.want ?: '-'} quet ${r.col ?: '-'}${r.sec?.let { "/$it" } ?: ""} · " +
+                r.lamps.joinToString(" · ") { l -> "${l.col}${p(l.conf)} @${p((l.x1 + l.x2) / 2)},${p((l.y1 + l.y2) / 2)} ${p(l.x2 - l.x1)}x${p(l.y2 - l.y1)}${l.sec?.let { " so $it" } ?: ""}${l.arrow?.let { " mui $it${l.arrowCol ?: '?'}" } ?: ""}" })
         }
         if (col != before) {
             clog?.line("DEN ${before ?: '-'} -> ${col ?: '-'}${tlTrack.cur(now)?.let { " con $it s" } ?: ""}")
@@ -1137,7 +1146,7 @@ class AdasService : Service() {
     /** Dang dung cho den do/vang: AI openpilot nghi bot. */
     private fun tlRest(v: Float): Boolean {
         val c = tlTrack.col ?: return false
-        return prefs.tlight && (c == 'R' || c == 'Y') && v < 3 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 3000
+        return prefs.tlight && (c == 'R' || c == 'Y') && 'U' !in tlTrack.go && v < 3 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 3000
     }
     /** Giu camera mo khi dung xe lau (xe do > 30 s) ma vua thay den trong 2 phut: van doc den / dem giay cho toi luc xanh. */
     private fun tlWait() = prefs.tlight && tlTrack.seenAt > 0 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 120_000
@@ -1166,7 +1175,7 @@ class AdasService : Service() {
         if (nl != null && (limit == null || limit == nl || navLimAt > limitAt)) { s.limit = nl; s.limitSrc = if (waze?.ok == true) "Waze" else "GOFA" }
         if (s.limit == null && prefs.defLimit && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
-        if (prefs.tlight && tlTrack.col != null) { s.tl = tlTrack.col; s.tlSec = tlTrack.cur(now); if (now - tlResAt < 800) s.tlLamps = tlTrack.lamps }
+        if (prefs.tlight && tlTrack.col != null) { s.tl = tlTrack.col; s.tlSec = tlTrack.cur(now); s.tlGo = tlTrack.go; if (now - tlResAt < 800) s.tlLamps = tlTrack.lamps }
         val lim = s.limit
         s.over = lim != null && v > lim + 3
         // chi keu khi vuot bien that; toc do mac dinh chi hien chu (tranh keu sai tren duong ngoai do thi 80-90)
@@ -1259,7 +1268,9 @@ class AdasService : Service() {
         if (!hudOk) { tlSent = ""; return }
         val c = tlTrack.col
         val live = prefs.tlight && c != null && now - tlTrack.seenAt < 3000
-        val msg = if (live) "T1|$c|${tlTrack.cur(now) ?: "-"}" else "T1|-"
+        // den tron do/vang + mui ten xanh di thang: HUD bao xanh (khong so, so dem la cua den tron do)
+        val goU = (c == 'R' || c == 'Y') && 'U' in tlTrack.go
+        val msg = if (!live) "T1|-" else if (goU) "T1|G|-" else "T1|$c|${tlTrack.cur(now) ?: "-"}"
         if (!live) {
             if (tlSent != "T1|-") tlOffLeft = 2
             if (tlOffLeft <= 0) { tlSent = msg; return }

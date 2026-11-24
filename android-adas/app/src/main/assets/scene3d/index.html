@@ -912,15 +912,20 @@ function step(dt) {
 }
 window.step = step;
 // den giao thong tu app (TLight): c = 'R' / 'Y' / 'G' / null, s = so giay con lai hoac null
-window.setTl = function (c, s) {
-  tlC = c || null;
+// go = huong duoc di theo mui ten xanh ('U' thang, 'L' trai, 'R' phai): den tron do + mui ten xanh di thang -> canh coi nhu xanh
+window.setTl = function (c, s, go) {
+  go = (c && c !== 'G') ? (go || '') : '';
+  tlC = c ? (go.includes('U') ? 'G' : c) : null;
   const el = document.getElementById('tl');
   if (!c) { el.style.display = 'none'; return; }
   const col = { R: '#ff3b30', Y: '#ffcc00', G: '#30d158' }[c];
   el.style.display = 'flex';
-  el.querySelectorAll('.dot').forEach((d, i) => { d.style.background = 'RYG'[i] === c ? col : '#373a40'; });
-  const lb = document.getElementById('tlLb'); lb.style.color = col;
-  lb.innerHTML = { R: 'ĐÈN ĐỎ', Y: 'ĐÈN VÀNG', G: 'ĐÈN XANH' }[c] + `<small>${s != null ? 'còn' : 'chưa thấy số đếm'}</small>`;
+  el.querySelectorAll('.dot').forEach((d, i) => { d.style.background = 'RYG'[i] === c ? col : (i === 2 && go ? '#30d158' : '#373a40'); });
+  const lb = document.getElementById('tlLb'); lb.style.color = go ? '#30d158' : col;
+  const gt = go.includes('U') ? 'ĐƯỢC ĐI THẲNG' + (go.includes('L') ? ' · RẼ TRÁI' : '') + (go.includes('R') ? ' · RẼ PHẢI' : '')
+    : go.includes('L') && go.includes('R') ? 'ĐƯỢC RẼ TRÁI · PHẢI' : go.includes('L') ? 'ĐƯỢC RẼ TRÁI' : go.includes('R') ? 'ĐƯỢC RẼ PHẢI' : '';
+  lb.innerHTML = gt ? `${gt}<small>đèn tròn ${c === 'R' ? 'đỏ' : 'vàng'}${s != null ? ' · còn' : ''}</small>`
+    : { R: 'ĐÈN ĐỎ', Y: 'ĐÈN VÀNG', G: 'ĐÈN XANH' }[c] + `<small>${s != null ? 'còn' : 'chưa thấy số đếm'}</small>`;
   const se = document.getElementById('tlSec'); se.style.color = col; se.textContent = s != null ? s : '';
 };
 

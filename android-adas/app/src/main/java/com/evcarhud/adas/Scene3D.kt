@@ -89,8 +89,8 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         lastFeed = now
         if (now - infoAt >= 10_000) { infoAt = now; info = "${gapF.toInt()}ms/lan · bo ${pendDrop} · nghi ${idleSkip}"; pendDrop = 0; idleSkip = 0 }
         // den giao thong + so giay: goi rieng, chay ca khi AI dang nghi (xe do / dung den do lau, khong co sn.out)
-        val tk = (sn.tl?.toString() ?: "-") + (sn.tlSec ?: -1)
-        if (tk != sentTl) { sentTl = tk; evaluateJavascript("window.setTl && setTl(${sn.tl?.let { "'$it'" } ?: "null"}, ${sn.tlSec ?: "null"})", null) }
+        val tk = (sn.tl?.toString() ?: "-") + (sn.tlSec ?: -1) + sn.tlGo
+        if (tk != sentTl) { sentTl = tk; evaluateJavascript("window.setTl && setTl(${sn.tl?.let { "'$it'" } ?: "null"}, ${sn.tlSec ?: "null"}, '${sn.tlGo}')", null) }
         val js = json(sn) ?: return
         evaluateJavascript("feed($js)", null)
     }
