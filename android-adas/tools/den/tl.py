@@ -38,6 +38,8 @@ def countdown(img,box,col,sides=('R','L','B')):
             if r: v,(X0,Y0,X1,Y1)=r; return (v,side,(rx0+X0/k,ry0+Y0/k,rx0+X1/k,ry0+Y1/k))
     return None
 from read7v import read7v
+import tmpl2
+
 def _cd(reg0,k,col,s):
     reg=cv2.resize(reg0,None,fx=k,fy=k,interpolation=cv2.INTER_CUBIC)
     rf=reg.astype(np.float32); B,G_,R=rf[...,0],rf[...,1],rf[...,2]
@@ -69,6 +71,10 @@ def _cd(reg0,k,col,s):
         g=max(1,H//6); ring=hsv[max(0,Y0-g):Y1+g,max(0,X0-g):X1+g,2].astype(float); inner=np.zeros(ring.shape,bool)
         inner[min(g,Y0):min(g,Y0)+H,min(g,X0):min(g,X0)+W]=True
         if ring[~inner & ~(cv2.dilate(m,np.ones((3,3),np.uint8))[max(0,Y0-g):Y1+g,max(0,X0-g):X1+g]>0)].mean()>110: return None
+    # 24/11 ("o den 70 bat co 7"): so khop ca so 0..99 tren kenh mau (7 va 0 dinh nhau vi nhoe van doc dung)
+    px=max(1,int(0.15*H)); py=max(1,int(0.04*H)); sub=np.clip(chan[max(0,Y0-py):Y1+py,max(0,X0-px):X1+px],0,None)
+    tv,tm,ts=tmpl2.read2(sub)
+    if tv is not None and ts>=0.55 and tm>=0.01: return tv,(X0,Y0,X1,Y1)
     if hx is not None and 0.2*W<hx<0.95*W: sp=int(round(hx)); parts=[mm[:,:sp],mm[:,sp:]]
     elif W>0.95*H:
         cs=mm.sum(0).astype(float); lo,hi=int(0.3*W),int(0.7*W)+1

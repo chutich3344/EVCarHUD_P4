@@ -60,6 +60,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
                     OrtSession.SessionOptions().apply { setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT); setIntraOpNumThreads(2) }
                 }
                 sess = env.createSession(ctx.assets.open("xe-coco.onnx").use { it.readBytes() }, o)
+                try { Seg7T.init() } catch (e: Throwable) { Log.w(TAG, "seg7", e) }
                 info = "sẵn sàng"
             } catch (e: Throwable) { info = "lỗi nạp: ${e.message}"; Log.e(TAG, "load", e) }
         }
@@ -351,6 +352,14 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
             }
             if (n == 0 || sum / n > 110) return null
         }
+        // 24/11 ("o den 70 bat co 7"): so khop ca so 0..99 tren kenh mau -> 7 va 0 dinh nhau vi nhoe van doc dung
+        run {
+            val px = max(1, (0.15f * dh).toInt()); val py = max(1, (0.04f * dh).toInt())
+            val sx0 = max(0, X0 - px); val sx1 = min(W, X1 + px); val sy0 = max(0, Y0 - py); val sy1 = min(H, Y1 + py)
+            val sw = sx1 - sx0; val sh = sy1 - sy0
+            val sub = FloatArray(sw * sh) { max(0f, chan[(sy0 + it / sw) * W + sx0 + it % sw]) }
+            Seg7T.sure(sub, sw, sh)?.let { return it to intArrayOf(X0, Y0, X1, Y1) }
+        }
         val sp = when {
             hx > 0.2f * dw && hx < 0.95f * dw -> hx.roundToInt()
             hx < 0 && dw > 0.95f * dh -> { // khe it diem nhat o 30..70%
@@ -430,6 +439,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         if (W < 8 || H < 8 || W * H > 120_000) return null
         val g = FloatArray(W * H)
         for (j in 0 until H) for (i in 0 until W) g[j * W + i] = chanOf(rgbF(b[0] + (i + 0.5f) / k - 0.5f, b[1] + (j + 0.5f) / k - 0.5f), col)
+        Seg7T.sure(FloatArray(W * H) { max(0f, g[it]) }, W, H)?.let { return it }
         val a = read7v(g, W, 0, 0, W / 2, H); val c = read7v(g, W, W / 2, 0, W - W / 2, H) ?: return null
         return if (a != null) a * 10 + c else c
     }
