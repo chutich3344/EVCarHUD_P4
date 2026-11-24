@@ -202,6 +202,8 @@ class Overlay(ctx: Context) : View(ctx) {
         var started = false
         for (k in 0 until Op.N) {
             if (Op.X_IDXS[k] > 80f) break
+            // 24/11: diem qua sat xe ma lech ngang nhieu (goc > ~55 do) -> ong mat ca 70mai chieu bat ra ngang man (vach mep do bi be ngang) -> bo
+            if (kotlin.math.atan2(kotlin.math.abs(ys[k]), Op.X_IDXS[k]) > 0.95f) continue
             if (!proj(c, Op.X_IDXS[k], ys[k], zs[k], 0)) continue
             if (!started) { path.moveTo(pt[0], pt[1]); started = true } else path.lineTo(pt[0], pt[1])
         }
