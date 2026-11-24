@@ -59,6 +59,8 @@ def _cd(reg0,k,col,s):
     X0=min(c[0] for c in tall); Y0=min(c[1] for c in tall); X1=max(c[0]+c[2] for c in tall); Y1=max(c[1]+c[3] for c in tall)
     mm=m[Y0:Y1,X0:X1]>0; H=Y1-Y0; W=X1-X0
     if W<2 or H<7: return None
+
+    if H<MIN_DH*k: return None   # 24/11 (0.1.138 dem sai): chu so qua nho (< 8 px khung) doc ra rac (6, 1, 74...)
     dark=((hsv[...,2]<90)|(m>0)).astype(np.uint8)
     kk=max(3,int(0.35*H)); dark=cv2.morphologyEx(dark,cv2.MORPH_OPEN,np.ones((kk,kk),np.uint8))
     n2,lab2,st2,_=cv2.connectedComponentsWithStats(dark)
@@ -99,6 +101,7 @@ def inside(b,o,th=0.6):
     ix=max(0,min(b[2],o[2])-max(b[0],o[0])); iy=max(0,min(b[3],o[3])-max(b[1],o[1]))
     return ix*iy>th*max(1,(b[2]-b[0])*(b[3]-b[1]))
 ZOOM=None
+MIN_DH=8
 VMAX=242
 NIGHT_V=80
 def no_entry(hb,mr):
