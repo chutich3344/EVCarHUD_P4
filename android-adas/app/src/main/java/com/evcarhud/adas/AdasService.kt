@@ -1252,6 +1252,7 @@ class AdasService : Service() {
             pushNav()
             pushSign(now)
             pushTl(now)
+            pushClock(now)
             if (now - wazeTry > 30_000 && waze?.ok != true) { wazeTry = now; waze?.start() }
             if (now - lastNotif > 10_000) { lastNotif = now; goForeground(notifText()) }
             main.postDelayed(this, 1000)
@@ -1266,6 +1267,21 @@ class AdasService : Service() {
         if (v == sigSent && (v == 0 || now - sigAt < 5000)) return
         sigSent = v; sigAt = now
         h.sendSign("S1|$v".toByteArray())
+    }
+
+    private var clkAt = 0L
+    private var clkOk = false
+
+    /** Gio dien thoai -> HUD ("K1|unix|tz phut"): ngay khi noi HUD, roi 1 phut/lan. Chi dung app LANE (khong Waze / GOFA)
+     *  thi HUD van co dong ho thay vi "--:--". */
+    private fun pushClock(now: Long) {
+        val h = hud ?: return
+        if (!hudOk) { clkOk = false; return }
+        if (clkOk && now - clkAt < 60_000) return
+        clkOk = true; clkAt = now
+        val ms = System.currentTimeMillis()
+        val tz = java.util.TimeZone.getDefault().getOffset(ms) / 60_000
+        h.sendClock("K1|${ms / 1000}|$tz".toByteArray())
     }
 
     private var tlSent = ""
