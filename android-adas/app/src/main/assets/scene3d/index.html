@@ -173,9 +173,9 @@ const wallL = wallMesh(), wallR = wallMesh();
 const oppRoad = ribbon(0x333333, 1, 0.001), oppEdge = ribbon(0x777777, 1, 0.005);
 const yelA = ribbon(0xffc21a, 1, 0.013), yelB = ribbon(0xffc21a, 1, 0.013);
 const oppLine = ribbon(0xffffff, 1, 0.012, 12); oppLine.material.alphaMap = dashTex; oppLine.material.transparent = true; oppLine.material.depthWrite = false;
-const walkR = ribbon(0x555555, 1, 0.004), walkL = ribbon(0x555555, 1, 0.004);
+const walkR = ribbon(0x555555, 1, 0.004), walkL = ribbon(0x555555, 1, 0.004), walkPL = ribbon(0x555555, 1, 0.004);   // walkPL: le do xe ben TRAI (duong 1 chieu)
 const wallO = wallMesh();
-let oppW = 0, oppAt = -99, oppMax = 0, parkW = 0, parkAt = -99, parkMax = 0;
+let oppW = 0, oppAt = -99, oppMax = 0, parkW = 0, parkAt = -99, parkMax = 0, parkLW = 0, parkLAt = -99, parkLMax = 0;
 // 23/11 (video so sanh): duong 2 lan 2 chieu - openpilot coi lan nguoc chieu la 1 lan cua minh (mep trai = mep duong that).
 // Con >= 2,5 m giua vach trai lan minh va mep trai -> do la lan NGUOC CHIEU: vach trai lan minh = tim vang, xe ben do quay dau.
 // Chi bo khi thay xe ben trai chay CUNG chieu ro rang (duong 1 chieu nhieu lan).
@@ -375,7 +375,7 @@ function applyTheme(t) {
   lines.forEach(l => l.material.color.setHex(T.line)); [wallL, wallR, wallO].forEach(w => w.material.color.setHex(T.wall));
   med.material.color.setHex(T.med); [medWallA, medWallB].forEach(w => w.material.color.setHex(T.edge));
   oppRoad.material.color.setHex(T.opp); oppEdge.material.color.setHex(T.edge); oppLine.material.color.setHex(T.line);
-  yelA.material.color.setHex(T.yel); yelB.material.color.setHex(T.yel); walkR.material.color.setHex(T.walk); walkL.material.color.setHex(T.walk); shdL.material.color.setHex(T.shd); shdR.material.color.setHex(T.shd);
+  yelA.material.color.setHex(T.yel); yelB.material.color.setHex(T.yel); walkR.material.color.setHex(T.walk); walkL.material.color.setHex(T.walk); walkPL.material.color.setHex(T.walk); shdL.material.color.setHex(T.shd); shdR.material.color.setHex(T.shd);
   paintScenery(T);
   hemi.color.setHex(T.hemi[0]); hemi.groundColor.setHex(T.hemi[1]); hemi.intensity = T.hemi[2]; sun.intensity = T.sun;
   MATS.ego.color.setHex(T.ego); MATS.glass.color.setHex(T.glass);
@@ -668,8 +668,9 @@ function step(dt) {
   setRibbon(shoulderR, eR.map(v => v + 0.12), eR.map(v => v + 0.3));
   // phan duong nguoc chieu / le phai: lon dan khi thay xe ngoai mep, giu 8 s roi thu lai
   const oT = t - oppAt < 8 && !inOpp ? Math.max(6.5, Math.min(11, oppMax)) : 0, pT = t - parkAt < 8 ? Math.max(3, Math.min(7.5, parkMax)) : 0;
-  const ga = 1 - Math.exp(-dt / 0.6); oppW += (oT - oppW) * ga; parkW += (pT - parkW) * ga;
-  if (t - oppAt > 8) oppMax = 0; if (t - parkAt > 8) parkMax = 0;
+  const plT = t - parkLAt < 8 && !inOpp ? Math.max(3, Math.min(7.5, parkLMax)) : 0;
+  const ga = 1 - Math.exp(-dt / 0.6); oppW += (oT - oppW) * ga; parkW += (pT - parkW) * ga; parkLW += (plT - parkLW) * ga;
+  if (t - oppAt > 8) oppMax = 0; if (t - parkAt > 8) parkMax = 0; if (t - parkLAt > 8) parkLMax = 0;
   if (d.rd) { rdD = d.rd; rdAt = t; }
   const rdOk = rdD && t - rdAt < 10, rdDiv = rdOk && (rdD.dv === 1 || rdD.ow === 1);   // ban do: duong doi / 1 chieu -> ben kia (neu co xe) la chieu rieng, co dai phan cach
   const lm = d.lm || null; if (lm) lmAt = t;
@@ -712,13 +713,17 @@ function step(dt) {
   if (inOpp && walkL.visible) setRibbon(walkL, eL.map(v => v - 4.5), eL.map(v => v - 0.3));
   walkR.visible = parkW > 0.4;
   if (walkR.visible) setRibbon(walkR, eR.map(v => v + 0.3), eR.map(v => v + 0.3 + parkW));
+  // 24/11 (Kevin hinh 2: duong 1 chieu, xe dau ben trai bi ve thanh lan nguoc chieu): xe DUNG YEN ngoai mep trai = le do xe trai
+  const pLon = parkLW > 0.4 && !two && !inOpp;
+  walkPL.visible = pLon;
+  if (pLon) setRibbon(walkPL, eL.map(v => v - 0.3 - parkLW), eL.map(v => v - 0.3));
   // khi da co phan duong ben kia / le do xe thi bo tuong mo (truoc day xe ben kia dung sau tuong)
   // cao toc (> 60 km/h): ben kia la chieu doc lap co dai phan cach -> giu tuong, khong ve vach vang
   const hw = cur.v * 3.6 > 60; yelA.visible = yelB.visible = two && !hw && medW < 0.3;
   [med, medWallA, medWallB].forEach(m => m.visible = medW > 0.3);
   if (medW > 0.3) { const a0 = eL.map(v => v - 0.3), a1 = a0.map(v => v - medW); setRibbon(med, a1, a0); setWall(medWallA, a0, 0.16); setWall(medWallB, a1, 0.16); }
   wallL.visible = !two || hw; wallR.visible = true;
-  setWall(wallL, eL.map(v => v - 0.45), 0.7, -1); setWall(wallR, eR.map(v => v + 0.45 + parkW), 0.7, 1);
+  setWall(wallL, eL.map(v => v - 0.45 - (pLon ? parkLW : 0)), 0.7, -1); setWall(wallR, eR.map(v => v + 0.45 + parkW), 0.7, 1);
   // 23/11 toi: cay/nha chi la trang tri, khong co du lieu that -> chi ve khi bat trong Cai dat (d.deco)
   [trunkI, crownI, houseI].forEach(m => { m.visible = !!d.deco; });
   if (d.deco) placeScenery(x => at(cur.ed[0], x) - 0.45 - (two ? medW + oppW + 3.3 : inOpp ? 4.2 : 0), x => at(cur.ed[1], x) + 0.45 + parkW, hw);
@@ -798,6 +803,8 @@ function step(dt) {
     {  // xe ngoai mep phai (dau le / do ven duong): dat han vao dai le, khong de de len vach mep
       const eR1 = at(cur.ed[1], tr.sx + L / 2);
       if (ob.kind !== 'person' && y > eR1 + 0.4) y = Math.max(y, eR1 + 0.3 + Wd / 2 + 0.2);
+      const eL1 = at(cur.ed[0], tr.sx + L / 2);   // 24/11: xe dau ngoai mep trai (khi khong co phan duong nguoc chieu) -> dat vao le trai
+      if (ob.kind !== 'person' && parkLW > 0.4 && !two && (tr.park || 0) >= 2 && y < eL1 - 0.4) y = Math.min(y, eL1 - 0.3 - Wd / 2 - 0.2);
     }
     // 23/11 toi (Reality): KHONG xep/day xe cho do chong. Trung gan het voi xe da ve (2 lan nhan cung 1 xe) -> an ban sau;
     // chong nhe (2 xe sat nhau that) -> giu dung vi tri do duoc.
@@ -814,7 +821,13 @@ function step(dt) {
     const eLx = at(cur.ed[0], xc), eRx = at(cur.ed[1], xc);
     const outL = y < eLx - 0.6, outR = y > eRx + 0.6;
     if (tr.n >= 3 && ob.kind !== 'person' && x > 3 && x < 60) {
-      if (outL && eLx - y < 14) { oppAt = t; if (!inOpp) oppMax = Math.max(oppMax, eLx - 0.3 - y + 2.2); }
+      // 24/11: ngoai mep trai chi la PHAN DUONG NGUOC CHIEU khi xe do CHAY nguoc chieu; xe dung yen (Kalman da bu xe minh) = xe dau le trai
+      if (outL && eLx - y < 14) {
+        const movOnc = (tr.onc || 0) >= 2 || ((tr.stillT || 0) < 0.3 && tr.ws > 3);
+        const stillL = tr.n >= 4 && ((tr.stillT || 0) >= 0.5 || (tr.park || 0) >= 2) && tr.ws < 1.2;
+        if (!movOnc && stillL && cur.v > 2) { parkLAt = t; parkLMax = Math.max(parkLMax, eLx - 0.3 - y + 1.6); }
+        else if (movOnc || cur.v <= 2) { oppAt = t; if (!inOpp) oppMax = Math.max(oppMax, eLx - 0.3 - y + 2.2); }   // vet non chua ro: chua bo phieu
+      }
       if (outR && y - eRx < 10) { parkAt = t; parkMax = Math.max(parkMax, y - eRx - 0.3 + 1.6); }
     }
     // ben phan nguoc chieu: mac dinh quay dau ve phia minh, tru khi vet cho thay chay cung chieu ro rang
@@ -826,7 +839,7 @@ function step(dt) {
     tr.park = Math.max(0, Math.min(6, (tr.park || 0) + (still && (outR || outL || y > eRx - 1.3) ? 1 : -1)));
     const parked = tr.park >= 4 && ob.kind !== 'person';
     const leftOfCen = y < l1x - 0.2 && (yel || inOpp || (!two && !oneWay && t - oncAt < 15));
-    const faceUs = !(parked && y > 0) && ((tr.onc || 0) >= 3 || (!withUs && !parked && ((two && y < eLx - 0.2) || (leftOfCen && y > eLx - 0.6 - (two ? 0 : 3)))));
+    const faceUs = !(parked && (y > 0 || !two)) && ((tr.onc || 0) >= 3 || (!withUs && !parked && ((two && y < eLx - 0.2) || (leftOfCen && y > eLx - 0.6 - (two ? 0 : 3)))));
     const yaw = Math.atan2(centerAt(xc + 3) - centerAt(xc - 3), 6);
     // 23/11 toi (video dem): xe dau 2 ben bi doi "quay mat ve minh" <-> "cung chieu" lien tuc -> xoay vong 180 do.
     // Chot huong: chi doi khi trang thai moi giu >= 1 s va xe co chay that (> 2 m/s); xe dau thi khong doi nua.
@@ -918,7 +931,7 @@ function step(dt) {
     if (more) tot = rdD.n;
     if (tot >= 2) chips.push(`<span class="chip">LANE ${lane}/${tot}</span>`);
     if (yel || inOpp || two) chips.push(`<span class="chip">2 chiều${medW > 0.3 ? ' · dải phân cách' : ''}</span>`);
-    else if (oneWay) chips.push('<span class="chip">1 chiều</span>');
+    else if (oneWay || (rdOk && rdD.ow === 1)) chips.push('<span class="chip">1 chiều</span>');
     if (nPark) chips.push(`<span class="chip">${nPark} xe đậu</span>`);
   }
   if (d.dbg) chips.push('<span class="chip" style="color:#ff2d2d">đỏ = vạch thô AI</span>');
