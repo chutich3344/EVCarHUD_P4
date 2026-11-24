@@ -37,7 +37,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
                /** Mui ten sang trong hop: 'U' di thang / 'L' re trai / 'R' re phai (null = khong co), mau mui ten. */
                val arrow: Char? = null, val arrowCol: Char? = null)
     /** Ket qua 1 lan quet: mau den chinh (R/Y/G, null = khong thay), so giay doc duoc (null = khong co/khong doc duoc). */
-    class Res(val col: Char?, val sec: Int?, val lamps: List<Lamp>, val ms: Long) {
+    class Res(val col: Char?, val sec: Int?, val lamps: List<Lamp>, val ms: Long, val night: Boolean = false) {
         /** Huong duoc di theo mui ten XANH trong lan quet nay (vd "U", "UL"). */
         val go: String get() = lamps.filter { it.arrow != null && it.arrowCol == 'G' }.mapNotNull { it.arrow }.distinct().sorted().joinToString("")
     }
@@ -133,6 +133,9 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         for (k in keep.take(8)) {
             val b = intArrayOf(max(0, k[0].toInt()), max(0, k[1].toInt()), min(w, k[2].toInt()), min(hh, k[3].toInt()))
             if (b[2] - b[0] < 4 || b[3] - b[1] < 4) continue
+            // 24/11 toi (cam dien thoai): ban dem hang loat cham vang/do nho (1x2% khung: den duong, bien quang cao) chop 1-2 lan
+            // roi mat -> the den hien/tat lien tuc. Dem chi nhan hop den cao >= 3% khung (~22 px, den o gan giao lo).
+            if (night && b[3] - b[1] < 0.03f * hh) continue
             if ((lamps + cds).any { inside(b, it.b, 0.6f) }) continue
             var col = lampColor(b)
             val bw = b[2] - b[0]; val bh = b[3] - b[1]
@@ -165,7 +168,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         }
         lastMs = SystemClock.elapsedRealtime() - t0
         info = "${lastMs} ms · ${lit.size} đèn${if (col != null) " $col${sec ?: ""}" else ""}"
-        onRes(Res(col, sec, res, lastMs))
+        onRes(Res(col, sec, res, lastMs, night))
     }
 
     /** YOLOX tren vung (x0,y0)-(x1,y1) cua khung, thu ve iw x ih; tra hop den (lop 9) theo toa do khung + diem. */
@@ -569,6 +572,9 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         var go: String = ""; private set
 
         private var mainBox: FloatArray? = null
+        /** Giu the den bao lau khi mat dau (ms). AdasService dat 6 s khi xe dung cho den (quet hut 1-2 lan khong tat the). */
+        @Volatile var holdMs = 3000L
+        private var candAt = 0L
         private var seenPrev = 0L
         private fun boxIou(a: FloatArray, l: Lamp): Float {
             val ix = max(0f, min(a[2], l.x2) - max(a[0], l.x1)); val iy = max(0f, min(a[3], l.y2) - max(a[1], l.y1)); val i = ix * iy
@@ -579,7 +585,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         fun update(r: Res, now: Long) {
             for (d in r.go) { val a = goSeen[d]; if (a == null || now - a[1] > 2500) goSeen[d] = longArrayOf(now, now, 1) else { a[1] = now; a[2]++ } }
             go = goSeen.filter { now - it.value[1] <= 2500 && it.value[2] >= 2 }.keys.sorted().joinToString("")
-            if (r.col == null) { if (now - seenAt > 3000) { mainBox = null; col = null; sec = -1; lamps = emptyList(); streak.clear() }; want = null; return }
+            if (r.col == null) { if (now - seenAt > holdMs) { mainBox = null; col = null; sec = -1; lamps = emptyList(); streak.clear() }; want = null; return }
             seenAt = now; lamps = r.lamps
             val present = r.lamps.map { it.col }.toSet().ifEmpty { setOf(r.col) }
             for (c in present) { val st = streak[c]; if (st == null || now - st[1] > 2500) streak[c] = longArrayOf(now, now) else st[1] = now }
@@ -595,13 +601,16 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
             want = w
             val wl = r.lamps.filter { it.col == w }.maxByOrNull { (it.x2 - it.x1) * (it.y2 - it.y1) * it.conf }
             if (w != col) {
-                if (cand == w) candN++ else { cand = w; candN = 1 }
+                if (cand == w && now - candAt < 2500) candN++ else { cand = w; candN = 1 }   // lan khop cu qua 2,5 s khong tinh
+                candAt = now
                 // 24/11 ("so chuyen mau cham"): CHINH hop den dang theo doi doi mau (cung vi tri, IoU >= 0,3) -> doi ngay,
                 // khong cho lan quet thu 2 (do -> xanh hien som hon 1 nhip quet). Den khac / moi xuat hien van can 2 lan.
                 val same = wl != null && wl.conf >= 0.35f && mainBox?.let { boxIou(it, wl) >= 0.3f } == true && now - seenPrev < 2500
                 // den moi xuat hien: 1 lan quet chi nhan neu tin cay >= 0,5 (vung quet rong hon -> chan bao nham 1 khung)
-                val first = col == null && (wl?.conf ?: 0f) >= 0.5f
-                if (candN >= 2 || first || same) { prevCol = col; col = w; changedAt = now; sec = -1; pendV = -1 } else { seenPrev = now; return }
+                val first = col == null && !r.night && (wl?.conf ?: 0f) >= 0.5f
+                // dem: den VANG (de nham den duong/bien hieu) can 3 lan quet khop
+                val need = if (r.night && w == 'Y') 3 else 2
+                if (candN >= need || first || (same && !(r.night && w == 'Y'))) { prevCol = col; col = w; changedAt = now; sec = -1; pendV = -1 } else { seenPrev = now; return }
             }
             if (wl != null) mainBox = floatArrayOf(wl.x1, wl.y1, wl.x2, wl.y2)
             seenPrev = now
