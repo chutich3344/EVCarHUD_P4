@@ -82,6 +82,7 @@ class Snap(
     var camTag = ""
     var br: List<FloatArray>? = null   // duong nhanh theo ban do: [cach m, ben, goc]
     var brAt = 0L
+    var rd: IntArray? = null           // 24/11: duong theo ban do [1 chieu, duong doi, so lan chieu minh]
     var camLive = false
     var camM: Int? = null
     var limitSrc: String? = null   // bien lay tu app dan duong: "Waze" / "GOFA"
@@ -1191,7 +1192,7 @@ class AdasService : Service() {
     }
 
     private fun camTag(s: Snap) {
-        if (SystemClock.elapsedRealtime() - branchesAt < 3000) { s.br = branches; s.brAt = branchesAt }
+        if (SystemClock.elapsedRealtime() - branchesAt < 3000) { s.br = branches; s.brAt = branchesAt; s.rd = road?.dir }
         s.camTag = when (prefs.camSrc) { "70mai" -> "70Mai · Wi-Fi"; "mirror" -> "Sinjet · Wi-Fi"; else -> "Phone · camera sau" }
         s.camLive = lastFrameAt > 0 && SystemClock.elapsedRealtime() - lastFrameAt < 2000
     }

@@ -137,6 +137,7 @@ class Scene3D(ctx: Context) : WebView(ctx) {
         if (!sn.cal) sb.append(",\"cal\":0")
         if (deco) sb.append(",\"deco\":1")
         // 23/11 toi: gui CA KHI RONG (co ban do, khong co nhanh) -> trang 3D biet "ban do noi khong co giao lo" de khong dung nga tu tu den gia
+        sn.rd?.let { r -> sb.append(",\"rd\":{\"ow\":").append(r[0]).append(",\"dv\":").append(r[1]).append(",\"n\":").append(r[2]).append('}') }
         sn.br?.let { b -> sb.append(",\"br\":[").append(b.joinToString(",") { "[" + f(it[0], 1) + "," + it[1].toInt() + "," + it[2].toInt() + "]" }).append("],\"bra\":").append(sn.brAt) }
         tlPos(sn)?.let { sb.append(",\"tlx\":[").append(f(it[0], 1)).append(',').append(f(it[1], 1)).append(']') }
         if (live) sb.append(",\"wz\":").append(f(o.poseRz))   // 23/11 toi: toc do quay xe minh (rad/s) -> biet dang re

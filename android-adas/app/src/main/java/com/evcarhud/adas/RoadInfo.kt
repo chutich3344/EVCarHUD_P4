@@ -20,7 +20,7 @@ import kotlin.math.sqrt
  */
 class RoadInfo(private val log: (String) -> Unit = {}) {
     class Way(val hw: String, val oneway: Int, val lanes: Int?, val maxF: Int?, val maxB: Int?, val dual: Boolean, val name: String?,
-              val lat: DoubleArray, val lon: DoubleArray)
+              val lat: DoubleArray, val lon: DoubleArray, val lanesF: Int? = null, val lanesB: Int? = null)
 
     class Def(val kmh: Int?, val why: String)
 
@@ -31,6 +31,8 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
     @Volatile private var lastTry = 0L
     @Volatile private var good = 0   // may chu chay duoc lan truoc -> thu truoc
     @Volatile var cur: Def? = null; private set
+    /** 24/11: duong dang chay theo ban do cho man 3D: [1 chieu 0/1, duong doi 0/1, so lan CHIEU MINH (0 = khong ro)]. */
+    @Volatile var dir: IntArray? = null; private set
     private val io = Executors.newSingleThreadExecutor()
 
     /** Goi moi lan co GPS (luong chinh). */
@@ -42,6 +44,11 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
             io.execute { try { fetch(lat, lon) } catch (e: Exception) { log("ROAD loi ${e.javaClass.simpleName}") } finally { busy = false } }
         }
         val w = match(lat, lon, brg, kmh)
+        dir = w?.let {
+            val fwd = it.oneway == 1 || headingAlong(it, lat, lon, brg)
+            val n = if (it.oneway != 0) it.lanes else (if (fwd) it.lanesF else it.lanesB) ?: it.lanes?.let { l -> if (l >= 2) l / 2 else null }
+            intArrayOf(if (it.oneway != 0) 1 else 0, if (it.dual) 1 else 0, (n ?: 0).coerceIn(0, 6))
+        }
         val prev = cur
         cur = if (w == null) (if (ways.isEmpty()) Def(50, "luật · 2 chiều") else cur ?: Def(50, "luật · 2 chiều")) else rule(w, lat, lon, brg)
         cur?.let { c -> if (prev?.kmh != c.kmh || prev?.why != c.why) log("TOC DO MAC DINH ${c.kmh ?: "-"} (${c.why}${w?.let { " · " + it.hw + (it.name?.let { n -> " " + n } ?: "") } ?: ""})") }
@@ -90,7 +97,8 @@ class RoadInfo(private val log: (String) -> Unit = {}) {
             out += Way(t.optString("highway"), ow, t.optString("lanes").toIntOrNull(),
                 kmh(t.optString("maxspeed:forward")) ?: all, kmh(t.optString("maxspeed:backward")) ?: all,
                 t.optString("dual_carriageway") == "yes", t.optString("name").ifEmpty { null },
-                if (ow == -1) la.reversedArray() else la, if (ow == -1) lo.reversedArray() else lo)
+                if (ow == -1) la.reversedArray() else la, if (ow == -1) lo.reversedArray() else lo,
+                t.optString("lanes:forward").toIntOrNull(), t.optString("lanes:backward").toIntOrNull())
         }
         return out
     }

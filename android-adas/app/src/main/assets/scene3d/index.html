@@ -184,6 +184,9 @@ let inOpp = false, sameAt = -99, inOppAt = -99;
 // Vach vang ben trai = tim duong 2 chieu (cen = so thu tu vach do); khong co vang lau + co vach trang = duong 1 chieu nhieu lan.
 // Phan cach cung (con luon): co xe nguoc chieu ben ngoai mep trai ma khong thay vach vang.
 let cen = -1, yAt = -99, lmAt = -99;
+// 24/11: lan them ben phai theo ban do (openpilot chi cho 2 vach moi ben -> duong 3 lan bi ve thanh 2)
+const linesX = [0, 1].map(() => { const m = ribbon(0xffffff, 1, 0.012, 12); m.material.alphaMap = dashTex; m.material.transparent = true; m.material.depthWrite = false; m.visible = false; return m; });
+let rdAt = -99, rdD = null, xLn = 0, xLnT = 0, xBase = 2;
 const lines2 = [0, 1, 2, 3].map(() => { const m = ribbon(0xffffff, 1, 0.012, 12); m.material.alphaMap = dashTex; m.material.transparent = true; m.material.depthWrite = false; m.visible = false; return m; });
 const med = ribbon(0x2f4a34, 1, 0.16), medWallA = wallMesh(), medWallB = wallMesh(); let medW = 0;
 
@@ -566,7 +569,11 @@ function step(dt) {
   const aL = bad && cur.ln ? 0 : 1 - Math.exp(-dt / (uncal ? 1.2 : 0.2)), aE = bad && cur.ed ? 0 : 1 - Math.exp(-dt / (uncal ? 1.2 : 0.3));
   cur.ln = (cur.ln || [0, 1, 2, 3].map(() => null)).map((c, k) => ema(c, d.ln[k], aL));
   cur.lp = ema(cur.lp, d.lp, 1 - Math.exp(-dt / 0.3));
-  cur.ed = (cur.ed || [null, null]).map((c, k) => ema(c, d.ed[k], aE));
+  let edT = d.ed;
+  if (xLn > 0.05 && cur.ln && cur.ln[xBase]) {   // 24/11: ban do noi chieu minh nhieu lan hon openpilot thay -> noi mep phai ra du so lan
+    const b = cur.ln[xBase]; edT = [d.ed[0], d.ed[1].map((v, i) => Math.max(v, b[i] + xLn * 3.3 + 0.3))];
+  }
+  cur.ed = (cur.ed || [null, null]).map((c, k) => ema(c, edT[k], aE));
   if (d.pl) { cur.px = d.pl.map(p => p[0]); cur.py = ema(cur.py, d.pl.map(p => p[1]), aL || a); }
   odo += Math.max(0, cur.v) * dt;
   {  // giao lo: xe minh chay toi thi duong ngang lui ve (giu toa do the gioi trong 6 s)
@@ -663,6 +670,8 @@ function step(dt) {
   const oT = t - oppAt < 8 && !inOpp ? Math.max(6.5, Math.min(11, oppMax)) : 0, pT = t - parkAt < 8 ? Math.max(3, Math.min(7.5, parkMax)) : 0;
   const ga = 1 - Math.exp(-dt / 0.6); oppW += (oT - oppW) * ga; parkW += (pT - parkW) * ga;
   if (t - oppAt > 8) oppMax = 0; if (t - parkAt > 8) parkMax = 0;
+  if (d.rd) { rdD = d.rd; rdAt = t; }
+  const rdOk = rdD && t - rdAt < 10, rdDiv = rdOk && (rdD.dv === 1 || rdD.ow === 1);   // ban do: duong doi / 1 chieu -> ben kia (neu co xe) la chieu rieng, co dai phan cach
   const lm = d.lm || null; if (lm) lmAt = t;
   const lmOn = t - lmAt < 2;
   const vis = k => cur.lp[k] > (k === 1 || k === 2 ? 0.25 : 0.4) && at(cur.ln[k], 10) > at(cur.ed[0], 10) - 0.4 && at(cur.ln[k], 10) < at(cur.ed[1], 10) + 0.4;
@@ -674,7 +683,7 @@ function step(dt) {
   oIdxPrev = (yel || inOppPrev) ? oIdx : null;
   const gapL = at(cur.ln[1], 10) - at(cur.ed[0], 10);
   // co tre: xe to che mep duong lam mep trai nhay vao trong -> giu che do 2 lan them 4 s
-  if ((gapL > 2.5 && cur.lp[1] > 0.25 && !oneWay) || (yel && at(cur.ln[cen], 10) - at(cur.ed[0], 10) > 2.3)) inOppAt = t;
+  if ((gapL > 2.5 && cur.lp[1] > 0.25 && !oneWay && !rdDiv) || (yel && at(cur.ln[cen], 10) - at(cur.ed[0], 10) > 2.3)) inOppAt = t;
   inOpp = cur.v * 3.6 < 60 && (t - sameAt > 10 || yel) && (t - inOppAt < 0.5 || (inOpp && t - inOppAt < 4));
   const two = oppW > 0.4 && !inOpp; inOppPrev = inOpp;
   {  // le duong chieu minh: phan hep ngoai vach cuoi cung (khong du 1 lan) -> mau le, khong ve thanh lan
@@ -686,7 +695,7 @@ function step(dt) {
     if (shLon) setRibbon(shdL, eL.map(v => v - 0.3), sample(cur.ln[1]).map(v => v - 0.1));
   }
   // con luon: phan duong nguoc chieu nam ngoai mep trai ma vach doc (co du lieu) khong thay vang
-  const mT = two && lmOn && t - yAt > 6 && cur.v * 3.6 <= 60 ? 1.1 : 0; medW += (mT - medW) * (1 - Math.exp(-dt / 0.6));
+  const mT = two && ((lmOn && t - yAt > 6) || (rdDiv && !yel)) && cur.v * 3.6 <= 60 ? 1.1 : 0; medW += (mT - medW) * (1 - Math.exp(-dt / 0.6));
   [oppRoad, oppEdge, yelA, yelB, wallO, walkL].forEach(m => m.visible = two);
   oppLine.visible = oppW > 5.5;
   if (two) {
@@ -713,6 +722,13 @@ function step(dt) {
   // 23/11 toi: cay/nha chi la trang tri, khong co du lieu that -> chi ve khi bat trong Cai dat (d.deco)
   [trunkI, crownI, houseI].forEach(m => { m.visible = !!d.deco; });
   if (d.deco) placeScenery(x => at(cur.ed[0], x) - 0.45 - (two ? medW + oppW + 3.3 : inOpp ? 4.2 : 0), x => at(cur.ed[1], x) + 0.45 + parkW, hw);
+  linesX.forEach((m, i) => {   // 24/11: vach dut cho cac lan them theo ban do
+    m.visible = xLn > 0.05 && i + 1 <= Math.round(xLn) - 1;
+    if (!m.visible) return;
+    const Y = sample(cur.ln[xBase]).map(v => v + (i + 1) * 3.3);
+    m.material.color.setHex(T.line); m.material.opacity = Math.min(1, xLn - i);
+    setRibbon(m, Y.map(v => v - 0.075), Y.map(v => v + 0.075), odo);
+  });
   for (let k = 0; k < 4; k++) {
     const ln = cur.ln[k], Y = sample(ln), y10 = at(ln, 10), e0 = at(cur.ed[0], 10), e1 = at(cur.ed[1], 10);
     const dE = Math.min(Math.abs(y10 - e0), Math.abs(y10 - e1));
@@ -725,7 +741,7 @@ function step(dt) {
     } else {               // chua doc duoc: doan theo hinh hoc + xe nguoc chieu
       // duong 2 lan: vach ngoai lan nguoc chieu chi la vach le -> ve lien, khong ve them 1 lan
       const shoulder = inOpp && k < oIdx;
-      const center = k === oIdx && ((t - oncAt < 5 && !two && !oneWay) || inOpp);
+      const center = k === oIdx && ((t - oncAt < 5 && !two && !oneWay && !rdDiv) || inOpp);
       isY = center; solid = dE < 0.9 || center || shoulder || (k === 2 && shRon) || (k === 1 && shLon);
     }
     const yc = theme === 'night' ? 0xffc21a : 0xe2a400;
@@ -894,6 +910,12 @@ function step(dt) {
     // vach cuoi cung ma ben ngoai chi la le (shL/shR) thi khong tinh them lan
     for (const k of [0, 1]) if (vs(k) && !(k === 1 && shLon) && at(cur.ln[k], 10) > leftB + 0.6 && at(cur.ln[k], 10) > e0 + 0.6) lane++;
     tot = lane; for (const k of [2, 3]) if (vs(k) && !(k === 2 && shRon) && at(cur.ln[k], 10) < e1 - 0.6) tot++;
+    // 24/11 (clip 70mai 8h27: duong 3 lan ve thanh 2): ban do cho so lan chieu minh -> them toi da 2 lan ben phai khi openpilot thay it hon
+    // xLn = so lan nam ben phai vach that cuoi cung (xBase) khi noi mep theo ban do
+    const tot0 = tot, more = rdOk && rdD.n >= 2 && rdD.n >= tot0 && rdD.n > lane && tot0 >= 1 && !inOpp;
+    if (more) { xBase = acc[3] && !shRon && at(cur.ln[3], 10) < e1 - 0.6 ? 3 : 2; xLnT = Math.min(3, rdD.n - lane - (xBase === 3 ? 1 : 0)); } else xLnT = 0;
+    xLn += (xLnT - xLn) * (1 - Math.exp(-dt / 1.0)); if (xLnT === 0 && xLn < 0.05) xLn = 0;
+    if (more) tot = rdD.n;
     if (tot >= 2) chips.push(`<span class="chip">LANE ${lane}/${tot}</span>`);
     if (yel || inOpp || two) chips.push(`<span class="chip">2 chiều${medW > 0.3 ? ' · dải phân cách' : ''}</span>`);
     else if (oneWay) chips.push('<span class="chip">1 chiều</span>');
