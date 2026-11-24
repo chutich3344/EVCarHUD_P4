@@ -11,6 +11,8 @@ import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
@@ -352,6 +354,9 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         val X0 = tall.minOf { it[0] }; val Y0 = tall.minOf { it[1] }; val X1 = tall.maxOf { it[0] + it[2] }; val Y1 = tall.maxOf { it[1] + it[3] }
         val dw = X1 - X0; val dh = Y1 - Y0
         if (dw < 2 || dh < 7) return null
+        // 24/11 (0.1.138 "dem sai den du thoang"): bang dem xa / nho, chu so < 9,5 px khung doc ra rac (log: 6, 1, 9, 74 lan lon)
+        // -> khong doc (the den chi hien mau). Test06: 8,7 px doc nham 72, tu 10 px doc dung 31.
+        if (dh < MIN_DH * k) return null
         // vo hop den cua bang dem -> diem chia doi (2 o chu so co dinh)
         val dark = BooleanArray(W * H) { vv[it] < 90 || mc[it] }
         val kk = max(3, (0.35f * dh).toInt())
@@ -456,6 +461,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
     private fun readBox(b: IntArray, col: Char): Int? {
         val bw = b[2] - b[0]; val bh = b[3] - b[1]
         val k = max(1, (64f / max(8, bh)).roundToInt())
+        if (bh * 0.7f < MIN_DH) return null   // chu so ~70% chieu cao vo bang dem
         val W = bw * k; val H = bh * k
         if (W < 8 || H < 8 || W * H > 120_000) return null
         val g = FloatArray(W * H)
@@ -603,13 +609,21 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
             val pred = cur(now)
             when {
                 // 1 chu so ma chua co du doan (hoac du doan con >= 12 s) de la doc thieu 1 chu so -> phai khop 2 lan moi nhan
-                v < 10 && (pred == null || pred >= 12) && !(pendV >= 0 && abs(pendV - ((now - pendAt) / 1000).toInt() - v) <= 1) -> { pendV = v; pendAt = now }
+                v < 10 && (pred == null || pred >= 12) && !pendOk(v, now) -> { pendV = v; pendAt = now }
                 // 24/11: so dau tien (chua co du doan) cung phai 2 lan doc khop (den xa doc nham 48/72 truoc khi ra 31)
-                pred == null && !(pendV >= 0 && abs(pendV - ((now - pendAt) / 1000).toInt() - v) <= 1) -> { pendV = v; pendAt = now }
+                pred == null && !pendOk(v, now) -> { pendV = v; pendAt = now }
                 pred == null || abs(pred - v) <= 2 -> { sec = v; secAt = now; pendV = -1 }
-                pendV >= 0 && abs(pendV - ((now - pendAt) / 1000).toInt() - v) <= 1 -> { sec = v; secAt = now; pendV = -1 }
+                pendOk(v, now) -> { sec = v; secAt = now; pendV = -1 }
                 else -> { pendV = v; pendAt = now }
             }
+        }
+        /** So doc lan nay khop so cho lan truoc DA DEM LUI dung theo thoi gian troi qua (24/11: so ket "6" doc lap lai
+         *  cach 1,5 s tung lot qua vi sai so +-1; nay cach >= 0,9 s thi bat buoc phai giam). */
+        private fun pendOk(v: Int, now: Long): Boolean {
+            if (pendV < 0) return false
+            val el = (now - pendAt) / 1000f; val d = pendV - v
+            val lo = max(0, floor(el - 0.25f).toInt()); val hi = ceil(el + 0.25f).toInt()
+            return el <= 2.5f && d in lo..hi && !(el >= 0.9f && d < 1)   // 2 lan doc phai gan nhau (cach xa khop la trung hop)
         }
         /** So giay hien tai (dem lui theo dong ho), null = khong co / da het. */
         fun cur(now: Long): Int? { if (sec < 0) return null; val v = sec - ((now - secAt) / 1000).toInt(); return if (v >= 0) v else null }
@@ -623,6 +637,7 @@ class TLight(ctx: Context, private val onRes: (Res) -> Unit) {
         private const val IH_N = 352
         private const val NIGHT_V = 80
         private const val VMAX = 242
+        private const val MIN_DH = 9.5f
         private const val CONF = 0.25f
         private const val RX0 = 0.22f
         private const val RX1 = 0.78f
