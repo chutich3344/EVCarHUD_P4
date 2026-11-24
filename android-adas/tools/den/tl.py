@@ -140,6 +140,7 @@ def analyse(im):
         b=r[:4]
         bi=[int(max(0,b[0])),int(max(0,b[1])),int(min(W,b[2])),int(min(H,b[3]))]
         if bi[2]-bi[0]<4 or bi[3]-bi[1]<4: continue
+        if night and bi[3]-bi[1]<0.03*H: continue   # 24/11: dem chi nhan hop den >= 3% cao khung
         if any(inside(bi,l['box']) for l in lamps+cds): continue
         hb=cv2.cvtColor(im[bi[1]:bi[3],bi[0]:bi[2]],cv2.COLOR_BGR2HSV)
         col,ms0=color_of(hb)

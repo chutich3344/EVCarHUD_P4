@@ -1127,6 +1127,9 @@ class AdasService : Service() {
         tlResAt = now
         val before = tlTrack.col
         val goBefore = tlTrack.go
+        // 24/11 "dem chua lien mach": xe dung cho den thi giu the 6 s khi quet hut, dang chay 3 s
+        val vNow = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
+        tlTrack.holdMs = if (vNow < 3) 6000L else 3000L
         tlTrack.update(r, now)
         if ('U' in tlTrack.go && 'U' !in goBefore) {
             clog?.line("DEN mui ten xanh di thang (den tron ${tlTrack.col ?: '-'})")
@@ -1139,7 +1142,7 @@ class AdasService : Service() {
         if (r.lamps.isNotEmpty() && now - tlLogAt > 1500) {
             tlLogAt = now
             fun p(x: Float) = (x * 100).roundToInt()
-            clog?.line("DENQ hien ${col ?: '-'}${if (tlTrack.go.isNotEmpty()) " di ${tlTrack.go}" else ""} chon ${tlTrack.want ?: '-'} quet ${r.col ?: '-'}${r.sec?.let { "/$it" } ?: ""} · " +
+            clog?.line("DENQ${if (r.night) " dem" else ""} ${r.ms}ms hien ${col ?: '-'}${if (tlTrack.go.isNotEmpty()) " di ${tlTrack.go}" else ""} chon ${tlTrack.want ?: '-'} quet ${r.col ?: '-'}${r.sec?.let { "/$it" } ?: ""} · " +
                 r.lamps.joinToString(" · ") { l -> "${l.col}${p(l.conf)} @${p((l.x1 + l.x2) / 2)},${p((l.y1 + l.y2) / 2)} ${p(l.x2 - l.x1)}x${p(l.y2 - l.y1)}${l.sec?.let { " so $it" } ?: ""}${l.arrow?.let { " mui $it${l.arrowCol ?: '?'}" } ?: ""}" })
         }
         if (col != before) {
@@ -1154,7 +1157,7 @@ class AdasService : Service() {
     /** Dang dung cho den do/vang: AI openpilot nghi bot. */
     private fun tlRest(v: Float): Boolean {
         val c = tlTrack.col ?: return false
-        return prefs.tlight && (c == 'R' || c == 'Y') && 'U' !in tlTrack.go && v < 3 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 3000
+        return prefs.tlight && (c == 'R' || c == 'Y') && 'U' !in tlTrack.go && v < 3 && SystemClock.elapsedRealtime() - tlTrack.seenAt < tlTrack.holdMs
     }
     /** Giu camera mo khi dung xe lau (xe do > 30 s) ma vua thay den trong 2 phut: van doc den / dem giay cho toi luc xanh. */
     private fun tlWait() = prefs.tlight && tlTrack.seenAt > 0 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 120_000
@@ -1275,7 +1278,7 @@ class AdasService : Service() {
         val h = hud ?: return
         if (!hudOk) { tlSent = ""; return }
         val c = tlTrack.col
-        val live = prefs.tlight && c != null && now - tlTrack.seenAt < 3000
+        val live = prefs.tlight && c != null && now - tlTrack.seenAt < tlTrack.holdMs
         // den tron do/vang + mui ten xanh di thang: HUD bao xanh (khong so, so dem la cua den tron do)
         val goU = (c == 'R' || c == 'Y') && 'U' in tlTrack.go
         val msg = if (!live) "T1|-" else if (goU) "T1|G|-" else "T1|$c|${tlTrack.cur(now) ?: "-"}"
