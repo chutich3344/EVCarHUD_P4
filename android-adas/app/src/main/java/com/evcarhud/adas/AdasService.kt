@@ -72,7 +72,18 @@ class Snap(
     /** Bien toc do dang ap dung (camera doc), bien vua qua (anh that + bien phu), dang vuot toc do. */
     var limit: Int? = null
     var objs: List<SignDet.Obj>? = null   // xe/nguoi YOLOX (de ghi loai xe truoc)
+    var wide: List<SignDet.Obj>? = null   // xe/nguoi TOAN KHUNG (VehDet) khi man canh 3D dang bat
+    var wideSeq = 0L   // moc lan nhan (de canh 3D chi cap nhat vet khi co lan nhan MOI, khong lap lai list cu 20 lan/giay)
+    var wideAge = 0L   // tuoi lan nhan do (ms)
+    var cal = true     // camera da hieu chinh xong VA thi giac tin duoc (khong: vach openpilot chao -> canh 3D lam muot manh, bo khung vo ly)
+    var lm: IntArray? = null   // kieu vach 4 vach openpilot (VehDet.marks): 0 khong ro, 1 trang dut, 2 trang lien, 3 vang dut, 4 vang lien, 5 vang doi
     var camType: Char? = null   // camera tu HUD (Waze/GOFA): S/R/A/G
+    /** 23/11 toi: nguon camera dang dung (70Mai / Sinjet / Phone) + kieu ket noi, hien duoi dong lech lan (khi tat log van biet cam nao). */
+    var camTag = ""
+    var br: List<FloatArray>? = null   // duong nhanh theo ban do: [cach m, ben, goc]
+    var brAt = 0L
+    var rd: IntArray? = null           // 24/11: duong theo ban do [1 chieu, duong doi, so lan chieu minh]
+    var camLive = false
     var camM: Int? = null
     var limitSrc: String? = null   // bien lay tu app dan duong: "Waze" / "GOFA"
     var limitWhy: String? = null   // null = bien that; khac = toc do mac dinh (theo luat / ban do)
@@ -82,6 +93,8 @@ class Snap(
     var tl: Char? = null
     var tlSec: Int? = null
     var tlLamps: List<TLight.Lamp>? = null
+    /** Huong duoc di theo mui ten xanh ("U" di thang, "L" re trai, "R" re phai; "" = khong co). */
+    var tlGo = ""
 }
 
 /**
@@ -112,6 +125,9 @@ class AdasService : Service() {
     private val prevBmp = Array(2) { Bitmap.createBitmap(PW, PH, Bitmap.Config.ARGB_8888) }
     private val prevPx = IntArray(PW * PH)
     private val sharpPx = IntArray(PW * PH)      // bo dem lam net preview (unsharp nhe)
+    // 23/11 toi: 70mai xem o DUNG do phan giai luong (1280x720, 1:1 khong lay mau thua) -> het rang cua/nhoe;
+    // tao luoi khi can lan dau (chi khi nguon = 70mai)
+    private var hdBmp: Array<Bitmap>? = null; private var hdPx: IntArray? = null; private var hdSharp: IntArray? = null
     private var prevI = 0
     private var lastPrev = 0L
     @Volatile var bright = -1
@@ -126,6 +142,13 @@ class AdasService : Service() {
     @Volatile private var targetHz = 10
     @Volatile private var busy = false
     private var lastAccept = 0L
+    @Volatile private var preBusy = false
+    private var preAt = 0L
+    private var preY = ByteArray(0); private var preU = ByteArray(0); private var preV = ByteArray(0)
+    /** Chan doan (23/11): khoang cach 2 khung dua vao mo hinh lan cuoi (0 = 2 khung giong nhau), so lan cap hong / tong, so lan doi hinh hoc. */
+    @Volatile private var pairMs = -1L
+    private var pairBad = 0; private var pairAll = 0; private var geomN = 0; private var pairSkip = 0; private var goodPairAt = 0L
+    private var keepRingOnce = false
     private var gpsKmh = -1f
     private var gpsAt = 0L
     private var lat = 0.0
@@ -169,8 +192,12 @@ class AdasService : Service() {
     private var tlight: TLight? = null
     private val tlTrack = TLight.Track()
     private var tlResAt = 0L
+    private var tlLogAt = 0L
     private var signDb: SignDb? = null
     private var road: RoadInfo? = null
+    /** 23/11 toi: duong nhanh / cat ngang phia truoc tu ban do (cho canh 3D). */
+    @Volatile private var branches: List<FloatArray> = emptyList()
+    @Volatile private var branchesAt = 0L
     private var objs: List<SignDet.Obj>? = null
     private var camDb: CamDb? = null
     private var camType: Char? = null
@@ -179,6 +206,12 @@ class AdasService : Service() {
     private var camLat = 0.0
     private var camLon = 0.0
     private var objsAt = 0L
+    // man canh 3D (Scene3D): nhan xe toan khung chi khi man 3D dang hien
+    private var vehDet: VehDet? = null
+    @Volatile var scene3d = false
+    private var wide: List<SignDet.Obj>? = null
+    private var wideAt = 0L
+    private var laneMk: IntArray? = null; private var laneMkAt = 0L
     private var limit: Int? = null
     private var limitAt = 0L
     private val votes = ArrayList<Triple<Long, Int, Float>>()
@@ -258,6 +291,8 @@ class AdasService : Service() {
         signDb = SignDb(this); camDb = CamDb(this); road = RoadInfo { m -> clog?.line(m) }
         waze = WazeModLink(this, { m -> clog?.line(m) }) { b -> onWaze(b) }.also { it.start() }
         signDet = SignDet(this, { ob -> main.post { objs = ob; objsAt = SystemClock.elapsedRealtime() } }) { hits -> main.post { onSigns(hits) } }
+        vehDet = VehDet(this) { ob, lm, fAt -> main.post { wide = ob; wideAt = fAt; if (lm != null) { laneMk = lm; laneMkAt = wideAt }
+            if (targetHz == 0 && scene3d) publishScene() } }   // 23/11: AI nghi (xe dung lau) van day xe YOLO len canh 3D
         tlight = TLight(this) { r -> main.post { onTLight(r) } }
         hud = HudLink(this) { m, ok -> hudMsg = m; hudOk = ok; publishIdle() }.also {
             it.onMac = { a -> prefs.hudMac = a; clog?.hudMac = a }
@@ -298,7 +333,7 @@ class AdasService : Service() {
         Nav.listeners -= navL
         try { (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(locL) } catch (_: Exception) {}
         ai.post { model?.close(); model = null; aiThread.quitSafely() }
-        waze?.stop(); signDet?.release(); tlight?.release(); road?.release(); signDb?.flush(); camDb?.flush()
+        waze?.stop(); signDet?.release(); vehDet?.release(); tlight?.release(); road?.release(); signDb?.flush(); camDb?.flush()
         clog?.line("dung app"); clog?.close()
         super.onDestroy()
     }
@@ -399,11 +434,12 @@ class AdasService : Service() {
 
     private fun saveCalib() { prefs.pitch = calPitch.toFloat(); prefs.yaw = calYaw.toFloat(); prefs.roll = calRoll.toFloat() }
 
-    private fun rebuildGeom() {
+    private fun rebuildGeom(keepRing: Boolean = false) {
         val c = cam ?: return
         val g = Op.Cam(c.size.width, c.size.height, c.focalPx, calPitch, calYaw, calRoll, c.fisheye)
         geomAt = SystemClock.elapsedRealtime()
-        ai.post { geom = g; warpKey = ""; ringCount = 0 }
+        geomN++
+        ai.post { geom = g; warpKey = ""; if (keepRing) keepRingOnce = true else { keepRingOnce = false; ringCount = 0 } }
     }
 
     /** Thong tin hieu chinh cho Cai dat (do). */
@@ -550,7 +586,9 @@ class AdasService : Service() {
             // pho dong it doan thang dai: lech < 1,1 do 1 lan la du dung (van tiep tuc tinh chinh sau)
             if (yawGood >= 1 && !prefs.calibrated) prefs.calibrated = true
             saveCalib()
-            if (abs(med) > 0.002) rebuildGeom()
+            // chinh yaw nho (< ~0,8 do/lan): giu cap khung, khong lam vach nhay; chinh lon (luc moi hieu chinh) thi xoa ring
+            // de 2 khung trong cap khong lech he toa do (gop y 23/11 toi)
+            if (abs(med) > 0.002) rebuildGeom(keepRing = abs(med) < 0.02)
         }
     }
 
@@ -571,13 +609,43 @@ class AdasService : Service() {
             sd.objsOn = true   // nhan loai xe gio chi tren vung quanh xe truoc (192x192), du nhe de luon bat
             sd.offer(im, cam?.flip == true, (if (prefs.perf == 0) 2L else 1L) * when (hot) { 0 -> if (now - spdAt < 2500) 200 else 500; 1 -> if (now - spdAt < 2500) 500 else 1000; else -> 2000 })
         }
+        // man 3D: nhan xe toan khung 4 lan/giay (may am 2, nong thi dung)
+        if (scene3d && uiVisible && hot < 2) vehDet?.let { vd ->
+            val g = geom; val p = FloatArray(2)
+            val top = if (g != null && g.project(1000f, 0f, 0f, p, 0)) ((p[1] - 0.06f * g.w) / g.h) else 0.3f
+            vd.offer(im, cam?.flip == true, top, if (hot == 0) 250L else 500L, g, lastOut)
+        }
         // den giao thong: chi khi xe cham/dung (gan giao lo), thua; nong thi thua hon, rat nong thi tat
         if (prefs.tlight && hot < 3) tlight?.let { tl ->
             val v = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
-            if (v < TL_MAX_KMH) tl.offer(im, cam?.flip == true, (if (v < 3) 700L else 1000L) * when (hot) { 0 -> 1; 1 -> 2; else -> 3 } * (if (prefs.perf == 0) 2 else 1))
+            // 24/11 ("den hien cham, bat tu xa cham, so doi mau cham"): log thuc te quet ~1,7 s/lan khi dung (700 ms x2 vi nong 1).
+            // Nay: dung 450 ms (dung cho do thi AI openpilot da nghi con 2 lan/giay nen du may), chay 600 ms + quet phong to den xa;
+            // nong 1 chi x1,5; tiet kiem x1,5.
+            if (v < TL_MAX_KMH) {
+                val base = if (v < 3) 450f else if (v < 35) 600f else 900f   // 35..50 km/h: van quet (thua) de bat den tu xa
+                val k = when (hot) { 0 -> 1f; 1 -> 1.5f; else -> 2.5f } * (if (prefs.perf == 0) 1.5f else 1f)
+                tl.offer(im, cam?.flip == true, (base * k).toLong(), zoom = v >= 3 && hot < 2)
+            }
         }
         val hz = targetHz
-        if (hz <= 0 || busy || model == null || now - lastAccept < (1000 / hz) * 0.85) { im.close(); return }
+        val per = if (hz > 0) 1000L / hz else 0L
+        // 23/11 (lane 3D lech/nhay): mo hinh openpilot hoc tren CAP 2 khung cach 0,2 s. Ring chi chua khung da chay AI, nen
+        // khi AI <= 3 lan/giay (khung cach >= 333 ms) khong bao gio co khung ~0,2 s -> dua 2 khung GIONG NHAU vao mo hinh:
+        // pose ~0 km/h, vach lech 0,3–0,4 m (thu offline Test06). Sua: o muc <= 4 lan/giay, nan truoc 1 khung (KHONG chay mo hinh)
+        // khoang 0,2 s truoc lan AI ke tiep.
+        if (hz in 1..4 && model != null && !busy && !preBusy && preAt <= lastAccept && now - lastAccept >= per * 0.85 - 200) {
+            preBusy = true; preAt = now
+            try {
+                val p = im.planes
+                val yR = p[0].rowStride; val uvR = p[1].rowStride; val uvP = p[1].pixelStride
+                preY = copy(p[0].buffer, preY); preU = copy(p[1].buffer, preU); preV = copy(p[2].buffer, preV)
+                val ts = im.timestamp / 1_000_000L
+                im.close()
+                ai.post { try { packRing(ts, yR, uvR, uvP, preY, preU, preV) } catch (e: Throwable) { Log.e(TAG, "pre", e) } finally { preBusy = false } }
+            } catch (e: Exception) { im.close(); preBusy = false }
+            return
+        }
+        if (hz <= 0 || busy || model == null || now - lastAccept < per * 0.85 || (hz <= 4 && preAt > lastAccept && (preBusy || now - preAt < 185))) { im.close(); return }
         lastAccept = now
         busy = true
         val yRow: Int; val uvRow: Int; val uvPix: Int
@@ -599,7 +667,12 @@ class AdasService : Service() {
         val uvRow = p[1].rowStride; val uvPix = p[1].pixelStride
         val w = im.width; val h = im.height
         val flip = cam?.flip == true
-        val sx = w / PW.toFloat(); val sy = h / PH.toFloat()
+        // 70mai (luong 1280x720 nen manh): ve 1:1 o 1280x720 khi may mat (hot == 0); cam khac giu 960x540
+        val hd = prefs.camSrc == "70mai" && w == HW && h == HH && hot == 0
+        if (hd && hdPx == null) { hdBmp = Array(2) { Bitmap.createBitmap(HW, HH, Bitmap.Config.ARGB_8888) }; hdPx = IntArray(HW * HH); hdSharp = IntArray(HW * HH) }
+        val pw = if (hd) HW else PW; val ph = if (hd) HH else PH
+        val px = if (hd) hdPx!! else prevPx
+        val sx = w / pw.toFloat(); val sy = h / ph.toFloat()
         val ny = yb.limit(); val nu = minOf(ub.limit(), vb.limit())
         // Cam Wi-Fi hay bi nhat mau / toi: can mau tu dong gian dai Y (limited 16-235 -> full 0-255)
         // + tang bao hoa mau. Chi ap cho cam Wi-Fi va chi anh HIEN (preview), KHONG dung cho AI.
@@ -607,12 +680,12 @@ class AdasService : Service() {
         val colOn = wifi && prefs.camColor
         val sat = if (colOn) 1.30f else 1f
         var sum = 0L
-        for (y in 0 until PH) {
+        for (y in 0 until ph) {
             val iy0 = (y * sy).toInt().coerceAtMost(h - 1)
             val iy = if (flip) h - 1 - iy0 else iy0
             val yo = iy * yRow; val uo = (iy / 2) * uvRow
-            val row = y * PW
-            for (x in 0 until PW) {
+            val row = y * pw
+            for (x in 0 until pw) {
                 val ix0 = (x * sx).toInt().coerceAtMost(w - 1)
                 val ix = if (flip) w - 1 - ix0 else ix0
                 val yi = yo + ix * yPix
@@ -626,19 +699,45 @@ class AdasService : Service() {
                 val r = (Yf + 1.402f * Vf).toInt().coerceIn(0, 255)
                 val g = (Yf - 0.344f * Uf - 0.714f * Vf).toInt().coerceIn(0, 255)
                 val b = (Yf + 1.772f * Uf).toInt().coerceIn(0, 255)
-                prevPx[row + x] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
+                px[row + x] = (0xff shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
-        bright = (sum / (PW * PH)).toInt()
+        bright = (sum / (pw * ph)).toInt()
         // Lam net: unsharp nhe (net vien xe/vat phia truoc, bot mo xung quanh). Chi cam Wi-Fi, chi preview.
-        val out = if (wifi && prefs.camSharpen) sharpen(prevPx) else prevPx
-        val bm = prevBmp[prevI]; prevI = 1 - prevI
-        bm.setPixels(out, 0, PW, 0, 0, PW, PH)
+        // 70mai: lam net CO NGUONG (chi net vien that, vung phang/khoi nen thi lam muot) -> khong thoi phong o vuong vo khoi
+        val out = if (wifi && prefs.camSharpen) { if (prefs.camSrc == "70mai") sharpenCore(px, if (hd) hdSharp!! else sharpPx, pw, ph) else sharpen(px) } else px
+        val bm = if (hd) hdBmp!![prevI] else prevBmp[prevI]; prevI = 1 - prevI
+        bm.setPixels(out, 0, pw, 0, 0, pw, ph)
         main.post { cb(bm) }
     }
 
     /** Unsharp nhe tren preview PWxPH: moi diem = tam*(1+4a) - a*(tren+duoi+trai+phai), tung kenh.
      *  Preview nho (640x360) + chay <=10 lan/giay nen nhe may. Ket qua vao sharpPx. */
+    /** Lam net co nguong cho 70mai: chenh lech voi trung binh 4 lan can (theo do sang) nho (< T, la nhieu / bien o
+     *  vuong do nen) -> keo ve trung binh (muot); lon (vien that: xe, vach, chu) -> unsharp nhu thuong. */
+    private fun sharpenCore(src: IntArray, dst: IntArray, pw: Int, ph: Int): IntArray {
+        val a = 0.45f; val t = 10; val ks = 0.5f
+        for (y in 0 until ph) {
+            val row = y * pw
+            for (x in 0 until pw) {
+                val i = row + x
+                if (x == 0 || y == 0 || x == pw - 1 || y == ph - 1) { dst[i] = src[i]; continue }
+                val c = src[i]; val up = src[i - pw]; val dn = src[i + pw]; val lf = src[i - 1]; val rt = src[i + 1]
+                val cr = (c shr 16) and 0xff; val cg = (c shr 8) and 0xff; val cb = c and 0xff
+                val mr = (((up shr 16) and 0xff) + ((dn shr 16) and 0xff) + ((lf shr 16) and 0xff) + ((rt shr 16) and 0xff)) / 4
+                val mg = (((up shr 8) and 0xff) + ((dn shr 8) and 0xff) + ((lf shr 8) and 0xff) + ((rt shr 8) and 0xff)) / 4
+                val mb = ((up and 0xff) + (dn and 0xff) + (lf and 0xff) + (rt and 0xff)) / 4
+                val d = kotlin.math.abs((cr + 2 * cg + cb) - (mr + 2 * mg + mb)) / 4
+                val k = if (d < t) -ks else 4 * a      // am = keo ve trung binh (muot), duong = day ra (net)
+                val sr = (cr + k * (cr - mr)).toInt().coerceIn(0, 255)
+                val sg = (cg + k * (cg - mg)).toInt().coerceIn(0, 255)
+                val sb = (cb + k * (cb - mb)).toInt().coerceIn(0, 255)
+                dst[i] = (0xff shl 24) or (sr shl 16) or (sg shl 8) or sb
+            }
+        }
+        return dst
+    }
+
     private fun sharpen(src: IntArray): IntArray {
         val a = 0.35f
         for (y in 0 until PH) {
@@ -703,6 +802,26 @@ class AdasService : Service() {
         return if (c > 0) (s / c).toInt() else 0
     }
 
+    /** Nan 1 khung vao ring (luong AI). Doi hinh hoc nho (tu hieu chinh yaw) thi GIU ring: xoa ring = 2 khung giong nhau = vach nhay. */
+    private fun packRing(ts: Long, yRow: Int, uvRow: Int, uvPix: Int, y: ByteArray, u: ByteArray, v: ByteArray): Int? {
+        val g = geom ?: return null
+        val c = cam ?: return null
+        val key = "$yRow/$uvRow/$uvPix/${g.hashCode()}"
+        if (key != warpKey) {
+            warpMed = Op.Warp(g, false, yRow, uvRow, uvPix, c.flip)
+            warpBig = Op.Warp(g, true, yRow, uvRow, uvPix, c.flip)
+            warpKey = key; if (!keepRingOnce) ringCount = 0
+            keepRingOnce = false
+        }
+        val slot = ringI
+        warpMed!!.pack(y, u, v, ringMed[slot], 0)
+        warpBig!!.pack(y, u, v, ringBig[slot], 0)
+        ringT[slot] = ts
+        ringI = (ringI + 1) % ringN
+        if (ringCount < ringN) ringCount++
+        return slot
+    }
+
     private fun copy(b: java.nio.ByteBuffer, old: ByteArray): ByteArray {
         b.rewind()
         val a = if (old.size == b.remaining()) old else ByteArray(b.remaining())
@@ -714,19 +833,8 @@ class AdasService : Service() {
         val m = model ?: return
         val g = geom ?: return
         val c = cam ?: return
-        val key = "$yRow/$uvRow/$uvPix/${g.hashCode()}"
-        if (key != warpKey) {
-            warpMed = Op.Warp(g, false, yRow, uvRow, uvPix, c.flip)
-            warpBig = Op.Warp(g, true, yRow, uvRow, uvPix, c.flip)
-            warpKey = key; ringCount = 0
-        }
         val t0 = SystemClock.elapsedRealtime()
-        val slot = ringI
-        warpMed!!.pack(yArr, uArr, vArr, ringMed[slot], 0)
-        warpBig!!.pack(yArr, uArr, vArr, ringBig[slot], 0)
-        ringT[slot] = ts
-        ringI = (ringI + 1) % ringN
-        if (ringCount < ringN) ringCount++
+        val slot = packRing(ts, yRow, uvRow, uvPix, yArr, uArr, vArr) ?: return
         // khung cu cach ~0,2 s (mo hinh hoc tren 2 khung cach 0,2 s)
         var best = slot; var bestErr = Long.MAX_VALUE
         for (k in 1 until ringCount) {
@@ -735,6 +843,11 @@ class AdasService : Service() {
             if (err < bestErr) { bestErr = err; best = j }
         }
         if (bestErr > 120) best = slot
+        pairMs = ts - ringT[best]; pairAll++; if (best == slot) pairBad++
+        // 23/11 toi (gop y P0): cap khung hong (2 khung giong nhau) -> KHONG chay mo hinh, giu vach lan truoc
+        // (khung nay da vao ring nen lan sau co cap dung). Chi chap nhan cap hong khi da >2 s khong co ket qua (moi mo cam).
+        if (best == slot && t0 - goodPairAt < 2000) { pairSkip++; return }
+        if (best != slot) goodPairAt = t0
         System.arraycopy(ringMed[best], 0, img, 0, Op.PACK); System.arraycopy(ringMed[slot], 0, img, Op.PACK, Op.PACK)
         System.arraycopy(ringBig[best], 0, big, 0, Op.PACK); System.arraycopy(ringBig[slot], 0, big, Op.PACK, Op.PACK)
 
@@ -848,9 +961,11 @@ class AdasService : Service() {
         val lg = clog?.let { "log ${it.short}" } ?: ""
         val sg = if (prefs.signs) " · biển ${signDet?.info ?: "-"}" else ""
         val tg = if (prefs.tlight) " · đèn ${tlight?.info ?: "-"}" else ""
-        return "$ai$det · $cal · $src · $lg$sg$tg"
+        val pr = if (o != null && pairMs >= 0) " · cặp ${pairMs}ms" else ""
+        return "$ai$det$pr · $cal · $src · $lg$sg$tg"
     }
     private var clog: CloudLog? = null
+    private var pairLogAt = 0L
     private var logAt = 0L
     private var lastXc = ""
 
@@ -868,6 +983,9 @@ class AdasService : Service() {
         l.line("${v.roundToInt()}km/h · $ai · yaw ${"%.3f".format(calYaw)} pitch ${"%.3f".format(calPitch)} ${if (prefs.calibrated) "HC xong" else "HC dang"}" +
             " · pin ${batt.roundToInt()} nong $hot · taplo ${(prefs.hood * 100).roundToInt()}% · HUD ${if (hudOk) "noi" else "chua"} · gps ${if (gpsAt > 0) "co" else "khong"}")
         if (xcInfo != lastXc) { lastXc = xcInfo; l.line(xcInfo) }
+        // chan doan lane 3D (23/11): cap khung vao mo hinh + so lan doi hinh hoc, moi 10 s
+        if (now - pairLogAt >= 10_000) { pairLogAt = now
+            l.line("cap khung ${pairMs}ms · hong $pairBad/$pairAll (bo $pairSkip) · doi hinh hoc $geomN · feed3d ${Scene3D.info}"); pairBad = 0; pairAll = 0; geomN = 0; pairSkip = 0 }
     }
 
     private fun onResult(o: Op.Out, g: Op.Cam, v: Float, ldw: Char, off: Float?, leadM: Float?, ttc: Float?, level: Int, near: Boolean) {
@@ -875,7 +993,7 @@ class AdasService : Service() {
         val offCm = off?.let { (it * 100).roundToInt() }
         val s = Snap(o, g, prefs.camH, v, ldw, offCm, leadM, ttc, level, if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-",
             batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
-        s.hood = prefs.hood
+        s.hood = prefs.hood; camTag(s)
         s.stat = if (prefs.showDbg) statLine(o) else ""   // dong test chi hien khi bat "Hien so lieu" (Ky thuat)
         signSnap(s, v)
         if (prefs.showDbg) s.dbg = calibInfo()
@@ -1008,8 +1126,25 @@ class AdasService : Service() {
         val now = SystemClock.elapsedRealtime()
         tlResAt = now
         val before = tlTrack.col
+        val goBefore = tlTrack.go
+        // 24/11 "dem chua lien mach": xe dung cho den thi giu the 6 s khi quet hut, dang chay 3 s
+        val vNow = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
+        tlTrack.holdMs = if (vNow < 3) 6000L else 3000L
         tlTrack.update(r, now)
+        if ('U' in tlTrack.go && 'U' !in goBefore) {
+            clog?.line("DEN mui ten xanh di thang (den tron ${tlTrack.col ?: '-'})")
+            val v0 = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
+            if (v0 < 3 && prefs.beep && (tlTrack.col == 'R' || tlTrack.col == 'Y')) beeper.green()
+            applyRate()
+        }
         val col = tlTrack.col
+        // log tung lan quet (toi da 1 dong / 1,5 s) khi thay den: mau, tin cay %, tam x,y %, rong x cao % -> doi chieu loi tu xa
+        if (r.lamps.isNotEmpty() && now - tlLogAt > 1500) {
+            tlLogAt = now
+            fun p(x: Float) = (x * 100).roundToInt()
+            clog?.line("DENQ${if (r.night) " dem" else ""} ${r.ms}ms hien ${col ?: '-'}${if (tlTrack.go.isNotEmpty()) " di ${tlTrack.go}" else ""} chon ${tlTrack.want ?: '-'} quet ${r.col ?: '-'}${r.sec?.let { "/$it" } ?: ""} · " +
+                r.lamps.joinToString(" · ") { l -> "${l.col}${p(l.conf)} @${p((l.x1 + l.x2) / 2)},${p((l.y1 + l.y2) / 2)} ${p(l.x2 - l.x1)}x${p(l.y2 - l.y1)}${l.sec?.let { " so $it" } ?: ""}${l.arrow?.let { " mui $it${l.arrowCol ?: '?'}" } ?: ""}" })
+        }
         if (col != before) {
             clog?.line("DEN ${before ?: '-'} -> ${col ?: '-'}${tlTrack.cur(now)?.let { " con $it s" } ?: ""}")
             val v = if (now - gpsAt < 3000 && gpsKmh >= 0) gpsKmh else poseKmh
@@ -1022,7 +1157,7 @@ class AdasService : Service() {
     /** Dang dung cho den do/vang: AI openpilot nghi bot. */
     private fun tlRest(v: Float): Boolean {
         val c = tlTrack.col ?: return false
-        return prefs.tlight && (c == 'R' || c == 'Y') && v < 3 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 3000
+        return prefs.tlight && (c == 'R' || c == 'Y') && 'U' !in tlTrack.go && v < 3 && SystemClock.elapsedRealtime() - tlTrack.seenAt < tlTrack.holdMs
     }
     /** Giu camera mo khi dung xe lau (xe do > 30 s) ma vua thay den trong 2 phut: van doc den / dem giay cho toi luc xanh. */
     private fun tlWait() = prefs.tlight && tlTrack.seenAt > 0 && SystemClock.elapsedRealtime() - tlTrack.seenAt < 120_000
@@ -1033,6 +1168,10 @@ class AdasService : Service() {
         if (limit != null && now - limitAt > 15 * 60_000L) limit = null
         s.limit = limit
         if (now - objsAt < 1500) s.objs = objs
+        if (scene3d && now - wideAt < 1000) {   // 24/11: wideAt = luc chup khung (them thoi gian AI chay) -> noi 0,7 -> 1,0 s
+         s.wide = wide; s.wideSeq = wideAt; s.wideAge = now - wideAt }   // 23/11: 1,2 s -> 0,7 s (xe da qua van con hien)
+        s.cal = (!prefs.autoCalib || prefs.calibrated) && (poseErrF.isNaN() || poseErrF < 2.5f)   // + thi giac khong tin (70mai meo: pose lech GPS)
+        if (scene3d && now - laneMkAt < 1500) s.lm = laneMk
         val ct = camType
         if (ct != null && prefs.camAlert && now - camAt < 30_000) {
             // dem lui theo quang duong da di tu luc HUD bao (duong thang, du dung cho vai tram met)
@@ -1047,7 +1186,7 @@ class AdasService : Service() {
         if (nl != null && (limit == null || limit == nl || navLimAt > limitAt)) { s.limit = nl; s.limitSrc = if (waze?.ok == true) "Waze" else "GOFA" }
         if (s.limit == null && prefs.defLimit && gpsAt > 0) road?.cur?.let { d -> if (d.kmh != null) { s.limit = d.kmh; s.limitWhy = d.why } }
         if (lastSign != null && now - lastSignAt <= 8000) s.sign = lastSign
-        if (prefs.tlight && tlTrack.col != null) { s.tl = tlTrack.col; s.tlSec = tlTrack.cur(now); if (now - tlResAt < 800) s.tlLamps = tlTrack.lamps }
+        if (prefs.tlight && tlTrack.col != null) { s.tl = tlTrack.col; s.tlSec = tlTrack.cur(now); s.tlGo = tlTrack.go; if (now - tlResAt < 800) s.tlLamps = tlTrack.lamps }
         val lim = s.limit
         s.over = lim != null && v > lim + 3
         // chi keu khi vuot bien that; toc do mac dinh chi hien chu (tranh keu sai tren duong ngoai do thi 80-90)
@@ -1055,11 +1194,22 @@ class AdasService : Service() {
         if (ok >= 0 && lim != null && v > lim + ok + 0.5f && s.limitWhy == null && prefs.beep && now - overBeepAt > 10_000) { overBeepAt = now; beeper.test() }
     }
 
+    private fun camTag(s: Snap) {
+        if (SystemClock.elapsedRealtime() - branchesAt < 3000) { s.br = branches; s.brAt = branchesAt; s.rd = road?.dir }
+        s.camTag = when (prefs.camSrc) { "70mai" -> "70Mai · Wi-Fi"; "mirror" -> "Sinjet · Wi-Fi"; else -> "Phone · camera sau" }
+        s.camLive = lastFrameAt > 0 && SystemClock.elapsedRealtime() - lastFrameAt < 2000
+    }
+
     private fun publishIdle() {
         logTick(null, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, null)
+        publishScene()
+    }
+
+    /** Snap khong co ket qua openpilot (AI dang nghi): thong so + xe YOLO cho man 3D / lop ve. */
+    private fun publishScene() {
         onSnap?.invoke(Snap(null, geom, prefs.camH, if (gpsAt > 0) maxOf(0f, gpsKmh) else 0f, '-', null, null, null, 0,
             if (targetHz == 0) 0 else measHz, lastMs, model?.backend ?: "-", batt, thermal, stateCode(), stateMsg(), hudMsg, hudOk, lat, lon, bearing, gpsAt > 0)
-            .also { it.hood = prefs.hood; it.stat = if (prefs.showDbg) statLine(null) else ""; signSnap(it, it.vKmh); if (prefs.showDbg) it.dbg = calibInfo() })
+            .also { it.hood = prefs.hood; camTag(it); it.stat = if (prefs.showDbg) statLine(null) else ""; signSnap(it, it.vKmh); if (prefs.showDbg) it.dbg = calibInfo() })
     }
 
     // ---------------- tan suat + nhiet ----------------
@@ -1102,6 +1252,7 @@ class AdasService : Service() {
             pushNav()
             pushSign(now)
             pushTl(now)
+            pushClock(now)
             if (now - wazeTry > 30_000 && waze?.ok != true) { wazeTry = now; waze?.start() }
             if (now - lastNotif > 10_000) { lastNotif = now; goForeground(notifText()) }
             main.postDelayed(this, 1000)
@@ -1118,6 +1269,21 @@ class AdasService : Service() {
         h.sendSign("S1|$v".toByteArray())
     }
 
+    private var clkAt = 0L
+    private var clkOk = false
+
+    /** Gio dien thoai -> HUD ("K1|unix|tz phut"): ngay khi noi HUD, roi 1 phut/lan. Chi dung app LANE (khong Waze / GOFA)
+     *  thi HUD van co dong ho thay vi "--:--". */
+    private fun pushClock(now: Long) {
+        val h = hud ?: return
+        if (!hudOk) { clkOk = false; return }
+        if (clkOk && now - clkAt < 60_000) return
+        clkOk = true; clkAt = now
+        val ms = System.currentTimeMillis()
+        val tz = java.util.TimeZone.getDefault().getOffset(ms) / 60_000
+        h.sendClock("K1|${ms / 1000}|$tz".toByteArray())
+    }
+
     private var tlSent = ""
     private var tlSentAt = 0L
     private var tlOffLeft = 0
@@ -1128,8 +1294,10 @@ class AdasService : Service() {
         val h = hud ?: return
         if (!hudOk) { tlSent = ""; return }
         val c = tlTrack.col
-        val live = prefs.tlight && c != null && now - tlTrack.seenAt < 3000
-        val msg = if (live) "T1|$c|${tlTrack.cur(now) ?: "-"}" else "T1|-"
+        val live = prefs.tlight && c != null && now - tlTrack.seenAt < tlTrack.holdMs
+        // den tron do/vang + mui ten xanh di thang: HUD bao xanh (khong so, so dem la cua den tron do)
+        val goU = (c == 'R' || c == 'Y') && 'U' in tlTrack.go
+        val msg = if (!live) "T1|-" else if (goU) "T1|G|-" else "T1|$c|${tlTrack.cur(now) ?: "-"}"
         if (!live) {
             if (tlSent != "T1|-") tlOffLeft = 2
             if (tlOffLeft <= 0) { tlSent = msg; return }
@@ -1164,6 +1332,7 @@ class AdasService : Service() {
         lat = l.latitude; lon = l.longitude
         if (l.hasBearing() && l.speed > 1.5f) bearing = l.bearing
         road?.onFix(lat, lon, bearing, gpsKmh)
+        if (scene3d) { branches = road?.branches(lat, lon, bearing) ?: emptyList(); branchesAt = SystemClock.elapsedRealtime() }
         Nav.onFix(l.latitude, l.longitude, l.speed, if (l.hasBearing()) l.bearing else null, if (l.hasAccuracy()) l.accuracy else 20f)
     }
 
@@ -1216,7 +1385,7 @@ class AdasService : Service() {
     companion object {
         private const val TAG = "AdasService"
         /** Den giao thong chi quet khi xe duoi toc do nay (gan giao lo / cho den). */
-        private const val TL_MAX_KMH = 35f
+        private const val TL_MAX_KMH = 50f
         private const val CH = "adas"
         private const val NID = 7
         const val ACTION_STOP = "stop"
@@ -1224,6 +1393,7 @@ class AdasService : Service() {
         const val HOOD_R = 72
         const val HOOD_C = 48
         const val PH = 540
+        const val HW = 1280; const val HH = 720   // 70mai: preview dung do phan giai luong
 
         fun start(ctx: Context) {
             val i = Intent(ctx, AdasService::class.java)

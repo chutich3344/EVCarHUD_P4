@@ -50,6 +50,37 @@ class Prefs(ctx: Context) {
     var splitScreen: Boolean
         get() = p.getBoolean("split", false)
         set(v) = p.edit().putBoolean("split", v).apply()
+    /** Man canh lai 3D kieu Tesla: 0 tat, 1 toan man (camera thanh cua so goc), 2 thay cho ban do (nua phai khi chia doi). Mac dinh TAT. */
+    var scene3d: Int
+        get() = p.getInt("scene3d", 0)
+        set(v) = p.edit().putInt("scene3d", v).apply()
+    /** Lan bat gan nhat cua nut 3D (1 hoac 2) de nut tren man bat lai dung kieu. */
+    var scene3dLast: Int
+        get() = p.getInt("scene3dlast", 1)
+        set(v) = p.edit().putInt("scene3dlast", v).apply()
+    /** Goc nhin canh 3D: "chase" sau xe, "high" tren cao, "low" thap sat sau xe, "fsd" xeo 3/4 cao kieu Tesla FSD (23/11). */
+    var scene3dView: String
+        // 23/11 toi: khoa moi -> moi may vao thang goc V14 (fsd) 1 lan, sau do giu goc nguoi dung chon
+        get() = p.getString("scene3dview_v14", null) ?: "fsd"
+        set(v) = p.edit().putString("scene3dview_v14", v).apply()
+    /** Mau xe minh trong canh 3D: file .glb da chep vao filesDir (rong = xe mac dinh), quay 180 do, son trang. */
+    var egoGlb: String
+        get() = p.getString("egoglb", "") ?: ""
+        set(v) = p.edit().putString("egoglb", v).apply()
+    /** Xe minh khi khong co file .glb: "vf7" (mac dinh, dang VinFast VF7 trang) | "basic" (xe co ban cu). */
+    var egoKind: String
+        get() = p.getString("egokind", "vf7") ?: "vf7"
+        set(v) = p.edit().putString("egokind", v).apply()
+    var egoFlip: Boolean
+        get() = p.getBoolean("egoflip", false)
+        set(v) = p.edit().putBoolean("egoflip", v).apply()
+    /** 23/11 toi: cay + nha minh hoa trong canh 3D (khong co du lieu that -> mac dinh TAT, nguoi dung thay "gia"). */
+    var scene3dDeco: Boolean
+        get() = p.getBoolean("scene3ddeco", false)
+        set(v) = p.edit().putBoolean("scene3ddeco", v).apply()
+    var egoWhite: Boolean
+        get() = p.getBoolean("egowhite", false)
+        set(v) = p.edit().putBoolean("egowhite", v).apply()
     /** Cong tac tat NHANH het cua so noi (PiP: ban do + o nhiet) de xem camera gon. Mac dinh TAT (van hien PiP). */
     var hidePip: Boolean
         get() = p.getBoolean("hidepip", false)

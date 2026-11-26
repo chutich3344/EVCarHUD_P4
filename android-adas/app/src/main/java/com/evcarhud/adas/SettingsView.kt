@@ -56,8 +56,9 @@ class SettingsView(ctx: Context, private val cats: List<Cat>, private val onClos
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         super.onSizeChanged(w, h, ow, oh)
         if (w == 0 || h == 0) return
-        u = minOf(w / 1600f, h / 720f)
-        val railW = (450 * u).toInt()   // rong hon cho chu danh muc to (textScale 1.3) khong bi cat
+        // 23/11 toi: tren dien thoai ban do 1600 don vi nho qua (chu ~12 dp, nut bam khong trung) -> phong to 1,35 lan
+        u = minOf(w / 1600f, h / 720f) * 1.35f
+        val railW = minOf((450 * u).toInt(), (w * 0.36f).toInt())   // rong hon cho chu danh muc to (textScale 1.3) khong bi cat
         val mx = (36 * u).toInt(); val my = (24 * u).toInt()
         railScroll.layoutParams = LayoutParams(railW, h - 2 * my).apply { leftMargin = mx; topMargin = my }
         paneBox.layoutParams = LayoutParams(w - railW - 2 * mx - (22 * u).toInt(), h - 2 * my).apply { leftMargin = mx + railW + (22 * u).toInt(); topMargin = my }
@@ -98,7 +99,7 @@ class SettingsView(ctx: Context, private val cats: List<Cat>, private val onClos
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
                 background = if (on) glass(22f, 0x3834C759, 0xA634C759.toInt()) else glass(22f, 0x12FFFFFF, 0x1AFFFFFF)
-                setPadding((16 * u).toInt(), (9 * u).toInt(), (18 * u).toInt(), (9 * u).toInt())
+                setPadding((16 * u).toInt(), (14 * u).toInt(), (18 * u).toInt(), (14 * u).toInt())
                 setOnClickListener { cur = i; refresh() }
             }
             val ic = IconView(context, c.key).apply {
@@ -127,7 +128,7 @@ class SettingsView(ctx: Context, private val cats: List<Cat>, private val onClos
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             background = glass(20f, 0x12FFFFFF, 0x17FFFFFF)
             setPadding((20 * u).toInt(), (13 * u).toInt(), (18 * u).toInt(), (13 * u).toInt())
-            minimumHeight = (64 * u).toInt()
+            minimumHeight = (84 * u).toInt()
         }
         val (title, desc, isNew) = when (it) {
             is Item.Toggle -> Triple(it.title, it.desc, it.isNew)
@@ -148,7 +149,7 @@ class SettingsView(ctx: Context, private val cats: List<Cat>, private val onClos
         when (it) {
             is Item.Toggle -> {
                 val sw = SwitchView(context).apply { on = it.get() }
-                r.addView(sw, LinearLayout.LayoutParams((58 * u).toInt(), (34 * u).toInt()))
+                r.addView(sw, LinearLayout.LayoutParams((76 * u).toInt(), (44 * u).toInt()))
                 r.setOnClickListener { _ -> it.set(!it.get()); refresh() }
             }
             is Item.Seg -> {
@@ -160,12 +161,17 @@ class SettingsView(ctx: Context, private val cats: List<Cat>, private val onClos
                 val sel = it.get()
                 it.opts.forEachIndexed { k, o ->
                     seg.addView(tv(o, 17f, if (k == sel) Color.WHITE else 0xCCFFFFFF.toInt()).apply {
-                        setPadding((15 * u).toInt(), (7 * u).toInt(), (15 * u).toInt(), (7 * u).toInt())
+                        setPadding((20 * u).toInt(), (13 * u).toInt(), (20 * u).toInt(), (13 * u).toInt())
                         if (k == sel) background = GradientDrawable().apply { cornerRadius = 13 * u; setColor(0xFF34C759.toInt()) }
                         setOnClickListener { _ -> it.set(k); refresh() }
                     })
                 }
-                r.addView(seg)
+                // nhieu lua chon (chu dai) -> dua hang nut xuong duoi tieu de, khong ep cot chu
+                if (it.opts.sumOf { o -> o.length } > 14) {
+                    r.orientation = LinearLayout.VERTICAL; r.gravity = Gravity.START
+                    r.getChildAt(0).layoutParams = LinearLayout.LayoutParams(-1, -2)
+                    r.addView(seg, LinearLayout.LayoutParams(-2, -2).apply { topMargin = (10 * u).toInt() })
+                } else r.addView(seg)
             }
             is Item.Action -> {
                 if (it.value != null) r.addView(tv(it.value, 18f, 0xBFFFFFFF.toInt()).apply { setSingleLine() },

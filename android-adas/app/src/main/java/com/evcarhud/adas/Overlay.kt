@@ -42,8 +42,15 @@ class Overlay(ctx: Context) : View(ctx) {
     var onCalibDone: (Boolean) -> Unit = {}
     /** Bam nut chia doi man (camera | ban do) tren hang chip. */
     var onSplit: () -> Unit = {}
+    /** Cham vao cua so camera (dang la o PiP tren man 3D): doi cho camera <-> canh 3D. null = tat. */
+    var onTap: (() -> Unit)? = null
+    private var tapX = 0f; private var tapY = 0f
     /** Trang thai chia doi hien tai (de to mau nut). */
     var split = false
+        set(v) { field = v; invalidate() }
+    /** 23/11: camera dang la cua so nho (PiP) tren man 3D toan man -> chi ve hinh + vach, KHONG ve so/chip/nut
+     *  (truoc day ve ca cum HUD theo co PiP nen teo, bam khong duoc). Nut Cai dat do MainActivity ve rieng co to. */
+    var pip = false
         set(v) { field = v; invalidate() }
 
     // hieu chinh
@@ -83,7 +90,8 @@ class Overlay(ctx: Context) : View(ctx) {
     private var oy = 0f
 
     private fun layoutScale() {
-        s = max(width / imgW.toFloat(), height / imgH.toFloat())
+        // 23/11: chia doi man -> camera VUA KHUNG (khong cat, khong meo), nam giua nua trai; toan man van phu kin
+        s = if (split && !calib) minOf(width / imgW.toFloat(), height / imgH.toFloat()) else max(width / imgW.toFloat(), height / imgH.toFloat())
         ox = (width - imgW * s) / 2
         oy = (height - imgH * s) / 2
     }
@@ -98,7 +106,8 @@ class Overlay(ctx: Context) : View(ctx) {
     override fun onDraw(cv: Canvas) {
         snap?.cam?.let { if (it.w > 0) { imgW = it.w; imgH = it.h } }   // cam guong: kich thuoc biet sau khi luong len
         layoutScale()
-        val u = width / 100f
+        // chia doi: don vi theo ca man (80%) de chu + nut khong teo con nua (truoc day u = nua man / 100)
+        val u = if (split) width * 2 / 100f * 0.8f else width / 100f
         frame?.let { dst.set(ox, oy, ox + imgW * s, oy + imgH * s); cv.drawBitmap(it, null, dst, bmpPaint) }
         val sn = snap
         val o = sn?.out
@@ -122,6 +131,7 @@ class Overlay(ctx: Context) : View(ctx) {
             txt.textSize = 14 * u; txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE
             cv.drawText("PHANH!", width / 2f, height / 2f + 5 * u, txt)
         }
+        if (pip && !calib) { drawPip(cv, sn); return }
         drawTop(cv, sn, u)
         if (sn != null && !calib) drawSigns(cv, sn, u)
         if (sn != null && !calib && sn.tl != null) drawTLight(cv, sn, u)
@@ -192,6 +202,8 @@ class Overlay(ctx: Context) : View(ctx) {
         var started = false
         for (k in 0 until Op.N) {
             if (Op.X_IDXS[k] > 80f) break
+            // 24/11: diem qua sat xe ma lech ngang nhieu (goc > ~55 do) -> ong mat ca 70mai chieu bat ra ngang man (vach mep do bi be ngang) -> bo
+            if (kotlin.math.atan2(kotlin.math.abs(ys[k]), Op.X_IDXS[k]) > 0.95f) continue
             if (!proj(c, Op.X_IDXS[k], ys[k], zs[k], 0)) continue
             if (!started) { path.moveTo(pt[0], pt[1]); started = true } else path.lineTo(pt[0], pt[1])
         }
@@ -291,6 +303,19 @@ class Overlay(ctx: Context) : View(ctx) {
         val offTxt = when { off == null || calib -> "lệch làn --"; abs(off) < 5 -> "giữa làn"; off > 0 -> "lệch trái $off cm"; else -> "lệch phải ${-off} cm" }
         txt.color = if (sn != null && sn.ldw != '-') red else Color.rgb(120, 200, 255)
         cv.drawText("${sn?.vKmh?.roundToInt() ?: 0} km/h · $offTxt", x, top + 9.6f * u, txt)
+        // 23/11 toi: icon camera + nguon (70Mai / Sinjet / Phone) + kieu ket noi; xanh = dang co hinh, cam = dang noi
+        val tag = sn?.camTag ?: ""
+        if (tag.isNotEmpty()) {
+            val live = sn?.camLive == true
+            val col = if (live) Color.rgb(71, 224, 138) else Color.rgb(255, 176, 64)
+            val cy = top + 11.15f * u; val iw = 1.7f * u; val ih = 1.15f * u
+            fill.color = col
+            cv.drawRoundRect(RectF(x, cy - ih / 2, x + iw, cy + ih / 2), 0.25f * u, 0.25f * u, fill)
+            cv.drawRect(x + iw * 0.3f, cy - ih / 2 - 0.25f * u, x + iw * 0.62f, cy - ih / 2 + 0.05f * u, fill)
+            fill.color = Color.argb(230, 15, 20, 28); cv.drawCircle(x + iw / 2, cy, ih * 0.3f, fill)
+            txt.color = col
+            cv.drawText(if (live) tag else "$tag · đang nối", x + iw + 0.6f * u, top + 11.6f * u, txt)
+        }
         txt.clearShadowLayer()
         // 2 dong log (trang thai AI + thong bao) dua len GIUA-TREN, can giua man, ngang hang bien/chip.
         // Nam gon giua bien (trai) va cum chip (phai); dai qua thi nen chu (textScaleX) cho vua, khong de len.
@@ -333,26 +358,27 @@ class Overlay(ctx: Context) : View(ctx) {
 
         // chip ben phai: [cai dat] [LAN] [HUD]  — nut Cai dat to, vung cham rong de bam khi lai
         var xr = width - 2f * u0
-        val gw = 3.6f * u0
-        val gh = 3.2f * u0
+        val gw = 4.6f * u0      // 23/11: nut to hon ~30% (bam khi lai)
+        val gh = 4.0f * u0
         gearRect.set(xr - gw, top, xr, top + gh)
         gearHit.set(gearRect.left - 1.4f * u0, gearRect.top - 1.4f * u0, gearRect.right + 1.4f * u0, gearRect.bottom + 1.4f * u0)
         fill.color = Color.argb(190, 20, 27, 37); cv.drawRoundRect(gearRect, 1.2f * u0, 1.2f * u0, fill)
         txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 2.1f * u0
-        cv.drawText("⚙", gearRect.centerX(), gearRect.centerY() + 0.72f * u0, txt)
+        txt.textSize = 2.7f * u0
+        cv.drawText("⚙", gearRect.centerX(), gearRect.centerY() + 0.92f * u0, txt)
         xr -= gw + 0.6f * u0
         val bothLanes = sn?.out?.let { it.laneProb[1] > 0.5f && it.laneProb[2] > 0.5f } ?: false
         val lanBg = when { sn != null && sn.ldw != '-' -> Color.argb(220, 220, 50, 60); bothLanes -> Color.argb(200, 30, 158, 90); else -> Color.argb(140, 90, 96, 104) }
-        xr -= chip(cv, xr, top, u0, "LANE", null, lanBg) + 0.6f * u0
+        xr -= chip(cv, xr, top + 0.7f * u0, u0, "LANE", null, lanBg) + 0.6f * u0
         val hudOk = sn?.hudOk == true
-        xr -= chip(cv, xr, top, u0, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32)) + 0.6f * u0
+        xr -= chip(cv, xr, top + 0.7f * u0, u0, "HUD", if (hudOk) Color.rgb(71, 224, 138) else Color.rgb(150, 150, 150), Color.argb(140, 18, 24, 32)) + 0.6f * u0
         // nut chia doi man (camera | ban do): o vuong, dang bat thi to mau xanh
         splitRect.set(xr - gw, top, xr, top + gh)
         splitHit.set(splitRect.left - 1.4f * u0, splitRect.top - 1.4f * u0, splitRect.right + 1.4f * u0, splitRect.bottom + 1.4f * u0)
         fill.color = if (split) Color.argb(220, 30, 158, 90) else Color.argb(190, 20, 27, 37)
         cv.drawRoundRect(splitRect, 1.2f * u0, 1.2f * u0, fill)
-        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 2.1f * u0
-        cv.drawText("◫", splitRect.centerX(), splitRect.centerY() + 0.72f * u0, txt)
+        txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE; txt.textSize = 2.7f * u0
+        cv.drawText("◫", splitRect.centerX(), splitRect.centerY() + 0.92f * u0, txt)
         txt.textAlign = Paint.Align.LEFT
     }
 
@@ -393,17 +419,39 @@ class Overlay(ctx: Context) : View(ctx) {
         }
         // the giua-tren, duoi 2 dong log
         val sec = sn.tlSec
-        val w = 21f * u; val hgt = 7f * u; val x0 = width / 2f - w / 2; val y0 = 6.8f * u
+        // 24/11: den tron do/vang nhung co MUI TEN XANH -> bao huong duoc di (mau xanh), so dem van la cua den tron
+        val go = if (col != 'G') sn.tlGo else ""
+        val goTxt = when {
+            go.isEmpty() -> null
+            'U' in go -> "ĐƯỢC ĐI THẲNG" + (if ('L' in go) " · RẼ TRÁI" else "") + (if ('R' in go) " · RẼ PHẢI" else "")
+            'L' in go && 'R' in go -> "ĐƯỢC RẼ TRÁI · PHẢI"
+            'L' in go -> "ĐƯỢC RẼ TRÁI"
+            else -> "ĐƯỢC RẼ PHẢI"
+        }
+        val green = Color.rgb(48, 209, 88)
+        val w = if (goTxt != null) 27f * u else 21f * u; val hgt = 7f * u; val x0 = width / 2f - w / 2; val y0 = 6.8f * u
         fill.color = Color.argb(215, 10, 12, 16); cv.drawRoundRect(x0, y0, x0 + w, y0 + hgt, 1.5f * u, 1.5f * u, fill)
         for ((i, k) in "RYG".withIndex()) {
-            fill.color = if (k == col) c else Color.rgb(55, 58, 64)
-            cv.drawCircle(x0 + 2.4f * u, y0 + 1.45f * u + i * 2.05f * u, 0.85f * u, fill)
+            fill.color = if (k == col) c else if (k == 'G' && goTxt != null) green else Color.rgb(55, 58, 64)
+            val cy = y0 + 1.45f * u + i * 2.05f * u
+            if (k == 'G' && goTxt != null) {   // bong xanh ve hinh mui ten huong duoc di
+                val d = if ('U' in go) 'U' else go[0]
+                val r0 = 0.9f * u; val cx = x0 + 2.4f * u
+                val p = android.graphics.Path()
+                when (d) {
+                    'U' -> { p.moveTo(cx, cy - r0); p.lineTo(cx + r0, cy); p.lineTo(cx + 0.35f * r0, cy); p.lineTo(cx + 0.35f * r0, cy + r0); p.lineTo(cx - 0.35f * r0, cy + r0); p.lineTo(cx - 0.35f * r0, cy); p.lineTo(cx - r0, cy) }
+                    'L' -> { p.moveTo(cx - r0, cy); p.lineTo(cx, cy - r0); p.lineTo(cx, cy - 0.35f * r0); p.lineTo(cx + r0, cy - 0.35f * r0); p.lineTo(cx + r0, cy + 0.35f * r0); p.lineTo(cx, cy + 0.35f * r0); p.lineTo(cx, cy + r0) }
+                    else -> { p.moveTo(cx + r0, cy); p.lineTo(cx, cy - r0); p.lineTo(cx, cy - 0.35f * r0); p.lineTo(cx - r0, cy - 0.35f * r0); p.lineTo(cx - r0, cy + 0.35f * r0); p.lineTo(cx, cy + 0.35f * r0); p.lineTo(cx, cy + r0) }
+                }
+                p.close(); cv.drawPath(p, fill)
+            } else cv.drawCircle(x0 + 2.4f * u, cy, 0.85f * u, fill)
         }
         txt.clearShadowLayer(); txt.textAlign = Paint.Align.LEFT
-        txt.typeface = fBold; txt.textSize = 1.7f * u; txt.color = c
-        cv.drawText(when (col) { 'R' -> "ĐÈN ĐỎ"; 'Y' -> "ĐÈN VÀNG"; else -> "ĐÈN XANH" }, x0 + 4.6f * u, y0 + 2.7f * u, txt)
+        txt.typeface = fBold; txt.textSize = 1.7f * u; txt.color = if (goTxt != null) green else c
+        cv.drawText(goTxt ?: when (col) { 'R' -> "ĐÈN ĐỎ"; 'Y' -> "ĐÈN VÀNG"; else -> "ĐÈN XANH" }, x0 + 4.6f * u, y0 + 2.7f * u, txt)
         txt.typeface = fSemi; txt.textSize = 1.3f * u; txt.color = Color.rgb(200, 200, 205)
-        cv.drawText(if (sec != null) "còn" else "chưa thấy số đếm", x0 + 4.6f * u, y0 + 5.0f * u, txt)
+        val l2 = if (goTxt != null) "đèn tròn ${if (col == 'R') "đỏ" else "vàng"}${if (sec != null) " · còn" else ""}" else if (sec != null) "còn" else "chưa thấy số đếm"
+        cv.drawText(l2, x0 + 4.6f * u, y0 + 5.0f * u, txt)
         if (sec != null) {
             txt.typeface = fBold; txt.textSize = 5.2f * u; txt.color = c; txt.textAlign = Paint.Align.RIGHT
             cv.drawText("$sec", x0 + w - 1.4f * u, y0 + 5.6f * u, txt)
@@ -528,6 +576,26 @@ class Overlay(ctx: Context) : View(ctx) {
         if (sn.over) pill(cv, "Vượt tốc độ ${sn.limit} km/h", width / 2f, height - 4f * u, u)
     }
 
+    /** PiP tren man 3D: vien canh bao + 1 dong trang thai ngan (vd loi camera) vua khung; con lai man 3D da hien. */
+    private fun drawPip(cv: Canvas, sn: Snap?) {
+        val u = width / 100f * 2.4f
+        if (sn != null) {
+            if (sn.level >= 2) { line.color = Color.argb(230, 240, 50, 60); line.strokeWidth = 0.5f * u; cv.drawRect(0f, 0f, width.toFloat(), height.toFloat(), line) }
+            if (sn.ldw != '-') { fill.color = Color.argb(220, 240, 50, 60); val w = 0.6f * u
+                if (sn.ldw == 'L') cv.drawRect(0f, 0f, w, height.toFloat(), fill) else cv.drawRect(width - w, 0f, width.toFloat(), height.toFloat(), fill) }
+        }
+        val msg = sn?.msg ?: ""
+        if (msg.isNotEmpty()) {
+            txt.typeface = fBold; txt.textSize = 1.0f * u; txt.textAlign = Paint.Align.CENTER; txt.textScaleX = 1f
+            val maxW = width - 1.2f * u; val tw = txt.measureText(msg); if (tw > maxW) txt.textScaleX = maxW / tw
+            val mw = minOf(tw, maxW) + 0.8f * u; val y0 = height - 1.9f * u
+            fill.color = Color.argb(190, 150, 24, 24)
+            cv.drawRoundRect(RectF(width / 2f - mw / 2, y0, width / 2f + mw / 2, y0 + 1.5f * u), 0.6f * u, 0.6f * u, fill)
+            txt.color = Color.argb(245, 255, 226, 160); cv.drawText(msg, width / 2f, y0 + 1.12f * u, txt)
+            txt.textScaleX = 1f; txt.typeface = fSemi; txt.textAlign = Paint.Align.LEFT
+        }
+    }
+
     private fun pill(cv: Canvas, m: String, cx: Float, cy: Float, u: Float) {
         txt.textSize = 1.5f * u; txt.textAlign = Paint.Align.CENTER; txt.color = Color.WHITE
         val w = txt.measureText(m) + 3f * u
@@ -573,10 +641,18 @@ class Overlay(ctx: Context) : View(ctx) {
             }
             return true
         }
-        if (e.action == MotionEvent.ACTION_DOWN) return gearHit.contains(e.x, e.y) || splitHit.contains(e.x, e.y)
+        if (pip) {   // PiP: ca khung = 1 nut doi cho camera <-> 3D
+            if (e.action == MotionEvent.ACTION_DOWN) { tapX = e.x; tapY = e.y; return onTap != null }
+            val t = onTap
+            if (e.action == MotionEvent.ACTION_UP && t != null && Math.hypot((e.x - tapX).toDouble(), (e.y - tapY).toDouble()) < 24 * resources.displayMetrics.density) t()
+            return true
+        }
+        if (e.action == MotionEvent.ACTION_DOWN) { tapX = e.x; tapY = e.y; return gearHit.contains(e.x, e.y) || splitHit.contains(e.x, e.y) || onTap != null }
         if (e.action == MotionEvent.ACTION_UP) {
             if (gearHit.contains(e.x, e.y)) { onGear(); return true }
             if (splitHit.contains(e.x, e.y)) { onSplit(); return true }
+            val t = onTap
+            if (t != null && Math.hypot((e.x - tapX).toDouble(), (e.y - tapY).toDouble()) < 24 * resources.displayMetrics.density) { t(); return true }
         }
         return false
     }

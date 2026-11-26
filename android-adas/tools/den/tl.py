@@ -1,5 +1,5 @@
 import sys,cv2,numpy as np
-sys.path.insert(0,__file__.rsplit('/',1)[0]); from det import yolox
+sys.path.insert(0,__file__.rsplit('/',1)[0]); from det import yolox,iou
 RX0,RX1,RY0,RY1=0.22,0.78,0.0,0.5
 def color_of(hsv,vmin=150,smin=90):
     h,s,v=hsv[...,0].astype(int),hsv[...,1].astype(int),hsv[...,2].astype(int)
@@ -37,10 +37,17 @@ def countdown(img,box,col,sides=('R','L','B')):
             r=_cd(reg0,k,col,s)
             if r: v,(X0,Y0,X1,Y1)=r; return (v,side,(rx0+X0/k,ry0+Y0/k,rx0+X1/k,ry0+Y1/k))
     return None
+from read7v import read7v
+import tmpl2
+
 def _cd(reg0,k,col,s):
     reg=cv2.resize(reg0,None,fx=k,fy=k,interpolation=cv2.INTER_CUBIC)
+    rf=reg.astype(np.float32); B,G_,R=rf[...,0],rf[...,1],rf[...,2]
+    chan = R-0.5*(G_+B) if col=='R' else (G_-0.5*R if col=='G' else (R+G_)/2-B)
     hsv=cv2.cvtColor(reg,cv2.COLOR_BGR2HSV)
     _,ms=color_of(hsv,95,60); m=ms[col]
+    if m.sum()>=8:   # quang LED (nhat la so do) -> chi giu net sang that: >= 60% do sang cua net sang nhat
+        vv=hsv[...,2]; vref=np.percentile(vv[m],95); m=m&(vv>=0.6*vref)
     m=cv2.morphologyEx(m.astype(np.uint8),cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
     n,lab,st,_=cv2.connectedComponentsWithStats(m)
     comps=[st[i] for i in range(1,n) if st[i,4]>=6]
@@ -52,6 +59,8 @@ def _cd(reg0,k,col,s):
     X0=min(c[0] for c in tall); Y0=min(c[1] for c in tall); X1=max(c[0]+c[2] for c in tall); Y1=max(c[1]+c[3] for c in tall)
     mm=m[Y0:Y1,X0:X1]>0; H=Y1-Y0; W=X1-X0
     if W<2 or H<7: return None
+
+    if H<MIN_DH*k: return None   # 24/11 (0.1.138 dem sai): chu so qua nho (< 8 px khung) doc ra rac (6, 1, 74...)
     dark=((hsv[...,2]<90)|(m>0)).astype(np.uint8)
     kk=max(3,int(0.35*H)); dark=cv2.morphologyEx(dark,cv2.MORPH_OPEN,np.ones((kk,kk),np.uint8))
     n2,lab2,st2,_=cv2.connectedComponentsWithStats(dark)
@@ -64,6 +73,10 @@ def _cd(reg0,k,col,s):
         g=max(1,H//6); ring=hsv[max(0,Y0-g):Y1+g,max(0,X0-g):X1+g,2].astype(float); inner=np.zeros(ring.shape,bool)
         inner[min(g,Y0):min(g,Y0)+H,min(g,X0):min(g,X0)+W]=True
         if ring[~inner & ~(cv2.dilate(m,np.ones((3,3),np.uint8))[max(0,Y0-g):Y1+g,max(0,X0-g):X1+g]>0)].mean()>110: return None
+    # 24/11 ("o den 70 bat co 7"): so khop ca so 0..99 tren kenh mau (7 va 0 dinh nhau vi nhoe van doc dung)
+    px=max(1,int(0.15*H)); py=max(1,int(0.04*H)); sub=np.clip(chan[max(0,Y0-py):Y1+py,max(0,X0-px):X1+px],0,None)
+    tv,tm,ts=tmpl2.read2(sub)
+    if tv is not None and ts>=0.55 and tm>=0.01: return tv,(X0,Y0,X1,Y1)
     if hx is not None and 0.2*W<hx<0.95*W: sp=int(round(hx)); parts=[mm[:,:sp],mm[:,sp:]]
     elif W>0.95*H:
         cs=mm.sum(0).astype(float); lo,hi=int(0.3*W),int(0.7*W)+1
@@ -71,6 +84,12 @@ def _cd(reg0,k,col,s):
     else: parts=[mm]
     parts=[p for p in parts if p.any()]
     if not parts: return None
+    # doc theo do sang tuong doi tren kenh mau (chong quang LED); khong duoc thi doc mat na 7 doan
+    if len(parts)==2 or hx is not None:
+        cuts=[(X0,X0+sp),(X0+sp,X1)] if (hx is not None and 0.2*W<hx<0.95*W) or W>0.95*H else [(X0,X1)]
+        vs=[read7v(chan[Y0:Y1,a:b])[0] for a,b in cuts]
+        if vs and vs[-1] is not None and all(v is not None for v in vs):
+            return int(''.join(map(str,vs))),(X0,Y0,X1,Y1)
     vals=[]
     for p in parts:
         cols=np.where(p.any(0))[0]; q=p[:,cols[0]:cols[-1]+1]
@@ -81,24 +100,54 @@ def _cd(reg0,k,col,s):
 def inside(b,o,th=0.6):
     ix=max(0,min(b[2],o[2])-max(b[0],o[0])); iy=max(0,min(b[3],o[3])-max(b[1],o[1]))
     return ix*iy>th*max(1,(b[2]-b[0])*(b[3]-b[1]))
+ZOOM=None
+MIN_DH=8
+VMAX=242
+NIGHT_V=80
+def no_entry(hb,mr):
+    # 24/11: bien cam di nguoc chieu (dia do + vach TRANG NGANG) bi YOLO bat thanh den do. Mui ten xanh tich hop (loi trang
+    # DOC/chu V) khong bi loai: chi loai khi vach trang rong >= 55% dia do va det (cao <= 45% rong).
+    ys,xs=np.where(mr)
+    if len(xs)<6: return False
+    x0,x1,y0,y1=xs.min(),xs.max()+1,ys.min(),ys.max()+1; dw=x1-x0
+    if dw<5: return False
+    wt=((hb[y0:y1,x0:x1,1]<70)&(hb[y0:y1,x0:x1,2]>150)).astype(np.uint8)
+    n,lab,st,_=cv2.connectedComponentsWithStats(wt)
+    for i in range(1,n):
+        bx,by,bw,bh,a=st[i]
+        if bw>=0.55*dw and bh<=0.45*bw and a>=3: return True
+    return False
+CONF=0.25
 def analyse(im):
     H,W=im.shape[:2]
-    x0,x1,y0,y1=int(RX0*W),int(RX1*W),int(RY0*H),int(RY1*H)
+    night=cv2.cvtColor(im[:H//2:8,::8],cv2.COLOR_BGR2HSV)[...,2].mean()<NIGHT_V
+    ry1=min(RY1,0.5) if night else RY1
+    x0,x1,y0,y1=int(RX0*W),int(RX1*W),int(RY0*H),int(ry1*H)
     iw=(x1-x0)//32*32; ih=(y1-y0)//32*32
     crop=im[y0:y1,x0:x1]; k=yolox(crop,iw,ih); sx=(x1-x0)/iw; sy=(y1-y0)/ih
+    bs=[[x0+r[0]*sx,y0+r[1]*sy,x0+r[2]*sx,y0+r[3]*sy,r[4]] for r in k]
+    if ZOOM and not night:   # 24/11 "bat tu xa cham": quet them dai chan troi giua khung o do phan giai cao hon (den xa nho)
+        zx0,zx1,zy0,zy1=int(ZOOM[0]*W),int(ZOOM[1]*W),int(ZOOM[2]*H),int(ZOOM[3]*H); zw,zh=ZOOM[4],ZOOM[5]
+        kz=yolox(im[zy0:zy1,zx0:zx1],zw,zh); qx=(zx1-zx0)/zw; qy=(zy1-zy0)/zh
+        bs+=[[zx0+r[0]*qx,zy0+r[1]*qy,zx0+r[2]*qx,zy0+r[3]*qy,r[4]] for r in kz]
+        bs.sort(key=lambda r:-r[4]); kk=[]
+        for r in bs:
+            if all(iou(r,q)<0.4 for q in kk): kk.append(r)
+        bs=kk
     lamps=[]; cds=[]
-    for r in k:
-        if r[4]<0.25: continue
-        b=[x0+r[0]*sx,y0+r[1]*sy,x0+r[2]*sx,y0+r[3]*sy]
+    for r in bs:
+        if r[4]<CONF: continue
+        b=r[:4]
         bi=[int(max(0,b[0])),int(max(0,b[1])),int(min(W,b[2])),int(min(H,b[3]))]
         if bi[2]-bi[0]<4 or bi[3]-bi[1]<4: continue
+        if night and bi[3]-bi[1]<0.03*H: continue   # 24/11: dem chi nhan hop den >= 3% cao khung
         if any(inside(bi,l['box']) for l in lamps+cds): continue
         hb=cv2.cvtColor(im[bi[1]:bi[3],bi[0]:bi[2]],cv2.COLOR_BGR2HSV)
         col,ms0=color_of(hb)
         if col:
             # chong den duong / den pha: den giao thong = cham sang nho trong vo hop toi
             litf=ms0[col].mean(); bright=(hb[...,2]>150).mean(); darkf=(hb[...,2]<90).mean()
-            if bright>0.45 or darkf<0.25 or litf>0.4: col=None
+            if bright>0.45 or darkf<0.25 or litf>0.4 or hb[...,2].max()<VMAX: col=None   # den LED dang sang luon chay ~255
         if not col: lamps.append(dict(box=bi,conf=float(r[4]),col=None,cd=None)); continue
         bw,bh=bi[2]-bi[0],bi[3]-bi[1]
         own=countdown(im,bi,col,('I',)) if 0.9*bh<=bw<=1.7*bh else None
