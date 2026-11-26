@@ -14,6 +14,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SKETCH_VER: "5_2"          # thu muc vietmap-hud-test/HUD_TEST_V<so>
     steps:
       - uses: actions/checkout@v4
 
@@ -29,7 +31,7 @@ jobs:
       - name: Build
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app \
-            --export-binaries --output-dir out vietmap-hud-test/HUD_TEST_V5_1
+            --export-binaries --output-dir out vietmap-hud-test/HUD_TEST_V${SKETCH_VER}
           ls -la out
 
       - name: Gop thanh 1 file .bin (nap 0x0)
@@ -40,10 +42,10 @@ jobs:
           BOOT0=$(find ~/.arduino15/packages/esp32/hardware/esp32 -name boot_app0.bin | head -1)
           python -m esptool --chip esp32 merge_bin -o "$NAME" \
             --flash_mode dio --flash_freq 40m --flash_size 4MB \
-            0x1000 out/HUD_TEST_V5_1.ino.bootloader.bin \
-            0x8000 out/HUD_TEST_V5_1.ino.partitions.bin \
+            0x1000 out/HUD_TEST_V${SKETCH_VER}.ino.bootloader.bin \
+            0x8000 out/HUD_TEST_V${SKETCH_VER}.ino.partitions.bin \
             0xe000 "$BOOT0" \
-            0x10000 out/HUD_TEST_V5_1.ino.bin
+            0x10000 out/HUD_TEST_V${SKETCH_VER}.ino.bin
           ls -la "$NAME"
           echo "NAME=$NAME" >> $GITHUB_ENV
 
