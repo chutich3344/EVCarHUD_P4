@@ -15,7 +15,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      SKETCH_VER: "5_3"          # thu muc vietmap-hud-test/HUD_TEST_V<so>
+      SKETCH_VER: "5_4"          # thu muc vietmap-hud-test/HUD_TEST_V<so>
     steps:
       - uses: actions/checkout@v4
 
