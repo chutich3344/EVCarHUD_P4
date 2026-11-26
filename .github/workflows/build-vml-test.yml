@@ -1,0 +1,62 @@
+# Build sketch thu VietMap Live (CYD 2.8" ESP32) -> file .bin gop, nap o dia chi 0x0
+name: Build VML test (2.8")
+
+on:
+  push:
+    paths:
+      - 'vietmap-hud-test/**'
+      - '.github/workflows/build-vml-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Cai loi ESP32 + thu vien
+        run: |
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli lib install "Adafruit GFX Library" "Adafruit ST7735 and ST7789 Library" "Adafruit ILI9341" "TJpg_Decoder"
+          pip install esptool
+
+      - name: Build
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app \
+            --export-binaries --output-dir out vietmap-hud-test/HUD_TEST_V5_1
+          ls -la out
+
+      - name: Gop thanh 1 file .bin (nap 0x0)
+        run: |
+          VER=$(cat vietmap-hud-test/version.txt)
+          DATE=$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)
+          NAME=p2.8-vml-test-${VER}-${DATE}.bin
+          BOOT0=$(find ~/.arduino15/packages/esp32/hardware/esp32 -name boot_app0.bin | head -1)
+          python -m esptool --chip esp32 merge_bin -o "$NAME" \
+            --flash_mode dio --flash_freq 40m --flash_size 4MB \
+            0x1000 out/HUD_TEST_V5_1.ino.bootloader.bin \
+            0x8000 out/HUD_TEST_V5_1.ino.partitions.bin \
+            0xe000 "$BOOT0" \
+            0x10000 out/HUD_TEST_V5_1.ino.bin
+          ls -la "$NAME"
+          echo "NAME=$NAME" >> $GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vml-test-bin
+          path: ${{ env.NAME }}
+
+      - name: Dat vao ban phat hanh vml-test
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: vml-test
+          name: VietMap Live test (2.8")
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          files: ${{ env.NAME }}
