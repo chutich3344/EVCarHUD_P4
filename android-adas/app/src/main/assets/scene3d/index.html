@@ -12,7 +12,10 @@ canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !imp
 .hud { position: absolute; left: 3.5vw; top: 4vh; display: flex; flex-direction: column; gap: 0.4vh; pointer-events: none; color: var(--ink); }
 body.night { --ink: #f4f6f9; --sub: #c9d0da; --chip: rgba(255,255,255,.12); background: #15181d; }
 body.day { --ink: #16191e; --sub: #3d4550; --chip: rgba(0,0,0,.08); background: #e4e7eb; }
-.spd { font-weight: 800; font-size: 13vh; line-height: .95; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.spd { font-weight: 800; font-size: 16vh; line-height: .95; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.ltag { position: absolute; transform: translate(-50%, -100%); padding: .4vh 1.4vh; border-radius: 1.2vh; font-weight: 800; font-size: 4.6vh; line-height: 1.1;
+  color: #fff; background: #2f7bff; box-shadow: 0 .4vh 1.4vh rgba(0,0,0,.35); pointer-events: none; display: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ltag small { font-size: 2.6vh; font-weight: 700; margin-left: .3vh; } .ltag.warn { background: #ffb020; color: #1a1300; } .ltag.dang { background: #ff3b3b; }
 .unit { font-weight: 700; font-size: 2.8vh; color: var(--sub); }
 .chips { display: flex; flex-wrap: wrap; gap: 1vh; margin-top: 1.4vh; max-width: 60vw; }
 .chip { font-weight: 700; font-size: 2.5vh; padding: .6vh 1.6vh; border-radius: 99px; background: var(--chip); font-variant-numeric: tabular-nums; }
@@ -55,6 +58,7 @@ body.night { --safe: #47e08a; --kmh: #78c8ff; } body.day { --safe: #12a557; --km
 <div class="hud"><div class="row1"><div class="spd" id="spd">--</div><div class="lim" id="lim"><img src="../bien/17.png" alt=""><b id="limN"></b><small id="limS"></small></div></div><div class="unit" id="unit">m · chưa thấy xe trước</div><div class="kmh" id="kmh">0 km/h</div><div class="chips" id="chips"></div><div class="sgs" id="sgs"></div></div>
 <button class="vbtn" id="vbtn">🎥 Sau xe</button>
 <div class="tl" id="tl"><div class="dots"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div><div class="lb" id="tlLb"></div><div class="sec" id="tlSec"></div></div>
+<div class="ltag" id="ltag"></div>
 <div class="wait" id="wait">Đang chờ AI…</div>
 <script src="three.min.js"></script>
 <script src="GLTFLoader.js"></script>
@@ -915,7 +919,7 @@ function step(dt) {
       col = T.lead; const vrel = d.ld.v - cur.v, ttc = vrel < -0.5 ? x / -vrel : 99;
       if (vk > 5 && x < ttSafe(vk)) col = 0xffb020;
       if (vk > 10 && ttc < 2.5) col = 0xff3b3b;
-      leadInfo = { x, col };
+      leadInfo = { x, col, y, xc };
       glow.visible = true; glow.position.set(y, 0.03, -xc); glow.rotation.z = yaw;
       glow.material.color.setHex(col === T.lead ? 0x3e8bff : col); glow.material.opacity = 0.95 * fade;
     }
@@ -930,6 +934,16 @@ function step(dt) {
     if (se.textContent !== st) { se.textContent = st; se.style.transform = st.length >= 3 ? 'scaleX(0.7)' : ''; }
     const lv = !leadInfo ? '' : leadInfo.col === 0xff3b3b ? 'dang' : leadInfo.col === 0xffb020 ? 'warn' : 'safe';
     if (se.dataset.lv !== lv) { se.classList.remove('safe', 'warn', 'dang'); if (lv) se.classList.add(lv); se.dataset.lv = lv; }
+    // 26/11 (Kevin: can so khoang cach hien ro): the "56 m" ngay tren noc xe truoc, mau theo muc an toan
+    const lt = document.getElementById('ltag');
+    if (leadInfo && ldx != null) {
+      const v3 = new THREE.Vector3(leadInfo.y, 2.3, -leadInfo.xc).project(cam);
+      const ok = v3.z < 1 && Math.abs(v3.x) < 1.1 && v3.y < 1.1;
+      lt.style.display = ok ? 'block' : 'none';
+      if (ok) { lt.style.left = ((v3.x + 1) / 2 * innerWidth) + 'px'; lt.style.top = ((1 - v3.y) / 2 * innerHeight) + 'px';
+        const h = `${Math.round(ldx)}<small>m</small>`; if (lt.innerHTML !== h) lt.innerHTML = h;
+        lt.className = 'ltag' + (lv === 'dang' ? ' dang' : lv === 'warn' ? ' warn' : ''); }
+    } else lt.style.display = 'none';
     const ut = leadInfo ? 'm · xe trước' : 'm · chưa thấy xe trước'; const ue = document.getElementById('unit'); if (ue.textContent !== ut) ue.textContent = ut;
     const lane = d.ldw === 'L' || d.ldw === 'R' ? `<span class="dang">lệch ${d.ldw === 'L' ? 'trái' : 'phải'}</span>` : d.off == null ? 'lệch làn --' : Math.abs(d.off) < 5 ? 'giữa làn' : d.off > 0 ? `lệch trái ${d.off} cm` : `lệch phải ${-d.off} cm`;
     const kh = `${Math.round(vk)} km/h · ${lane}`; const ke = document.getElementById('kmh'); if (ke.innerHTML !== kh) ke.innerHTML = kh;
@@ -960,7 +974,7 @@ function step(dt) {
       const nL = Math.min(5, Bf.length - 1), XN = 12;
       lnNum.forEach((m, i) => { m.visible = tot >= 2 && i < nL; if (!m.visible) return;
         const yc = (Bf[i](XN) + Bf[i + 1](XN)) / 2, w = Bf[i + 1](XN) - Bf[i](XN);
-        m.visible = w > 2.2 && w < 7; m.position.set(yc, 0.75, -XN); const me = i === lane - 1; m.material.opacity = me ? 1 : 0.7; m.material.color.setHex(me ? 0xffffff : 0xb0b6bf); m.scale.set(me ? 1.35 : 1.0, me ? 2.1 : 1.56, 1);   // so lan minh to + sang hon });
+        m.visible = w > 2.2 && w < 7; m.position.set(yc, 0.75, -XN); const me = i === lane - 1; m.material.opacity = me ? 1 : 0.7; m.material.color.setHex(me ? 0xffffff : 0xb0b6bf); m.scale.set(me ? 1.35 : 1.0, me ? 2.1 : 1.56, 1); });   // so lan minh to + sang hon
       egoLn.visible = acc[1] && acc[2];
       if (egoLn.visible) setRibbon(egoLn, XS.map(x => at(cur.ln[1], x) + 0.1), XS.map(x => at(cur.ln[2], x) - 0.1));
     }
