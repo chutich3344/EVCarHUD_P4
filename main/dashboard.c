@@ -17,6 +17,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* 27/11 VietMap Live (vml_uart.c): anh mui ten / bien gui tu app thay anh theo ma */
+static const lv_image_dsc_t *vml_nav_img, *vml_alert_img;
+static bool vml_ui;                  /* VML dang noi: o nguon "VML", giu man chay */
+static char vml_alert_txt[40];
+static const lv_image_dsc_t *alert_icon(int code)
+{
+    if (vml_alert_img && (code == 3 || code == 8)) return vml_alert_img;
+    return sign_for_alert(code);
+}
+
 #define NEAR_KMH  5
 #define MOVE_KMH  3                          /* >= 3 km/h: dang chay */
 #define STOP_MS   30000                      /* dung yen 30 s (khong dan duong): ve man cho */
@@ -441,6 +451,8 @@ static bool is_road_sign(int code)
 /* Ten canh bao theo ma HLP `alr` (nhom theo icon trong dashboard_signs.c) */
 static const char *alert_name(int code)
 {
+    if (vml_ui && code == 8) return "Biển tiếp theo";
+    if (vml_ui && code == 3 && vml_alert_txt[0]) return vml_alert_txt;
     switch (code) {
     case 1: return "Cảnh sát";
     case 2: return "Camera tốc độ";
@@ -521,7 +533,7 @@ static void update_screen(void);
 
 static void set_alert_icon(lv_obj_t *img, const ui_alert_t *a)
 {
-    lv_image_set_src(img, sign_for_alert(a->code));
+    lv_image_set_src(img, alert_icon(a->code));
 }
 
 /* "1,2 km" hoac "60 km/h" (giam toc) cho mot canh bao */
@@ -893,7 +905,7 @@ static void strip_alert(strip_t *s, const ui_alert_t *a)
     if (num[0]) snprintf(d, sizeof d, "%s %s", num, u);
     else d[0] = 0;
     bool urg = urgent_alert(a->code);
-    strip_fill(s, sign_for_alert(a->code), alert_name(a->code), d, bg, bd, fg, urg && snd_on,
+    strip_fill(s, alert_icon(a->code), alert_name(a->code), d, bg, bd, fg, urg && snd_on,
                a->dist >= 0 && a->code != 8 ? progress(ev_start, a->dist) : -1, urg && ev_fresh());
 }
 
@@ -988,8 +1000,8 @@ static void build_top(void)
 /* o nguon "waze"/"GOFA": xam khi chua noi dien thoai, noi roi moi doi mau theo ung dung (waze xanh duong, GOFA xanh la) */
 static void src_chip_style(lv_obj_t *chip, lv_obj_t *lab, bool g)
 {
-    uint32_t bg = phone ? (g ? 0x0B8F4D : 0x33CCFF) : (night ? 0x4A5068 : 0xB9BDCA);
-    uint32_t fg = phone ? (g ? 0xFFFFFF : 0x05263A) : (night ? 0xFFFFFF : 0x14112B);
+    uint32_t bg = phone ? (vml_ui ? 0xE4252B : g ? 0x0B8F4D : 0x33CCFF) : (night ? 0x4A5068 : 0xB9BDCA);
+    uint32_t fg = phone ? (vml_ui || g ? 0xFFFFFF : 0x05263A) : (night ? 0xFFFFFF : 0x14112B);
     lv_obj_set_style_bg_color(chip, lv_color_hex(bg), 0);
     lv_obj_set_style_text_color(lab, lv_color_hex(fg), 0);
 }
@@ -1043,7 +1055,7 @@ static void render_top(void)
 
     /* ben phai: nguon + cham GPS; cao toc them loi ra / tram dung nghi (chi khi co trong danh sach canh bao) */
     bool g = src == UI_SRC_GOFA;
-    const char *sn = g ? "GOFA" : "waze";
+    const char *sn = vml_ui ? "VML" : g ? "GOFA" : "waze";
     int gw = text_w(sn, &ui_font_cap12) + 12;
     int right_x = UI_W - PAD - gw - 6 - 8;                        /* mep trai cham GPS */
     if (mic_btn) {                                                /* 16/11: nut micro Mi Mi nam tren thanh tren, khong de len the bien */
@@ -1242,7 +1254,7 @@ static void render_cruise(void)
             fmt_dist(d, sizeof d, ev_now->dist);
             lv_color_t bg, bd, fg;
             alert_colors(ev_now->code, &bg, &bd, &fg);
-            strip_fill(&c_st, sign_for_alert(ev_now->code), alert_name(ev_now->code), d, th->card, th->card, fg, false, -1, 0);
+            strip_fill(&c_st, alert_icon(ev_now->code), alert_name(ev_now->code), d, th->card, th->card, fg, false, -1, 0);
         }
     } else if (!over) {
         c_st.blink = 0;
@@ -1299,7 +1311,7 @@ static void render_highway(void)
         fmt_dist(d, sizeof d, it->dist);
         lv_color_t abg, abd, afg;                                  /* canh bao: mau theo loai (xanh ngoc chi cho loi ra) */
         alert_colors(it->code, &abg, &abd, &afg);
-        strip_fill(&h_st, sign_for_alert(it->code), alert_name(it->code), d, abg, abd, afg, false, -1, false);
+        strip_fill(&h_st, alert_icon(it->code), alert_name(it->code), d, abg, abd, afg, false, -1, false);
     } else {
         char b[64];
         if (limit > 0) snprintf(b, sizeof b, "Tối đa %d km/h · giữ khoảng cách", limit);
@@ -1399,7 +1411,7 @@ static void render_nav(void)
     lv_obj_set_y(n_eta, ry);
 
     /* o re dang toi: nua trai the bien (mui ten mau chu theo nen + khoang cach), vach chia, bien ben phai */
-    const lv_image_dsc_t *arr = arrow_for_turn(turn_now);
+    const lv_image_dsc_t *arr = vml_nav_img ? vml_nav_img : arrow_for_turn(turn_now);
     static const lv_image_dsc_t *const base[3] = {&arrow_left, &arrow_straight, &arrow_right};
     show(n_cell[0], false);
     lv_image_set_src(n_tarr, arr ? arr : base[turn_side(turn_now)]);
@@ -1447,7 +1459,7 @@ static void render_nav(void)
         alert_colors(ma->code, &bg, &bd, &fg);
         lv_obj_set_style_bg_color(n_ac, bg, 0);
         lv_obj_set_style_border_color(n_ac, bd, 0);
-        const lv_image_dsc_t *ic = sign_for_alert(ma->code);
+        const lv_image_dsc_t *ic = alert_icon(ma->code);
         show(n_ac_img, ic != NULL);
         if (ic) lv_image_set_src(n_ac_img, ic);
         char num[12], d[20];
@@ -1550,7 +1562,7 @@ static void update_screen(void)
 {
     int s;
     if (nav_on && (nav_is_ts || nav_is_pn || wz_hold)) s = SCR_NAV;              /* dan toi tram sac / dang giu dan duong: ca khi mat tin hieu */
-    else if ((!sig_ok || (!nav_on && !moving)) && !hold_drive) s = SCR_STANDBY;   /* dang thay den giao thong: giu man chay */
+    else if ((!sig_ok || (!nav_on && !moving)) && !hold_drive && !vml_ui) s = SCR_STANDBY;   /* VML noi: luon man chay (bien hien tai) */   /* dang thay den giao thong: giu man chay */
     else if (nav_on) s = SCR_NAV;
     else if (ev_now && ev_now->dist <= ALERT_M) s = SCR_CRUISE;   /* man Toc do o co nho + dai canh bao */
     else if (on_highway()) s = SCR_HIGHWAY;
@@ -1639,6 +1651,11 @@ static void toast_hide_cb(lv_timer_t *t)
     show(toast, false);
     lv_timer_pause(toast_tmr);
 }
+
+void ui_set_nav_icon(const lv_image_dsc_t *img) { if (img) lv_image_cache_drop(img); vml_nav_img = img; render_all(); }
+void ui_set_alert_icon(const lv_image_dsc_t *img) { if (img) lv_image_cache_drop(img); vml_alert_img = img; render_all(); }
+void ui_set_alert_label(const char *txt) { snprintf(vml_alert_txt, sizeof vml_alert_txt, "%s", txt ? txt : ""); render_all(); }
+void ui_set_vml(bool on) { if (on == vml_ui) return; vml_ui = on; update_screen(); render_all(); }
 
 void ui_toast(const char *text)
 {
@@ -2393,7 +2410,7 @@ static void render_standby(void)
     lv_label_set_text(sb_wx, wx_kind != UI_WX_NONE ? wx_txt : "Chưa có thời tiết");
     lv_obj_set_style_text_color(sb_wx, th->fg, 0);
     bool g = src == UI_SRC_GOFA;
-    const char *sn = g ? "GOFA" : "waze";
+    const char *sn = vml_ui ? "VML" : g ? "GOFA" : "waze";
     lv_label_set_text(sb_chip_l, sn);
     src_chip_style(sb_chip, sb_chip_l, g);
     int cw = text_w(sn, &ui_font_cap12) + 12, cx = UI_W - PAD - cw;
@@ -2522,9 +2539,18 @@ static lv_obj_t *mk_connect_row(lv_obj_t *s, int source)
     lv_obj_set_style_text_letter_space(cap, 2, 0);
     lv_obj_set_style_text_color(cap, sp_fg(), 0);
     bool g = source == UI_SRC_GOFA;
-    const char *nm = g ? "GOFA" : "Waze Mod";
+    const char *nm = vml_ui ? "VietMap Live" : g ? "GOFA" : "Waze Mod";
     int tw = 44 + 12 + text_w(nm, &ui_font_unit22), x0 = (UI_W - tw) / 2;
-    lv_obj_t *tile = ui_partner_tile(box, source, 44);
+    lv_obj_t *tile;
+    if (vml_ui) {                                                  /* 27/11 VietMap Live: o do chu VML */
+        tile = mk_fill(box, 0, 0, 44, 44, 10);
+        lv_obj_set_style_bg_color(tile, lv_color_hex(0xE4252B), 0);
+        lv_obj_t *t = mk_label(tile, &ui_font_cap12, 0, 0, "VML");
+        lv_obj_set_style_text_color(t, lv_color_white(), 0);
+        lv_obj_center(t);
+    } else {
+        tile = ui_partner_tile(box, source, 44);
+    }
     lv_obj_set_pos(tile, x0, 24);
     lv_obj_t *n = mk_label(box, &ui_font_unit22, x0 + 56, 24 + (44 - ui_font_unit22.line_height) / 2, nm);
     lv_obj_set_style_text_color(n, sp_fg(), 0);

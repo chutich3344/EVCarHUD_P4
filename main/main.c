@@ -23,6 +23,7 @@
 #include "link.h"
 #include "settings.h"
 #include "gofa.h"
+#include "vml_uart.h"
 #include "rtc_ds3231.h"
 #include "wifi_link.h"
 #include "ota.h"
@@ -293,6 +294,7 @@ void app_main(void)
 
     buttons_start();
     if (!demo) ble_link_start();                             /* cho Waze Mod ket noi qua Bluetooth LE */
+    if (!demo) vml_uart_start();                             /* VietMap Live qua mach cau noi ESP32 (UART GPIO5/4) */
     ota_start();                                             /* cap nhat OTA: xac nhan ban moi, man Cap nhat firmware */
     wifi_link_start();                                       /* Wi-Fi da luu: gio NTP + thoi tiet */
     ai_start();                                              /* tro ly Mi Mi: nut micro (can Wi-Fi + loa) */

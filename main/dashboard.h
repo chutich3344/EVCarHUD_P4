@@ -121,6 +121,10 @@ void ui_rotate(void);                                  /* xoay 180 do (bam BOOT 
 void ui_set_rotate_hook(void (*cb)(void));             /* bam BOOT 2 lan: board xoay 180 do */
 void ui_set_level_hook(void (*cb)(int level));         /* UI_LEVEL_*: board bat den LED / loa */
 void ui_toast(const char *text);
+void ui_set_nav_icon(const lv_image_dsc_t *img);         /* VietMap Live: anh mui ten A8 64x64 thay mui ten theo ma (NULL: bo) */
+void ui_set_alert_icon(const lv_image_dsc_t *img);
+void ui_set_alert_label(const char *txt);                /* VietMap Live: ten canh bao (nhan goi 40FE) cho ma 3 */
+void ui_set_vml(bool on);                                /* VietMap Live dang noi: o nguon "VML" do, giu man chay */       /* VietMap Live: anh bien / canh bao 48x48 cho ma 3 va 8 (NULL: bo) */
 /* Camera USB: Cai dat > Hien thi > "Xem camera" goi cb (task LVGL); ui_cam_state: dang cam camera hay khong (dong phu) */
 void ui_set_cam_hook(void (*cb)(void));
 void ui_cam_state(bool connected);

@@ -29,6 +29,7 @@ bool hlp_dash_now(int64_t *unix_s, int *tz_min);          /* false: chua co gio 
 
 /* Nguon ngoai khong phai HLP (app GOFA, gofa.c): bat = da noi dien thoai + co tin hieu, khong het han sau 3 s */
 void hlp_dash_external(bool on);
+void hlp_dash_vml(bool on);                    /* VietMap Live (cau noi UART) lam nguon dan duong; Waze/LANE BLE chi con cap toc do */
 void hlp_dash_external_touch(void);
 /* App LANE gui goi A1 (toc do GPS km/h): khong co Waze / GOFA thi LANE lam nguon chinh (tin hieu + toc do). Goi trong lock UI. */
 void hlp_dash_lane(int kmh);

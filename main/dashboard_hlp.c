@@ -111,6 +111,8 @@ static const char *held_st2(const hlp_state_t *s)
     return s->st2;
 }
 
+static bool vml_on;                                  /* 27/11: VietMap Live qua cau noi UART (vml_uart.c) */
+
 static void apply_state(const hlp_state_t *s)
 {
     /* canh bao: alrs (gan->xa); neu khong co thi dung alr/alrD/alrV */
@@ -136,9 +138,10 @@ static void apply_state(const hlp_state_t *s)
         waze_seen = true;
         last_waze_tick = lv_tick_get();
     }
-    ui_set_waze(waze_seen && lv_tick_elaps(last_waze_tick) < WAZE_HOLD_MS);
+    if (!vml_on) ui_set_waze(waze_seen && lv_tick_elaps(last_waze_tick) < WAZE_HOLD_MS);
 
     ui_set_speed(s->spd);
+    if (vml_on) return;                              /* VietMap Live dang lam nguon: Waze chi cap toc do */
     ui_set_speed_limit(s->lim);
 
     /* ten duong: dang re -> duong SAU khi re (st2); khong thi duong hien tai (st) */
@@ -273,7 +276,7 @@ void hlp_dash_lane(int kmh)
 static void watch_cb(lv_timer_t *t)
 {
     (void)t;
-    if (signal_ok && !ext_on && !lane_live() && lv_tick_elaps(last_rx_tick) > STALE_MS) set_signal(false);
+    if (signal_ok && !ext_on && !vml_on && !lane_live() && lv_tick_elaps(last_rx_tick) > STALE_MS) set_signal(false);
     update_gps();
 
     if (has_clock) {                                 /* dong ho: moc tu `hi`, tu dem tiep */
@@ -363,6 +366,7 @@ void hlp_dash_on_connect(void)
 
 void hlp_dash_on_disconnect(void)
 {
+    if (vml_on) return;                              /* BLE rot nhung VietMap Live van chi dan: giu man */
     ui_set_phone(false);
     set_signal(false);
 }
@@ -383,6 +387,22 @@ void hlp_dash_external(bool on)
         set_signal(true);
     } else {
         hlp_dash_on_disconnect();
+    }
+}
+
+void hlp_dash_vml(bool on)
+{
+    vml_on = on;
+    ui_set_vml(on);
+    if (on) {
+        ui_set_phone(true);
+        set_signal(true);
+        ui_set_waze(true);
+    } else {
+        ui_set_speed_limit(0);
+        ui_set_nav(false, 0, -1, 0, "", 0);
+        ui_set_alerts(NULL, 0);
+        if (!ext_on && !lane_live() && lv_tick_elaps(last_rx_tick) > STALE_MS) hlp_dash_on_disconnect();
     }
 }
 
