@@ -4,7 +4,8 @@ name: Build VML test (2.8")
 on:
   push:
     paths:
-      - 'vietmap-hud-test/**'
+      - 'vietmap-hud-test/HUD_TEST_*/**'
+      - 'vietmap-hud-test/version.txt'
       - '.github/workflows/build-vml-test.yml'
   workflow_dispatch:
 

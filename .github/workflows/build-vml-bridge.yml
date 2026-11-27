@@ -1,0 +1,49 @@
+# Build firmware cau noi VietMap Live -> HUD P4 (ESP32 DevKit WROOM-32) -> file .bin gop, nap o dia chi 0x0
+name: Build cau noi VML (ESP32 DevKit)
+
+on:
+  push:
+    paths:
+      - 'vietmap-hud-test/VML_BRIDGE/**'
+      - '.github/workflows/build-vml-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Cai loi ESP32
+        run: |
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          pip install esptool
+      - name: Build
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app \
+            --export-binaries --output-dir out vietmap-hud-test/VML_BRIDGE
+      - name: Gop thanh 1 file .bin (nap 0x0)
+        run: |
+          VER=$(grep -o 'BRIDGE_VER "[^"]*"' vietmap-hud-test/VML_BRIDGE/VML_BRIDGE.ino | cut -d'"' -f2)
+          DATE=$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)
+          NAME=vml-cau-noi-esp32-${VER}-${DATE}.bin
+          BOOT0=$(find ~/.arduino15/packages/esp32/hardware/esp32 -name boot_app0.bin | head -1)
+          python -m esptool --chip esp32 merge_bin -o "$NAME" \
+            --flash_mode dio --flash_freq 40m --flash_size 4MB \
+            0x1000 out/VML_BRIDGE.ino.bootloader.bin \
+            0x8000 out/VML_BRIDGE.ino.partitions.bin \
+            0xe000 "$BOOT0" \
+            0x10000 out/VML_BRIDGE.ino.bin
+          echo "NAME=$NAME" >> $GITHUB_ENV
+      - name: Dat vao ban phat hanh vml-bridge
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: vml-bridge
+          name: Cau noi VietMap Live -> HUD P4 (ESP32 DevKit)
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          files: ${{ env.NAME }}
