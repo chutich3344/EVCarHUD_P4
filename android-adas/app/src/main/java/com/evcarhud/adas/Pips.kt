@@ -1,0 +1,557 @@
+package com.evcarhud.adas
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
+import android.util.LruCache
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.roundToInt
+import kotlin.math.tan
+
+private val bold: Typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+
+/** O nhiet trong suot: MAY (muc nhiet Android) | PIN do C | AI lan/giay. */
+class TempPip(ctx: Context) : View(ctx) {
+    var snap: Snap? = null
+        set(v) { field = v; invalidate() }
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = bold }
+
+    override fun onDraw(cv: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        val r = RectF(1f, 1f, w - 1, h - 1)
+        p.style = Paint.Style.FILL; p.color = Color.argb(140, 18, 24, 32)
+        cv.drawRoundRect(r, h * 0.2f, h * 0.2f, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = 2f; p.color = Color.argb(90, 255, 255, 255)
+        cv.drawRoundRect(r, h * 0.2f, h * 0.2f, p)
+        p.style = Paint.Style.FILL
+        val s = snap
+        val yel = Color.rgb(255, 210, 63); val red = Color.rgb(255, 84, 104)
+        val th = s?.thermal ?: 0
+        val may = when (th) { 0 -> "Mát"; 1 -> "Ấm"; 2 -> "Nóng"; else -> "Rất nóng" }
+        val mayC = when { th >= 3 -> red; th >= 1 -> yel; else -> Color.WHITE }
+        val b = s?.batt ?: 0f
+        val pinC = when { b >= 45 -> red; b >= 42 -> yel; else -> Color.WHITE }
+        val ai = if (s == null || s.hz == 0) "dừng" else "${s.hz}/s"
+        val aiC = if (s != null && s.state >= 2) yel else Color.WHITE
+        val cells = listOf(Triple(may, "MÁY", mayC), Triple(if (b > 0) "${b.roundToInt()}°" else "--", "PIN", pinC),
+            Triple(ai, if (s != null) "AI · ${s.backend} ${s.ms}ms" else "AI", aiC))
+        val cw = w / cells.size
+        p.textAlign = Paint.Align.CENTER
+        cells.forEachIndexed { i, (v, l, c) ->
+            p.color = c; p.textSize = h * 0.36f
+            cv.drawText(v, cw * i + cw / 2, h * 0.52f, p)
+            p.color = Color.argb(217, 255, 255, 255); p.textSize = h * 0.17f
+            cv.drawText(l, cw * i + cw / 2, h * 0.8f, p)
+        }
+    }
+}
+
+/**
+ * Ban do goc: nen OpenStreetMap (luu tam tren may, vung da di qua xem lai duoc khi mat mang) + vi tri GPS dien thoai.
+ * Ban do xoay theo huong xe chay (mui ten luon chi len tren, nhu app dan duong). Cap nhat theo GPS (1 lan/giay).
+ */
+class TileMap(ctx: Context) : View(ctx) {
+    /** Nguon nen: google (mac dinh, thu nghiem, dao mau thanh nen toi), osm. CARTO da doi khoa API nen bo. */
+    var source = "google"
+        set(v) { if (field != v) { field = v; mem.evictAll(); loading.clear(); err = ""; invalidate() } }
+    /** Google: tu dong sang (ngay) / toi (dem) theo gio mat troi tai vi tri GPS. Tat = luon toi nhu cu. */
+    var autoDayNight = false
+        set(v) { if (field != v) { field = v; invalidate() } }
+    private var err = ""
+    /** Muc o ban do dang tai (nguyen) + muc zoom hien thi (le, chuyen muot). */
+    private var zoom = 16
+    private var zf = 16f
+    private var lat = 0.0
+    private var lon = 0.0
+    private var bearing = 0f
+    private var fix = false
+    private var vKmh = 0f
+    // noi suy giua 2 lan GPS (1 lan/giay) cho xe chay muot, khong giat tung buoc
+    private var aLat = 0.0; private var aLon = 0.0; private var aBr = 0f
+    private var bLat = 0.0; private var bLon = 0.0; private var bBr = 0f
+    private var fixAt = 0L
+    private val mem = LruCache<String, Bitmap>(96)
+    private val loading = HashSet<String>()
+    private val io = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
+    private val dir = File(ctx.cacheDir, "tiles").apply { mkdirs() }
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = bold }
+    private val clip = Path()
+    // dao mau + xoay sac do 180 do: nen sang -> nen toi, giu mau duong/song gan dung
+    private val dark = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+        colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+            0.574f, -1.430f, -0.144f, 0f, 255f,
+            -0.426f, -0.430f, -0.144f, 0f, 255f,
+            -0.426f, -1.430f, 0.856f, 0f, 255f,
+            0f, 0f, 0f, 1f, 0f)))
+    }
+
+    fun update(s: Snap) {
+        if (!s.hasFix) { if (fix) { fix = false; invalidate() }; return }
+        // chi lay huong khi xe dang chay (dung yen GPS bao huong lung tung)
+        val b = if (s.vKmh > 5f) s.bearing else bBr
+        vKmh = s.vKmh
+        // dang dan duong va xe nam tren tuyen: ve xe ngay tren vach (vi tri bam tuyen), huong theo doan tuyen
+        var tl = s.lat; var to = s.lon; var tb = b
+        if (Nav.active && Nav.onRoute && Nav.snapBearing >= 0) { tl = Nav.snapLat; to = Nav.snapLon; if (s.vKmh > 5f) tb = Nav.snapBearing }
+        if (tl == bLat && to == bLon && tb == bBr && fix) return
+        if (!fix) { aLat = tl; aLon = to; aBr = tb } else { aLat = lat; aLon = lon; aBr = bearing }
+        bLat = tl; bLon = to; bBr = tb; fixAt = android.os.SystemClock.uptimeMillis()
+        if (!fix) { lat = tl; lon = to; bearing = tb }
+        fix = true
+        invalidate()
+    }
+
+    /**
+     * Zoom tu dong khi dan duong: theo toc do (nhanh thi nhin xa), gan cho re < 300 m phong to 17,
+     * gan dich < 500 m phong to dan 17 -> 18. Khong dan duong: giu 16 nhu cu.
+     */
+    private fun targetZoom(): Float {
+        if (!Nav.active || Nav.route == null) return 16f
+        var z = when { vKmh > 70 -> 15f; vKmh > 40 -> 15.5f; else -> 16f }
+        val dt = Nav.nextDist()
+        val dd = Nav.remainM()
+        if (dt in 0..300) z = maxOf(z, 17f - dt / 300f * 0.5f)
+        if (dd in 0..500) z = maxOf(z, 18f - (dd.coerceAtLeast(100) - 100) / 400f)
+        return z
+    }
+
+    /** 1 nhip ve: noi suy vi tri/huong + zoom. true = con dang chuyen dong -> ve tiep nhip sau. */
+    private fun step(): Boolean {
+        val t = ((android.os.SystemClock.uptimeMillis() - fixAt) / 1000f).coerceIn(0f, 1f)
+        lat = aLat + (bLat - aLat) * t; lon = aLon + (bLon - aLon) * t
+        val db = ((bBr - aBr + 540f) % 360f) - 180f
+        bearing = (aBr + db * t + 360f) % 360f
+        val tz = targetZoom()
+        zf += (tz - zf) * 0.12f
+        if (kotlin.math.abs(tz - zf) < 0.01f) zf = tz
+        zoom = kotlin.math.floor(zf + 0.001f).toInt().coerceIn(14, 18)
+        val moving = t < 1f || zf != tz
+        if (moving) postInvalidateDelayed(50)          // ~20 hinh/giay la du muot, do nong may hon 60
+        return moving
+    }
+
+    /** Ban ngay? Goc cao mat troi > -6 do (hoang hon dan su) tai vi tri GPS + gio hien tai.
+     *  Chua co GPS thi theo gio dong ho (6h–18h = ngay). */
+    private fun isDay(): Boolean {
+        val cal = java.util.Calendar.getInstance()
+        val h = cal.get(java.util.Calendar.HOUR_OF_DAY) + cal.get(java.util.Calendar.MINUTE) / 60.0
+        if (!fix) return h in 6.0..18.0
+        val doy = cal.get(java.util.Calendar.DAY_OF_YEAR)
+        val decl = Math.toRadians(23.45) * Math.sin(2 * PI * (284 + doy) / 365.0)
+        val tz = (cal.get(java.util.Calendar.ZONE_OFFSET) + cal.get(java.util.Calendar.DST_OFFSET)) / 3_600_000.0
+        val solarTime = h - tz + lon / 15.0                 // gio mat troi dia phuong (xap xi)
+        val hAng = Math.toRadians(15.0 * (solarTime - 12))
+        val latR = Math.toRadians(lat)
+        val sinElev = Math.sin(latR) * Math.sin(decl) + Math.cos(latR) * Math.cos(decl) * Math.cos(hAng)
+        return sinElev > Math.sin(Math.toRadians(-6.0))
+    }
+
+    override fun onDraw(cv: Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        val rad = h * 0.08f
+        clip.reset(); clip.addRoundRect(RectF(0f, 0f, w, h), rad, rad, Path.Direction.CW)
+        cv.save(); cv.clipPath(clip)
+        cv.drawColor(Color.rgb(21, 26, 34))
+        if (fix) {
+            step()
+            val n = 1 shl zoom
+            val fx = (lon + 180) / 360 * n
+            val latR = Math.toRadians(lat)
+            val fy = (1 - ln(tan(latR) + 1 / cos(latR)) / PI) / 2 * n
+            val ts = 256f * (w / 300f).coerceIn(0.8f, 1.6f) * Math.pow(2.0, (zf - zoom).toDouble()).toFloat()
+            val wz = !Nav.active && WazeNav.active
+            val cx = w / 2; val cy = if (Nav.active || wz) h * 0.74f else h * 0.58f   // dan duong: xe thap xuong, thay xa phia truoc
+            // xoay ca ban do quanh vi tri xe: huong chay len tren -> can phu kin hinh tron ban kinh = duong cheo
+            val rr = kotlin.math.hypot(maxOf(cx, w - cx).toDouble(), maxOf(cy, h - cy).toDouble()) / ts
+            val tx0 = floor(fx - rr).toInt(); val tx1 = floor(fx + rr).toInt()
+            val ty0 = floor(fy - rr).toInt(); val ty1 = floor(fy + rr).toInt()
+            cv.save(); cv.rotate(-bearing, cx, cy)
+            for (tx in tx0..tx1) for (ty in ty0..ty1) {
+                if (ty < 0 || ty >= n) continue
+                val left = cx + ((tx - fx) * ts).toFloat(); val top = cy + ((ty - fy) * ts).toFloat()
+                // google: dao mau toi, TRU KHI auto ngay/dem dang la ban ngay -> giu ban do sang.
+                val useDark = source == "google" && !(autoDayNight && isDay())
+                val xx = ((tx % n) + n) % n
+                val bm = tile(xx, ty)
+                if (bm != null) cv.drawBitmap(bm, null, RectF(left, top, left + ts, top + ts), if (useDark) dark else null)
+                else mem.get("${zoom - 1}/${xx / 2}/${ty / 2}")?.let { pb ->      // vua doi muc zoom: tam ve 1/4 o muc tren cho khoi trong
+                    val q = pb.width / 2
+                    cv.drawBitmap(pb, android.graphics.Rect((xx % 2) * q, (ty % 2) * q, (xx % 2) * q + q, (ty % 2) * q + q),
+                        RectF(left, top, left + ts, top + ts), if (useDark) dark else null)
+                }
+            }
+            if (source != "google") cv.drawColor(Color.argb(70, 0, 0, 0))   // lam toi nhe cho de nhin ban dem
+            drawRoute(cv, n, fx, fy, ts, cx, cy)
+            if (wz) drawWazeStub(cv, n, fx, fy, ts, cx, cy)
+            cv.restore()
+            // mui ten vi tri: luon chi len (ban do da xoay)
+            cv.save(); cv.translate(cx, cy)
+            val a = h * 0.055f   // nho lai (truoc 0.07) cho do trum len vach xanh
+            val arrow = Path().apply { moveTo(0f, -a * 1.3f); lineTo(a, a); lineTo(0f, a * 0.45f); lineTo(-a, a); close() }
+            p.style = Paint.Style.FILL; p.color = Color.rgb(255, 170, 10); cv.drawPath(arrow, p)   // mau vang/cam cho khac vach dan duong xanh
+            p.style = Paint.Style.STROKE; p.strokeWidth = 3f; p.color = Color.WHITE; cv.drawPath(arrow, p)
+            cv.restore()
+        } else {
+            p.style = Paint.Style.FILL; p.color = Color.argb(200, 255, 255, 255); p.textSize = h * 0.08f; p.textAlign = Paint.Align.CENTER
+            cv.drawText("Đang chờ GPS…", w / 2, h / 2, p)
+        }
+        if (Nav.active) { drawBanner(cv, w, h); cv.restore(); drawFrame(cv, w, h, rad); return }
+        if (WazeNav.active) { drawWazeBanner(cv, w, h); cv.restore(); drawFrame(cv, w, h, rad); return }
+        // thanh tieu de
+        p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14)
+        cv.drawRect(0f, 0f, w, h * 0.15f, p)
+        p.color = Color.WHITE; p.textSize = h * 0.075f; p.textAlign = Paint.Align.LEFT
+        val credit = if (source == "osm") "© OpenStreetMap" else "© Google"
+        cv.drawText(if (err.isNotEmpty()) "Lỗi tải bản đồ: $err" else "GPS điện thoại · $credit", h * 0.05f, h * 0.1f, p)
+        cv.restore()
+        drawFrame(cv, w, h, rad)
+    }
+
+    private fun drawFrame(cv: Canvas, w: Float, h: Float, rad: Float) {
+        p.style = Paint.Style.STROKE; p.strokeWidth = 4f; p.color = Color.argb(230, 255, 255, 255)
+        cv.drawRoundRect(RectF(2f, 2f, w - 2, h - 2), rad, rad, p)
+    }
+
+    // ---------------- dan duong: vach tuyen + tram o dich + bang chi dan ----------------
+    private val routePath = Path()
+    private val navListener: () -> Unit = { postInvalidate() }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); Nav.listeners += navListener; WazeNav.listeners += navListener }
+    override fun onDetachedFromWindow() { Nav.listeners -= navListener; WazeNav.listeners -= navListener; super.onDetachedFromWindow() }
+
+    /** Ve trong canvas da xoay theo huong xe. n: so o o muc zoom; (fx, fy): vi tri xe theo don vi o. */
+    private fun drawRoute(cv: Canvas, n: Int, fx: Double, fy: Double, ts: Float, cx: Float, cy: Float) {
+        val d = Nav.dest ?: return
+        fun px(lo: Double) = cx + (((lo + 180) / 360 * n) - fx).toFloat() * ts
+        fun py(la: Double): Float {
+            val r = Math.toRadians(la)
+            return cy + (((1 - ln(tan(r) + 1 / cos(r)) / PI) / 2 * n) - fy).toFloat() * ts
+        }
+        val r = Nav.route
+        if (r != null) {
+            routePath.reset()
+            // tu vi tri xe toi het tuyen (bo doan da di), bo bot diem qua sat nhau
+            // 23/11 (nguoi dung: "ve cheo duong chim bay"): truoc noi thang tu xe toi tuyen -> xe dang lech tuyen / tuyen cu
+            // thi thanh 1 doan cheo cat qua nha. Nay chi ve dung hinh tuyen, bat dau tu diem tren tuyen ung voi quang da di.
+            val k = r.cum.indexOfFirst { it >= Nav.along }.let { if (it <= 0) 1 else it }.coerceAtMost(r.lat.size - 1)
+            val seg = (r.cum[k] - r.cum[k - 1]).takeIf { it > 0 } ?: 1.0
+            val t = ((Nav.along - r.cum[k - 1]) / seg).coerceIn(0.0, 1.0)
+            val sx = px(r.lon[k - 1] + (r.lon[k] - r.lon[k - 1]) * t); val sy = py(r.lat[k - 1] + (r.lat[k] - r.lat[k - 1]) * t)
+            var i = k
+            routePath.moveTo(sx, sy)
+            var lx = sx; var ly = sy
+            val lim = maxOf(width, height) * 3f
+            while (i < r.lat.size) {
+                val x = px(r.lon[i]); val y = py(r.lat[i])
+                if ((x - lx) * (x - lx) + (y - ly) * (y - ly) > 9f || i == r.lat.size - 1) { routePath.lineTo(x, y); lx = x; ly = y }
+                if (kotlin.math.abs(x - cx) > lim && kotlin.math.abs(y - cy) > lim) break
+                i++
+            }
+            p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
+            p.strokeWidth = height * 0.08f; p.color = Color.rgb(6, 40, 26); cv.drawPath(routePath, p)   // net co dinh, khong day len khi zoom
+            p.strokeWidth = height * 0.055f; p.color = if (Nav.onRoute || Nav.route == null) Color.rgb(74, 222, 128) else Color.rgb(150, 160, 170); cv.drawPath(routePath, p)   // lech tuyen: vach xam cho toi khi co duong moi
+            p.strokeCap = Paint.Cap.BUTT
+        }
+        // bieu tuong o dich: tram sac (tia set) / diem den (co) - quay nguoc de luon dung thang
+        val x = px(d.lon); val y = py(d.lat)
+        val rr = height * 0.075f
+        cv.save(); cv.rotate(bearing, x, y)
+        p.style = Paint.Style.FILL; p.color = if (d.kind == "tramsac") Color.rgb(20, 184, 166) else Color.rgb(255, 84, 104)
+        cv.drawCircle(x, y, rr, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = 3f; p.color = Color.WHITE; cv.drawCircle(x, y, rr, p)
+        p.style = Paint.Style.FILL
+        if (d.kind == "tramsac") {
+            val b = Path().apply {
+                moveTo(x + rr * 0.12f, y - rr * 0.62f); lineTo(x - rr * 0.38f, y + rr * 0.08f); lineTo(x - rr * 0.02f, y + rr * 0.08f)
+                lineTo(x - rr * 0.14f, y + rr * 0.62f); lineTo(x + rr * 0.38f, y - rr * 0.08f); lineTo(x + rr * 0.02f, y - rr * 0.08f); close()
+            }
+            cv.drawPath(b, p)
+        } else cv.drawCircle(x, y, rr * 0.3f, p)
+        cv.restore()
+    }
+
+    /** PA3: Waze khong gui hinh tuyen -> doan xanh theo duong OSM dang di toi diem re + mui ten re o cuoi (luon dung thang). */
+    private fun drawWazeStub(cv: Canvas, n: Int, fx: Double, fy: Double, ts: Float, cx: Float, cy: Float) {
+        fun px(lo: Double) = cx + (((lo + 180) / 360 * n) - fx).toFloat() * ts
+        fun py(la: Double): Float {
+            val r = Math.toRadians(la)
+            return cy + (((1 - ln(tan(r) + 1 / cos(r)) / PI) / 2 * n) - fy).toFloat() * ts
+        }
+        val la = WazeNav.stubLat; val lo = WazeNav.stubLon
+        var ex = cx; var ey = cy - height * 0.4f        // chua co duong OSM: ve thang len phia truoc
+        routePath.reset(); routePath.moveTo(cx, cy)
+        if (la != null && lo != null && la.size == lo.size) {
+            for (i in 1 until la.size) routePath.lineTo(px(lo[i]), py(la[i]))
+            ex = px(lo[la.size - 1]); ey = py(la[la.size - 1])
+        } else {
+            // xoay nguoc lai de doan thang chi theo huong xe
+            val r = Math.toRadians(bearing.toDouble()); val d = height * 0.4f
+            ex = cx + (kotlin.math.sin(r) * d).toFloat(); ey = cy - (kotlin.math.cos(r) * d).toFloat()
+            routePath.lineTo(ex, ey)
+        }
+        p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
+        p.strokeWidth = ts * 0.075f; p.color = Color.rgb(6, 40, 26); cv.drawPath(routePath, p)
+        p.strokeWidth = ts * 0.05f; p.color = Color.rgb(74, 222, 128); cv.drawPath(routePath, p)
+        p.strokeCap = Paint.Cap.BUTT
+        // chi ve mui ten re (trai / phai / thang / quay dau...) o diem re, khong o tron (nguoi dung chot 20/11)
+        val rr = height * 0.085f
+        cv.save(); cv.rotate(bearing, ex, ey)
+        arrowCol = Color.WHITE; drawTurn(cv, WazeNav.turn, ex, ey, rr * 0.75f, WazeNav.exit, outline = true)
+        arrowCol = Color.rgb(6, 30, 20)
+        cv.restore()
+        p.style = Paint.Style.FILL; p.strokeWidth = 0f
+    }
+
+    /** Bang tren cung khi dang dan duong bang Waze (cung kieu bang dan duong cua app). */
+    private fun drawWazeBanner(cv: Canvas, w: Float, h: Float) {
+        val dm = WazeNav.distM; val trn = WazeNav.turn
+        val big = when { trn == 17 -> "Đã đến"; dm < 1000 -> "${(dm / 10) * 10} m"; else -> "%.1f km".format(dm / 1000f).replace('.', ',') }
+        val rm = WazeNav.remainM
+        val parts = ArrayList<String>()
+        if (rm >= 0) parts += if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')
+        if (WazeNav.etaMin >= 0) parts += "${WazeNav.etaMin} phút"
+        bannerCore(cv, w, h, trn, WazeNav.exit, big, WazeNav.street, parts.joinToString(" · "), "")
+    }
+
+    /** Bang re gon (nguoi dung chot 20/11): mui ten trang khong o vuong, so met, ben phai "km con lai · phut", duoi la ten duong. */
+    private fun bannerCore(cv: Canvas, w: Float, h: Float, trn: Int, exit: Int, big: String, st: String, info: String, tag: String) {
+        val bh = h * 0.24f
+        p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14)
+        cv.drawRect(0f, 0f, w, bh, p)
+        p.textAlign = Paint.Align.LEFT
+        // mui ten cao bang chu so cua so met, canh giua theo chieu cao chu (nguoi dung 20/11: can bang voi "120 m")
+        p.textSize = bh * 0.46f; p.typeface = bold
+        val nb = Rect(); p.getTextBounds("0", 0, 1, nb)
+        val base = bh * 0.52f; val capH = -nb.top.toFloat(); val capMid = base - capH / 2
+        val a = capH * 1.05f / 2.3f                   // mui ten cao ~2,3a (than a + dau 1,3a)
+        val ax = h * 0.06f + a * 0.8f; val ay = capMid + 0.15f * a
+        arrowCol = Color.WHITE; drawTurn(cv, trn, ax, ay, a, exit); arrowCol = Color.rgb(6, 30, 20)
+        p.style = Paint.Style.FILL; p.strokeWidth = 0f
+        val tx = ax + a * 0.8f + h * 0.05f
+        p.color = Color.WHITE; p.textSize = bh * 0.46f; p.typeface = bold
+        cv.drawText(big, tx, base, p)
+        val bw = p.measureText(big)
+        if (info.isNotEmpty()) {
+            p.textSize = bh * 0.24f; p.color = Color.argb(235, 255, 255, 255); p.textAlign = Paint.Align.RIGHT
+            val iw = minOf(p.measureText(info), w - tx - bw - h * 0.13f)
+            if (iw > 0) cv.drawText(fit(info, iw + 1f), w - h * 0.09f, base, p)
+            p.textAlign = Paint.Align.LEFT
+        }
+        p.textSize = bh * 0.22f; p.color = Color.argb(235, 255, 255, 255)
+        cv.drawText(fit(if (tag.isNotEmpty() && st.isEmpty()) tag else st, w - tx - h * 0.03f), tx, bh * 0.86f, p)
+    }
+
+    /** Bang tren cung khi dan duong: mui ten re + khoang cach + ten duong; dong duoi: con lai / gio den. */
+    private fun drawBanner(cv: Canvas, w: Float, h: Float) {
+        val r = Nav.route; val s = Nav.next()
+        if (r == null && !Nav.arrived) {
+            val bh = h * 0.24f
+            p.style = Paint.Style.FILL; p.color = Color.argb(225, 8, 10, 14); cv.drawRect(0f, 0f, w, bh, p)
+            p.color = Color.WHITE; p.textSize = h * 0.075f; p.textAlign = Paint.Align.LEFT
+            cv.drawText(fit(Nav.msg, w - h * 0.1f), h * 0.05f, bh * 0.58f, p)
+            return
+        }
+        val trn = if (Nav.arrived) 17 else s?.trn ?: 1
+        val dm = Nav.nextDist()
+        val big = when { Nav.arrived -> "Đã đến"; dm < 0 -> ""; dm < 1000 -> "${(dm / 10) * 10} m"; else -> "%.1f km".format(dm / 1000f).replace('.', ',') }
+        val st = if (Nav.arrived || trn == 17) Nav.dest?.name ?: "" else s?.name ?: ""
+        val rm = Nav.remainM()
+        val info = if (Nav.arrived) "" else (if (rm < 1000) "$rm m" else "%.1f km".format(rm / 1000f).replace('.', ',')) + " · ${(Nav.remainS() + 59) / 60} phút"
+        bannerCore(cv, w, h, trn, s?.exit ?: 0, big, st, info, "")
+        // chip duoi bang: dang tim duong lai (do) / vua doi tuyen (xanh)
+        if (Nav.rerouting || Nav.noteFresh()) {
+            val t = Nav.msg
+            p.textSize = h * 0.065f; p.typeface = bold
+            val tw = minOf(p.measureText(t), w - h * 0.2f); val y0 = h * 0.27f
+            p.style = Paint.Style.FILL; p.color = if (Nav.rerouting) Color.rgb(220, 50, 60) else Color.rgb(16, 150, 90)
+            cv.drawRoundRect(RectF(w / 2 - tw / 2 - h * 0.04f, y0, w / 2 + tw / 2 + h * 0.04f, y0 + h * 0.1f), h * 0.05f, h * 0.05f, p)
+            p.color = Color.WHITE; p.textAlign = Paint.Align.CENTER
+            cv.drawText(fit(t, tw + 1f), w / 2, y0 + h * 0.072f, p)
+            p.textAlign = Paint.Align.LEFT
+        }
+    }
+
+    private fun fit(t: String, maxW: Float): String {
+        if (p.measureText(t) <= maxW) return t
+        var k = t.length
+        while (k > 1 && p.measureText(t.take(k) + "…") > maxW) k--
+        return t.take(k) + "…"
+    }
+
+    /** Mui ten re don gian ve bang net (mau toi tren o xanh). */
+    private var arrowCol = Color.rgb(6, 30, 20)
+    /** outline: ve 1 lop vien toi day hon truoc (de mui ten trang noi tren nen ban do). */
+    private fun drawTurn(cv: Canvas, trn: Int, x: Float, y: Float, s: Float, exit: Int, outline: Boolean = false) {
+        if (outline) { val c = arrowCol; arrowCol = Color.rgb(6, 30, 20); halo = s * 0.22f; drawTurn(cv, trn, x, y, s, exit); halo = 0f; arrowCol = c }
+        p.style = Paint.Style.STROKE; p.strokeWidth = s * 0.32f + halo; p.strokeCap = Paint.Cap.ROUND; p.strokeJoin = Paint.Join.ROUND
+        p.color = arrowCol
+        val path = Path()
+        if (trn == 17) {                                     // toi noi: co
+            path.moveTo(x - s * 0.5f, y + s); path.lineTo(x - s * 0.5f, y - s)
+            cv.drawPath(path, p)
+            p.style = Paint.Style.FILL
+            cv.drawPath(Path().apply { moveTo(x - s * 0.5f, y - s); lineTo(x + s * 0.8f, y - s * 0.55f); lineTo(x - s * 0.5f, y - s * 0.1f); close() }, p)
+            p.strokeCap = Paint.Cap.BUTT; return
+        }
+        if (trn in 10..12 || trn == 19 || trn == 20) {         // vong xuyen + so loi ra
+            p.strokeWidth = s * 0.22f + halo
+            cv.drawCircle(x, y - s * 0.15f, s * 0.5f, p)
+            path.moveTo(x, y + s); path.lineTo(x, y + s * 0.35f); cv.drawPath(path, p)
+            if (exit > 0) { p.style = Paint.Style.FILL; p.textAlign = Paint.Align.CENTER; p.textSize = s * 0.8f; cv.drawText("$exit", x, y + s * 0.13f, p); p.textAlign = Paint.Align.LEFT }
+            p.strokeCap = Paint.Cap.BUTT; return
+        }
+        val deg = when (trn) { 2 -> -90f; 3 -> 90f; 4, 13, 15 -> -45f; 5, 14, 16 -> 45f; 6 -> -135f; 7 -> 135f; else -> 0f }
+        if (trn == 8 || trn == 9) {                          // quay dau
+            path.moveTo(x + s * 0.45f, y + s); path.lineTo(x + s * 0.45f, y - s * 0.2f)
+            path.arcTo(RectF(x - s * 0.45f, y - s * 0.65f, x + s * 0.45f, y + s * 0.25f), 0f, -180f)
+            path.lineTo(x - s * 0.45f, y + s * 0.3f)
+            cv.drawPath(path, p)
+            arrowHead(cv, x - s * 0.45f, y + s * 0.55f, 180f, s)
+        } else {
+            path.moveTo(x, y + s); path.lineTo(x, y)
+            val rad = Math.toRadians(deg.toDouble())
+            val ex = x + (kotlin.math.sin(rad) * s * 0.75).toFloat(); val ey = y - (kotlin.math.cos(rad) * s * 0.75).toFloat()
+            path.lineTo(ex, ey)
+            cv.drawPath(path, p)
+            arrowHead(cv, ex, ey, deg, s)
+        }
+        p.strokeCap = Paint.Cap.BUTT
+    }
+
+    private var halo = 0f
+    private fun arrowHead(cv: Canvas, x: Float, y: Float, deg: Float, s: Float) {
+        cv.save(); cv.rotate(deg, x, y)
+        p.style = if (halo > 0f) Paint.Style.FILL_AND_STROKE else Paint.Style.FILL; p.strokeWidth = halo
+        cv.drawPath(Path().apply { moveTo(x, y - s * 0.55f); lineTo(x + s * 0.45f, y + s * 0.05f); lineTo(x - s * 0.45f, y + s * 0.05f); close() }, p)
+        p.style = Paint.Style.STROKE
+        cv.restore()
+    }
+
+    private val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+
+    // Dang noi Wi-Fi cam guong (khong Internet) thi tien trinh bi bam vao Wi-Fi do -> tai tile hong
+    // (UnknownHostException). Xin GIU mang 4G/5G co Internet va tai tile thang qua no (nhu CloudLog).
+    @Volatile private var cellNet: android.net.Network? = null
+    private var cellAsked = false
+    private fun wantCell() {
+        if (cellAsked) return
+        cellAsked = true
+        try {
+            val req = android.net.NetworkRequest.Builder()
+                .addTransportType(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+            cm.requestNetwork(req, object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(n: android.net.Network) { cellNet = n; main.post { invalidate() } }
+                override fun onLost(n: android.net.Network) { if (cellNet == n) cellNet = null }
+            })
+        } catch (_: Exception) { cellAsked = false }
+    }
+
+    private fun inetNet(): android.net.Network? {
+        fun ok(n: android.net.Network?) = n != null && cm.getNetworkCapabilities(n)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        cellNet?.let { if (ok(it)) return it }       // uu tien 4G/5G da giu (co Internet du dang bam Wi-Fi cam)
+        val a = cm.activeNetwork
+        if (ok(a)) return a
+        @Suppress("DEPRECATION")
+        return cm.allNetworks.firstOrNull { ok(it) }
+    }
+
+    private fun tile(x: Int, y: Int): Bitmap? {
+        val src = source
+        val z = zoom                                  // zoom doi lien tuc khi dan duong: chot muc o luc xin
+        val k = "$z/$x/$y"
+        mem.get(k)?.let { return it }
+        wantCell()                                    // giu san 4G/5G de tai tile khi dang bam Wi-Fi cam
+        if (loading.add(k)) io.execute {
+            val f = File(dir, "${src}_${z}_${x}_$y.png")
+            val url = when (src) {
+                "google" -> "https://mt1.google.com/vt/lyrs=m&hl=vi&x=$x&y=$y&z=$z"
+                else -> "https://tile.openstreetmap.org/$k.png"
+            }
+            var e = ""
+            var bm: Bitmap? = null
+            try {
+                if (f.exists()) bm = BitmapFactory.decodeFile(f.absolutePath)
+                if (bm == null) {
+                    // dang noi Wi-Fi cam guong (khong co Internet): tai qua mang co Internet that (4G/5G)
+                    val c = (inetNet()?.openConnection(URL(url)) ?: URL(url).openConnection()) as HttpURLConnection
+                    c.setRequestProperty("User-Agent", "EVCarHUD-Lan/0.1 (Android)")
+                    c.connectTimeout = 8000; c.readTimeout = 8000
+                    val code = c.responseCode
+                    if (code != 200) e = "mã $code"
+                    if (code == 200) {
+                        val bytes = c.inputStream.use { it.readBytes() }
+                        f.writeBytes(bytes)
+                        bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                    c.disconnect()
+                }
+            } catch (ex: Exception) { e = ex.javaClass.simpleName }
+            main.post {
+                loading.remove(k)
+                if (src != source) return@post
+                err = if (bm != null) "" else e
+                if (bm != null) mem.put(k, bm)
+                invalidate()
+            }
+        }
+        return null
+    }
+}
+
+/**
+ * Keo tha cua so noi; tha tay thi hit vao goc gan nhat (khong de len hang thong so tren cung).
+ * topMin: toa do y thap nhat cho phep (px).
+ */
+@SuppressLint("ClickableViewAccessibility")
+fun makeDraggable(v: View, topMin: () -> Float, pad: Float, corner: Int, onCorner: (Int) -> Unit) {
+    fun place(c: Int) {
+        val par = v.parent as? ViewGroup ?: return
+        val left = c % 2 == 0; val topSide = c < 2
+        v.x = if (left) pad else par.width - v.width - pad
+        v.y = if (topSide) topMin() else par.height - v.height - pad
+    }
+    v.post { place(corner) }
+    var dx = 0f; var dy = 0f
+    v.setOnTouchListener { _, e ->
+        val par = v.parent as ViewGroup
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { dx = v.x - e.rawX; dy = v.y - e.rawY; true }
+            MotionEvent.ACTION_MOVE -> {
+                v.x = (e.rawX + dx).coerceIn(0f, (par.width - v.width).toFloat())
+                v.y = (e.rawY + dy).coerceIn(topMin(), (par.height - v.height).toFloat())
+                true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val c = (if (v.x + v.width / 2 < par.width / 2) 0 else 1) + (if (v.y + v.height / 2 < par.height / 2) 0 else 2)
+                v.animate().x(if (c % 2 == 0) pad else par.width - v.width - pad)
+                    .y(if (c < 2) topMin() else par.height - v.height - pad).setDuration(160).start()
+                onCorner(c)
+                true
+            }
+            else -> false
+        }
+    }
+}

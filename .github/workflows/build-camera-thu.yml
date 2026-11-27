@@ -1,0 +1,43 @@
+# Build thu nhanh camera USB (chi nhanh thu nghiem, KHONG dung ban phat hanh "ban-moi-nhat"):
+# ra file gop .bin (nap 0x0) trong ban phat hanh rieng "camera-usb-thu".
+name: Build thu camera USB
+
+on:
+  push:
+    branches: [claude/project-thread-82rcu7]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build bang ESP-IDF 5.5
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: release-v5.5
+          target: esp32p4
+          command: git config --global --add safe.directory /app/${{ github.repository }} && idf.py build && idf.py merge-bin -o evcarhud-full.bin
+      - name: Dat ten file
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          cp build/evcarhud-full.bin "p4-camera-usb-thu-$SHORT.bin"
+          cp build/evcarhud_p4.bin "p4-camera-usb-thu-$SHORT-app-0x10000.bin"
+          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p4-camera-usb-thu-${{ env.SHORT }}
+          path: p4-camera-usb-thu-*.bin
+      - name: Cap nhat ban phat hanh "camera-usb-thu"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete camera-usb-thu --yes --cleanup-tag || true
+          gh release create camera-usb-thu p4-camera-usb-thu-*.bin --target "$GITHUB_SHA" \
+            --title "Thử camera USB (${{ env.SHORT }})" \
+            --notes "Bản thử camera USB (UVC). File gộp nạp ở 0x0; file app-0x10000 nạp ở 0x10000." --prerelease

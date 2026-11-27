@@ -1,0 +1,164 @@
+menu "EVCarHUD"
+
+    config EVCARHUD_USB_CAM
+        bool "Camera USB (UVC) o cong OTG: khung xem truoc + do FPS (thu nghiem nhan dien vat can)"
+        default y
+        help
+            Cam webcam UVC (MJPEG) vao cong Type-C "USB OTG" cua board: hien khung xem truoc 320x240 noi tren man hinh
+            kem FPS camera, thoi gian giai ma JPEG phan cung, FPS hien thi. Cham khung de an.
+
+    config EVCARHUD_DETECT
+        bool "Nhan dien vat can (o to, xe lon, xe 2 banh, nguoi) + canh bao tren HUD"
+        default y
+        depends on EVCARHUD_USB_CAM
+        help
+            Chay mo hinh models/evdet.espdl (vung flash evdet) tren anh 320x240, chon vat gan nhat trong lan minh,
+            uoc luong khoang cach theo be rong khung va canh bao theo phuong an D (obstacle_ui.h).
+
+    config EVCARHUD_ADAS_HFOV_DEG
+        int "Camera: goc nhin NGANG (do)"
+        default 42
+        range 20 150
+        depends on EVCARHUD_DETECT
+        help
+            RMONCAM G200 ong 6 mm: ~42 do (hang ghi 50 do theo duong cheo). Ong 2.8 mm: ~80. Sai goc nhin thi moi khoang cach
+            sai theo cung ti le. Hieu chuan: dat o to cach camera dung 10 m, xem log "adas: phia truoc ... X m";
+            X lon hon 10 thi tang goc, nho hon thi giam.
+
+    config EVCARHUD_ADAS_HORIZON_PCT
+        int "Camera: duong chan troi o bao nhieu % chieu cao anh (tu tren xuong)"
+        default 45
+        range 10 90
+        depends on EVCARHUD_DETECT
+        help
+            Gia tri ban dau; bat "chan troi tu chinh" thi firmware tu doi theo cac xe nhin thay.
+
+    config EVCARHUD_ADAS_AUTO_HORIZON
+        bool "Chan troi tu chinh theo cac xe nhin thay (doc, xe chui dau, camera lap lech)"
+        default y
+        depends on EVCARHUD_DETECT
+
+    config EVCARHUD_ADAS_CAM_H_CM
+        int "Camera: do cao so voi mat duong (cm)"
+        default 130
+        range 50 300
+        depends on EVCARHUD_DETECT
+        help
+            Dung de ve vung lan cua minh va tu chinh chan troi. Xe con gan sau guong chieu hau ~130 cm, SUV ~150 cm.
+
+    menu "Man hinh"
+        config EVCARHUD_LCD_SPI_MHZ
+            int "Toc do SPI man hinh (MHz)"
+            range 10 80
+            default 40
+            help
+                BSP chinh hang cua Waveshare chay 80 MHz. 40 MHz chac chan on dinh; hinh nhiu thi giam xuong.
+
+        config EVCARHUD_LCD_BGR
+            bool "Thu tu mau BGR (do va xanh duong bi doi cho thi bat/tat muc nay)"
+            default y
+
+        config EVCARHUD_LCD_INVERT
+            bool "Dao mau (nen trang thanh den, anh am ban thi bat/tat muc nay)"
+            default y
+
+        config EVCARHUD_LCD_MIRROR_X
+            bool "Lat ngang hinh"
+            default n
+
+        config EVCARHUD_LCD_MIRROR_Y
+            bool "Lat doc hinh"
+            default n
+
+        config EVCARHUD_COLOR_TEST
+            bool "Man kiem tra mau luc khoi dong (4 o DO / XANH LA / XANH DUONG / TRANG)"
+            default y
+
+        config EVCARHUD_BL_DAY
+            int "Do sang den nen ban ngay (%)"
+            range 10 100
+            default 100
+
+        config EVCARHUD_BL_NIGHT
+            int "Do sang den nen ban dem (%)"
+            range 5 100
+            default 45
+    endmenu
+
+    menu "Cam ung FT6336"
+        config EVCARHUD_TOUCH
+            bool "Dung cam ung (cham doi Ngay/Dem, giu tay mo cai dat)"
+            default y
+
+        config EVCARHUD_TOUCH_SWAP
+            bool "Cam ung: doi truc X/Y"
+            depends on EVCARHUD_TOUCH
+            default y
+
+        config EVCARHUD_TOUCH_MIRROR_X
+            bool "Cam ung: lat truc X"
+            depends on EVCARHUD_TOUCH
+            default y if !EVCARHUD_LCD_MIRROR_X
+            default n
+
+        config EVCARHUD_TOUCH_MIRROR_Y
+            bool "Cam ung: lat truc Y"
+            depends on EVCARHUD_TOUCH
+            default y if EVCARHUD_LCD_MIRROR_Y
+            default n
+    endmenu
+
+    config EVCARHUD_PIN_BOOT
+        int "Nut BOOT (board P4: GPIO35)"
+        default 35
+
+    config EVCARHUD_AI_URL
+        string "Tro ly Mi Mi: dia chi lay WebSocket (evcarhud-web /api/ai/ota/)"
+        default "https://evcarhud.com/api/ai/ota/"
+        help
+            HUD POST kem Device-Id = MAC; may chu tra websocket.url + token (HUD da bat Mi Mi) hoac activation.message.
+
+    config EVCARHUD_WAKE_WORD
+        string "Tro ly Mi Mi: tu danh thuc (pinyin, cach bang dau cach)"
+        default "mi mi"
+        help
+            Nhan bang mo hinh MultiNet7 tieng Trung (esp-sr) trong vung flash "model". Doi chu khac thi viet theo pinyin.
+
+    config EVCARHUD_WAKE_THRESHOLD
+        int "Tro ly Mi Mi: nguong tu danh thuc (%)"
+        default 20
+        range 1 99
+        help
+            Nho hon = nhay hon (de goi nhung de bat nham khi xe on). Xiaozhi mac dinh 20.
+
+    config EVCARHUD_OTA_URL
+        string "Cap nhat OTA: dia chi may chu (evcarhud-web /api/ota)"
+        default "https://evcarhud.com/api/ota"
+        help
+            HUD hoi ?model=...&mac=...&v=<phien ban dang chay> de biet ban moi nhat (tai len o trang admin),
+            them &download=1 de tai file. Chi HUD da dang ky (nap qua trang /account) moi tai duoc.
+
+    config EVCARHUD_OTA_MODEL
+        string "Cap nhat OTA: ma model tren may chu"
+        default "p4"
+
+    config EVCARHUD_BLE_NAME
+        string "Ten Bluetooth (Waze Mod tim theo ten nay)"
+        default "EVHUD-P4"
+        help
+            Khac ten "EVCarHUD" cua ban 2.8 inch de dien thoai khong nham hai board.
+            Toi da 8 ky tu thi nam gon trong goi quang ba.
+
+    config EVCARHUD_BLE_DIRECT_HCI
+        bool "C6 dung firmware xuat xuong: noi thang kenh HCI, khong gui lenh bat Bluetooth"
+        default y
+        help
+            Firmware C6 co san tren board khong tra loi lenh bat Bluetooth cua esp_hosted 3.x (moi lan cho 5 s)
+            nhung da tu bat Bluetooth luc khoi dong. Tat di neu sau nay cap nhat firmware C6 len 3.x.
+
+    config EVCARHUD_GOFA_UUID_PREFIX
+        string "GOFA: tien to Service UUID dinh danh (20 ky tu hex XXXXXXXX-XXXX-XXXX-XXXX, theo cau hinh thong nhat voi GOFA)"
+        default "6E400001-B5A3-F393-E0A9"
+        help
+            Quang ba o che do GOFA: "<tien to>-<MAC Bluetooth 12 ky tu hex>". Hoi GOFA gia tri dung.
+endmenu

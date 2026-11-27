@@ -1,0 +1,88 @@
+# Build app Android "HUD Tram sac" (thu muc android-tramsac/) tren GitHub, khong can cai Android Studio.
+# Moi lan day code -> build APK, dat vao ban phat hanh "app-tram-sac" de tai thang tren dien thoai.
+name: Build app Tram sac
+
+on:
+  push:
+    paths:
+      - "android-tramsac/**"
+      - ".github/workflows/android-tramsac.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Hai lan day gan nhau: huy ban cu, de ban phat hanh luon la commit moi nhat
+concurrency:
+  group: app-tram-sac-pip
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HUD_KEYSTORE_BASE64: ${{ secrets.HUD_KEYSTORE_BASE64 }}
+    defaults:
+      run:
+        working-directory: android-tramsac
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Runner ubuntu-latest da co san Android SDK (ANDROID_HOME); Gradle tu tai platform/build-tools neu thieu.
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease bundleRelease
+          SHORT=$(git rev-parse --short HEAD)
+          cp app/build/outputs/apk/release/app-release.apk "../hud-tram-sac-$SHORT.apk"
+          # AAB ky khoa debug: Play khong nhan, dung de ky lai bang khoa tai len o ngoai (jarsigner)
+          cp app/build/outputs/bundle/release/app-release.aab "../hud-tram-sac-$SHORT-ky-debug.aab"
+          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hud-tram-sac-${{ env.SHORT }}
+          path: |
+            hud-tram-sac-${{ env.SHORT }}.apk
+            hud-tram-sac-${{ env.SHORT }}-ky-debug.aab
+
+      # Ban AAB cho Google Play: chi chay khi da them khoa tai len vao Secrets cua repo
+      # (HUD_KEYSTORE_BASE64, HUD_KEYSTORE_PASSWORD, HUD_KEY_ALIAS, HUD_KEY_PASSWORD - xem docs/phat-hanh-google-play.md).
+      # Khi co khoa, APK o tren cung duoc ky bang khoa nay.
+      - name: Build AAB cho Google Play
+        id: aab
+        if: env.HUD_KEYSTORE_BASE64 != ''
+        env:
+          HUD_KEYSTORE_BASE64: ${{ secrets.HUD_KEYSTORE_BASE64 }}
+          HUD_KEYSTORE_PASSWORD: ${{ secrets.HUD_KEYSTORE_PASSWORD }}
+          HUD_KEY_ALIAS: ${{ secrets.HUD_KEY_ALIAS }}
+          HUD_KEY_PASSWORD: ${{ secrets.HUD_KEY_PASSWORD }}
+        run: |
+          echo "$HUD_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          export HUD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          ./gradlew --no-daemon bundleRelease assembleRelease
+          cp app/build/outputs/bundle/release/app-release.aab "../hud-tram-sac-$SHORT.aab"
+          cp app/build/outputs/apk/release/app-release.apk "../hud-tram-sac-$SHORT.apk"
+          rm -f "$RUNNER_TEMP/upload.jks"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.aab.outcome == 'success'
+        with:
+          name: hud-tram-sac-play-${{ env.SHORT }}
+          path: hud-tram-sac-${{ env.SHORT }}.aab
+
+      - name: Cap nhat ban phat hanh "app-tram-sac"
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete app-tram-sac-pip-thu --yes --cleanup-tag || true
+          AAB=$(ls hud-tram-sac-$SHORT*.aab 2>/dev/null || true)
+          gh release create app-tram-sac-pip-thu "hud-tram-sac-$SHORT.apk" $AAB --target "$GITHUB_SHA" \
+            --title "App HUD Trạm sạc ($SHORT)" \
+            --notes "APK build tự động từ commit $SHORT (nhánh ${GITHUB_REF_NAME}). Tải về điện thoại Android rồi cài." --prerelease

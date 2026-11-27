@@ -1,0 +1,3 @@
+Hinh bien mau: ve tu SVG trong goi npm @road-signs/vn 0.1.2 (github.com/karlnorling/road-signs), giay phep MIT.
+Tu ve them (EVCarHUD): 22 cam xe dien (them tia set), 23 di thang/re phai, 24 re trai, 25 re phai, 28 vong xuyen, 17 khung toc do trong.
+Tao lai: android-adas/tools/build_icons.py

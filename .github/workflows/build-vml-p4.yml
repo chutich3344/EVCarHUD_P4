@@ -1,0 +1,38 @@
+# Build thu VietMap Live tren HUD P4 (qua mach cau noi ESP32, UART GPIO5/4) -> ban phat hanh "vml-p4"
+name: Build thu VML P4
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build bang ESP-IDF 5.5
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: release-v5.5
+          target: esp32p4
+          command: git config --global --add safe.directory /app/${{ github.repository }} && idf.py build && idf.py merge-bin -o evcarhud-full.bin
+      - name: Dat ten file
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          DATE=$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)
+          VER=$(cat version.txt)
+          cp build/evcarhud-full.bin "p4-vml-$VER-$DATE.bin"
+          cp build/evcarhud_p4.bin "p4-vml-$VER-$DATE-app-0x10000.bin"
+          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+      - name: Cap nhat ban phat hanh "vml-p4"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete vml-p4 --yes --cleanup-tag || true
+          gh release create vml-p4 p4-vml-*.bin --target "$GITHUB_SHA" \
+            --title "Thử VietMap Live trên P4 (${{ env.SHORT }})" \
+            --notes "VML qua mạch cầu nối ESP32 DevKit (UART GPIO5/4). File gộp nạp ở 0x0." --prerelease

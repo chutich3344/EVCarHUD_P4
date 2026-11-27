@@ -1,0 +1,215 @@
+{
+  "protocol": "xadas-hud-link",
+  "version": 1,
+  "serviceUuid": "39b30001-52bb-461f-a6fd-c2ff0f067cfe",
+  "frameUuid": "39b30002-52bb-461f-a6fd-c2ff0f067cfe",
+  "note": "Mỗi khung: các trường đã giải mã và chuỗi byte (hex, cách nhau một dấu cách). null là \"không có\" (0xff hoặc 0xffff).",
+  "frames": [
+    {
+      "name": "an-toan",
+      "description": "Đang đo ở 72 km/h, xe trước 68 m, mức tối thiểu 55 m: an toàn.",
+      "fields": {
+        "seq": 0,
+        "state": 1,
+        "level": 1,
+        "imperial": false,
+        "test": false,
+        "speed": 72,
+        "distance": 68,
+        "minimum": 55
+      },
+      "hex": "01 00 01 01 00 48 44 00 37 00"
+    },
+    {
+      "name": "gan",
+      "description": "Số đang hiện bằng đúng mức tối thiểu (55 m): cảnh báo nhẹ.",
+      "fields": {
+        "seq": 1,
+        "state": 1,
+        "level": 2,
+        "imperial": false,
+        "test": false,
+        "speed": 72,
+        "distance": 55,
+        "minimum": 55
+      },
+      "hex": "01 01 01 02 00 48 37 00 37 00"
+    },
+    {
+      "name": "qua-gan",
+      "description": "Xe trước 42 m, dưới mức tối thiểu 55 m: quá gần.",
+      "fields": {
+        "seq": 2,
+        "state": 1,
+        "level": 3,
+        "imperial": false,
+        "test": false,
+        "speed": 72,
+        "distance": 42,
+        "minimum": 55
+      },
+      "hex": "01 02 01 03 00 48 2a 00 37 00"
+    },
+    {
+      "name": "chua-co-muc",
+      "description": "Đi 45 km/h, dưới tốc độ bắt đầu có mức tối thiểu: có số, an toàn, không có mức.",
+      "fields": {
+        "seq": 3,
+        "state": 1,
+        "level": 1,
+        "imperial": false,
+        "test": false,
+        "speed": 45,
+        "distance": 20,
+        "minimum": null
+      },
+      "hex": "01 03 01 01 00 2d 14 00 ff ff"
+    },
+    {
+      "name": "mat-toc-do",
+      "description": "Có số nhưng mất GPS nên chưa phán được.",
+      "fields": {
+        "seq": 4,
+        "state": 1,
+        "level": 4,
+        "imperial": false,
+        "test": false,
+        "speed": null,
+        "distance": 30,
+        "minimum": null
+      },
+      "hex": "01 04 01 04 00 ff 1e 00 ff ff"
+    },
+    {
+      "name": "khong-co-xe",
+      "description": "Đang đo, không có xe phía trước.",
+      "fields": {
+        "seq": 5,
+        "state": 1,
+        "level": 0,
+        "imperial": false,
+        "test": false,
+        "speed": 72,
+        "distance": null,
+        "minimum": 55
+      },
+      "hex": "01 05 01 00 00 48 ff ff 37 00"
+    },
+    {
+      "name": "dung-do-cham",
+      "description": "xADAS dừng đo vì xe chạy chậm: hiện tốc độ.",
+      "fields": {
+        "seq": 6,
+        "state": 2,
+        "level": 0,
+        "imperial": false,
+        "test": false,
+        "speed": 8,
+        "distance": null,
+        "minimum": null
+      },
+      "hex": "01 06 02 00 00 08 ff ff ff ff"
+    },
+    {
+      "name": "nong-may",
+      "description": "xADAS tạm dừng vì điện thoại nóng: hiện tốc độ.",
+      "fields": {
+        "seq": 7,
+        "state": 3,
+        "level": 0,
+        "imperial": false,
+        "test": false,
+        "speed": 64,
+        "distance": null,
+        "minimum": null
+      },
+      "hex": "01 07 03 00 00 40 ff ff ff ff"
+    },
+    {
+      "name": "mat-hinh",
+      "description": "Đã có hình rồi mất (cam rớt Wi-Fi, rút cam USB).",
+      "fields": {
+        "seq": 8,
+        "state": 4,
+        "level": 0,
+        "imperial": false,
+        "test": false,
+        "speed": null,
+        "distance": null,
+        "minimum": null
+      },
+      "hex": "01 08 04 00 00 ff ff ff ff ff"
+    },
+    {
+      "name": "cho",
+      "description": "xADAS mở nhưng chưa có hình, hoặc không đo.",
+      "fields": {
+        "seq": 9,
+        "state": 0,
+        "level": 0,
+        "imperial": false,
+        "test": false,
+        "speed": null,
+        "distance": null,
+        "minimum": null
+      },
+      "hex": "01 09 00 00 00 ff ff ff ff ff"
+    },
+    {
+      "name": "he-anh",
+      "description": "Người dùng chọn mph · ft: 45 mph, 150 ft, mức 180 ft, quá gần.",
+      "fields": {
+        "seq": 10,
+        "state": 1,
+        "level": 3,
+        "imperial": true,
+        "test": false,
+        "speed": 45,
+        "distance": 150,
+        "minimum": 180
+      },
+      "hex": "01 0a 01 03 01 2d 96 00 b4 00"
+    },
+    {
+      "name": "thu",
+      "description": "Khung đầu của nút Thử trong Cài đặt: 25 m, quá gần, có cờ thử.",
+      "fields": {
+        "seq": 11,
+        "state": 1,
+        "level": 3,
+        "imperial": false,
+        "test": true,
+        "speed": 72,
+        "distance": 25,
+        "minimum": 55
+      },
+      "hex": "01 0b 01 03 02 48 19 00 37 00"
+    }
+  ],
+  "longer": [
+    {
+      "name": "byte-them-phia-sau",
+      "description": "Khung dài hơn 10 byte (phiên bản 1 về sau thêm trường): đọc 10 byte đầu như khung \"an-toan\", bỏ qua phần thừa.",
+      "hex": "01 00 01 01 00 48 44 00 37 00 00 00",
+      "sameAs": "an-toan"
+    },
+    {
+      "name": "co-la",
+      "description": "Bit cờ chưa định nghĩa phải bỏ qua: đọc như khung \"an-toan\".",
+      "hex": "01 00 01 01 80 48 44 00 37 00",
+      "sameAs": "an-toan"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "qua-ngan",
+      "description": "Ngắn hơn 10 byte: bỏ khung.",
+      "hex": "01 00 01 01 00 48 44 00 37"
+    },
+    {
+      "name": "phien-ban-khac",
+      "description": "Byte đầu khác 1: bỏ khung.",
+      "hex": "02 00 01 01 00 48 44 00 37 00"
+    }
+  ]
+}
