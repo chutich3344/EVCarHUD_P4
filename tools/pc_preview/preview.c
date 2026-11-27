@@ -1,0 +1,727 @@
+/* Chup anh giao dien 480x320 tren PC (khong can board): chay che do trinh dien qua bo giai ma HLP that
+ * va luu vai khung hinh ra file BMP. Xem tools/pc_preview/build.sh. */
+#include "lvgl.h"
+#include "dashboard.h"
+#include "demo.h"
+#include "gofa.h"
+#include <string.h>
+#include "dashboard_hlp.h"
+#include "obstacle_ui.h"
+#include "phone_adas.h"
+#include "adas_feed.h"
+#include "detect.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+
+void board_beep(int times) { printf("(tit %d)\n", times); }   /* tren board: loa */
+static void cam_open(void) { printf("(mo xem truoc camera)\n"); }
+
+static uint16_t fb[UI_W * UI_H];
+static uint32_t now_ms;
+int64_t esp_timer_get_time(void) { return (int64_t)now_ms * 1000; }
+bool board_ui_lock(void) { return true; }
+void board_ui_unlock(void) {}
+static uint32_t tick_cb(void) { return now_ms; }
+
+static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px)
+{
+    const uint16_t *src = (const uint16_t *)px;
+    for (int y = a->y1; y <= a->y2; y++)
+        for (int x = a->x1; x <= a->x2; x++) fb[y * UI_W + x] = *src++;
+    lv_display_flush_ready(d);
+}
+
+static void xa(uint8_t st, uint8_t lv, uint8_t fl, uint8_t sp, uint16_t d, uint16_t mn)   /* 1 khung xADAS HUD Link */
+{
+    uint8_t b[10] = {1, 0, st, lv, fl, sp, (uint8_t)d, (uint8_t)(d >> 8), (uint8_t)mn, (uint8_t)(mn >> 8)};
+    xadas_frame_t f;
+    if (xadas_parse(b, sizeof b, &f)) obstacle_ui_xadas(&f);
+}
+
+static void run(int ms)
+{
+    for (int t = 0; t < ms; t += 10) {
+        now_ms += 10;
+        lv_timer_handler();
+    }
+}
+
+static void save_bmp(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    int row = UI_W * 3, size = 54 + row * UI_H;
+    uint8_t h[54] = {'B', 'M'};
+    memcpy(h + 2, &size, 4);
+    h[10] = 54; h[14] = 40;
+    int w = UI_W, hh = -UI_H;                       /* chieu cao am: tu tren xuong */
+    memcpy(h + 18, &w, 4); memcpy(h + 22, &hh, 4);
+    h[26] = 1; h[28] = 24;
+    fwrite(h, 1, 54, f);
+    for (int i = 0; i < UI_W * UI_H; i++) {
+        uint16_t c = fb[i];
+        uint8_t bgr[3] = {(uint8_t)((c & 0x1F) << 3), (uint8_t)(((c >> 5) & 0x3F) << 2), (uint8_t)((c >> 11) << 3)};
+        fwrite(bgr, 1, 3, f);
+    }
+    fclose(f);
+    printf("da luu %s\n", path);
+}
+
+int main(int argc, char **argv)
+{
+    const char *dir = argc > 1 ? argv[1] : ".";
+    char p[256];
+    lv_init();
+    lv_tick_set_cb(tick_cb);
+    lv_display_t *d = lv_display_create(UI_W, UI_H);
+    static uint16_t buf[UI_W * UI_H];
+    lv_display_set_buffers(d, buf, NULL, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_cb(d, flush_cb);
+
+    int force = argc > 2 ? (!strcmp(argv[2], "day") ? UI_MODE_DAY : UI_MODE_NIGHT) : -1;   /* ./preview out_ngay day */
+    if (force >= 0) ui_set_boot_night(force == UI_MODE_NIGHT);   /* tren board: main.c doc che do da luu */
+    lv_screen_load(ui_splash_create("v1.1", UI_SRC_WAZE));          /* man chao logo */
+    run(800);
+    snprintf(p, sizeof p, "%s/00_man_chao.bmp", dir); save_bmp(p);
+    run(1400);
+    snprintf(p, sizeof p, "%s/00b_man_chao_waze.bmp", dir); save_bmp(p);
+    lv_screen_load(ui_splash_create("v1.1", UI_SRC_GOFA));
+    run(2200);
+    snprintf(p, sizeof p, "%s/00c_man_chao_gofa.bmp", dir); save_bmp(p);
+
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);
+    dashboard_create(scr);
+    {                                               /* nut micro Mi Mi gia (ai.c khong chay tren PC) */
+        lv_obj_t *m = lv_obj_create(scr);
+        lv_obj_remove_style_all(m);
+        lv_obj_set_size(m, 24, 24);
+        lv_obj_set_style_radius(m, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(m, lv_color_hex(0x2A2550), 0);
+        lv_obj_set_style_bg_opa(m, LV_OPA_80, 0);
+        lv_obj_set_style_border_color(m, lv_color_hex(0x7C5CFF), 0);
+        lv_obj_set_style_border_width(m, 1, 0);
+        ui_set_mic_btn(m);
+    }
+    hlp_dash_init(NULL, NULL);                     /* tren board: link_init() goi */
+    obstacle_ui_init();                            /* tren board: usb_cam_start() goi */
+    ui_set_cam_hook(cam_open);
+    if (force >= 0) ui_set_mode(force);
+    run(400);
+
+    /* Man cho chua co gio + trang Wi-Fi */
+    ui_wifi_set_state(UI_WIFI_IDLE, NULL);
+    run(300);
+    snprintf(p, sizeof p, "%s/cho_1_chua_co_gio.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTING, "EVCar-Garage");
+    run(300);
+    snprintf(p, sizeof p, "%s/cho_2_tu_ket_noi.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_IDLE, "");
+    ui_open_wifi();
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_1_dang_do.bmp", dir); save_bmp(p);
+    {
+        ui_wifi_ap_t aps[5] = {{"iPhone của Kevin", -48, true, true}, {"EVCar-Garage", -60, true, true},
+                               {"VNPT_5G_A2F1", -72, true}, {"Highlands Coffee", -84, false}, {"", -50, true}};
+        ui_wifi_scan_done(aps, 5);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_2_danh_sach.bmp", dir); save_bmp(p);
+    ui_wifi_test_pass("iPhone của Kevin", "", true);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_3_mat_khau_loi.bmp", dir); save_bmp(p);
+    ui_wifi_test_pass("iPhone của Kevin", "evcar2026", false);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_4_mat_khau.bmp", dir); save_bmp(p);
+    ui_wifi_test_join();
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_5_dang_ket_noi.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTED, "iPhone của Kevin");
+    run(400);
+    snprintf(p, sizeof p, "%s/wifi_6_da_ket_noi.bmp", dir); save_bmp(p);
+    hlp_dash_set_clock(1793578500LL, 7 * 60, UI_TSRC_NTP);       /* 02/11/2026 07:15 (UTC+7) */
+    ui_set_weather(UI_WX_SUN, "TP. Hồ Chí Minh · 31°C · Nắng");
+    run(2400);
+    snprintf(p, sizeof p, "%s/cho_3_co_gio_wifi.bmp", dir); save_bmp(p);
+    ui_open_wifi();
+    ui_wifi_scan_done((ui_wifi_ap_t[]){{"iPhone của Kevin", -48, true}, {"EVCar-Garage", -60, true}}, 2);
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_7_da_luu.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_OFF, "");
+    run(300);
+    snprintf(p, sizeof p, "%s/wifi_8_tat.bmp", dir); save_bmp(p);
+    ui_wifi_set_state(UI_WIFI_CONNECTED, "iPhone của Kevin");
+    lv_obj_add_flag(lv_obj_get_child(lv_layer_top(), -1), LV_OBJ_FLAG_HIDDEN);
+    run(300);
+
+    /* Kich ban chay thu giong trang web (che do trinh dien): chup cuoi moi muc, khi chu ten muc da tat */
+    demo_start();                                   /* vao thang muc 1 (logo da chup o tren) */
+    for (int i = 1; demo_step_ms(i) > 0; i++) {
+        run(demo_step_ms(i) - 300);
+        snprintf(p, sizeof p, "%s/buoc_%02d.bmp", dir, i); save_bmp(p);
+        run(300);
+    }
+
+    demo_stop();
+    if (force >= 0) ui_set_mode(force);
+    run(400);
+    /* Man Cao toc + man Canh bao khong co o phu (khong co trong kich ban trinh dien) */
+    ui_set_signal(true);
+    ui_set_phone(true);
+    ui_set_waze(true);
+    run(300);
+    snprintf(p, sizeof p, "%s/ket_noi_waze.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "", 0);             /* dien thoai xac nhan khong dan duong: bo man dan duong giu tam (3 s) */
+    run(3600);
+    ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
+    ui_set_speed(112);
+    ui_set_speed_limit(120);
+    {
+        ui_alert_t a[3] = {{12, 24000, -1}, {19, 18000, -1}, {2, 2400, -1}};
+        ui_set_alerts(a, 3);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/cao_toc.bmp", dir); save_bmp(p);
+    ui_set_speed_limit(60);
+    ui_set_speed(72);
+    {
+        ui_alert_t a[1] = {{59, 250, -1}};
+        ui_set_alerts(a, 1);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/canh_bao_mot.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_alerts(NULL, 0);
+    ui_set_speed_limit(50);
+    ui_set_speed(68);
+    run(300);
+    snprintf(p, sizeof p, "%s/toc_do_vuot.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{1, 1200, -1}};
+        ui_set_speed(45);
+        ui_set_alerts(a, 1);
+    }
+    run(300);
+    snprintf(p, sizeof p, "%s/canh_bao_csgt.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{2, 300, -1}};
+        ui_set_speed(45);
+        ui_set_alerts(a, 1);
+    }
+    run(600);
+    snprintf(p, sizeof p, "%s/anim_0_co_dai.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    run(200);
+    snprintf(p, sizeof p, "%s/anim_1_giua.bmp", dir); save_bmp(p);
+    run(400);
+    snprintf(p, sizeof p, "%s/anim_2_an_dai.bmp", dir); save_bmp(p);
+    ui_set_speed(88);
+    ui_set_speed_limit(90);
+    run(300);
+    snprintf(p, sizeof p, "%s/so_88.bmp", dir); save_bmp(p);
+    ui_set_speed(68);
+    ui_set_speed_limit(50);
+    run(300);
+    snprintf(p, sizeof p, "%s/so_68.bmp", dir); save_bmp(p);
+    ui_set_speed(45);
+    ui_set_speed_limit(50);
+    run(300);
+    ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'N');
+    run(600);
+    snprintf(p, sizeof p, "%s/tram_sac.bmp", dir); save_bmp(p);
+    ui_set_waze(false);
+    ui_set_station("Vincom Center Đồng Khởi - VinFast", 590, '?', UI_TS_NO_ANGLE, 0, 0, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich_gps.bmp", dir); save_bmp(p);
+    ui_set_waze(true);
+    ui_set_station("VinFast Vincom Thảo Điền", 850, 'R', 35, 60, 4, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich.bmp", dir); save_bmp(p);
+    ui_set_station("VinFast Vincom Thảo Điền", 1800, 'L', -95, 60, 4, 12, 'D');
+    run(800);
+    snprintf(p, sizeof p, "%s/tram_sac_dich_xa.bmp", dir); save_bmp(p);
+    ui_set_station("VinFast Vincom Thảo Điền", 20, 'R', 80, 60, 4, 12, 'D');
+    run(600);
+    snprintf(p, sizeof p, "%s/den_noi_tram.bmp", dir); save_bmp(p);
+    lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_layer_top(), -1), -1), LV_EVENT_CLICKED, NULL);
+    ui_set_station(NULL, 0, '?', UI_TS_NO_ANGLE, 0, 0, 0, 'N');
+    run(600);
+    ui_set_nav(true, 2, 2500, 0, "Nguyễn Hữu Thọ", 0);
+    ui_set_route("20:05", 6500, 18);
+    run(300);
+    snprintf(p, sizeof p, "%s/re_xa.bmp", dir); save_bmp(p);
+    ui_set_nav(true, 2, 600, 0, "Nguyễn Hữu Thọ", 0);
+    run(600);
+    snprintf(p, sizeof p, "%s/re_gan.bmp", dir); save_bmp(p);
+    ui_set_nav(true, 0, -1, 0, "Đi đến đường được chỉ dẫn", 0);   /* co lo trinh, dien thoai chua co GPS */
+    ui_set_route("14:39", 8200, 21);
+    run(6000);
+    snprintf(p, sizeof p, "%s/cho_gps.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "", 0);
+    run(4000);
+    ui_set_nav(true, 0, -1, 0, "Đi đến đường được chỉ dẫn", 0);
+    ui_set_route("14:39", 8200, 21);
+    run(600);
+    snprintf(p, sizeof p, "%s/cho_gps_moi.bmp", dir); save_bmp(p);
+    ui_set_nav(true, 2, 2500, 0, "Nguyễn Hữu Thọ", 0);
+    ui_set_route("20:05", 6500, 18);
+    run(600);
+    {                                               /* kieu C: co canh bao -> hang day len, dai vao cho day */
+        ui_alert_t a[1] = {{2, 300, -1}};
+        ui_set_alerts(a, 1);
+    }
+    run(200);
+    snprintf(p, sizeof p, "%s/re_canh_bao_giua.bmp", dir); save_bmp(p);
+    run(500);
+    snprintf(p, sizeof p, "%s/re_canh_bao.bmp", dir); save_bmp(p);
+    ui_set_speed(104);
+    ui_set_speed_limit(100);
+    run(300);
+    snprintf(p, sizeof p, "%s/re_canh_bao_3so.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    run(200);
+    snprintf(p, sizeof p, "%s/re_qua_canh_bao_giua.bmp", dir); save_bmp(p);
+    run(500);
+    snprintf(p, sizeof p, "%s/re_3so.bmp", dir); save_bmp(p);
+    /* Canh bao vat can (phuong an E): o vat can de len cho bien, bien nho o goc */
+    obstacle_ui_set(OBS_CAUTION, DET_CLS_CAR, 19, 2.7f, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/vc_1_re_3so_chu_y.bmp", dir); save_bmp(p);
+    ui_set_speed(58);
+    ui_set_speed_limit(60);
+    run(700);
+    snprintf(p, sizeof p, "%s/vc_2_re_chu_y.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{2, 300, -1}};
+        ui_set_alerts(a, 1);
+    }
+    obstacle_ui_set(OBS_DANGER, DET_CLS_TWO, 9, 1.6f, false);
+    run(700);
+    snprintf(p, sizeof p, "%s/vc_3_re_canh_bao_nguy_hiem.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    run(3600);
+    obstacle_ui_set(OBS_CAUTION, DET_CLS_PERSON, 14, 0, false);
+    run(500);
+    snprintf(p, sizeof p, "%s/vc_4_chay_nguoi.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_DANGER, DET_CLS_CAR, 11, 1.6f, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/vc_5_chay_nguy_hiem.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_CRITICAL, DET_CLS_CAR, 6, 1.1f, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/vc_6_khan_cap.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
+    run(800);
+    obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/vc_7_het.bmp", dir); save_bmp(p);
+    /* camera rut ra giua luc dang bao (khong ai cap nhat nua): phai tu tat, khong kêu mai */
+    obstacle_ui_set(OBS_DANGER, DET_CLS_CAR, 9, 1.8f, false);
+    run(300);
+    run(2000);
+    printf("sau 2 s khong cap nhat: muc %d (0 = da tat)\n", obstacle_ui_level());
+    /* xADAS HUD Link: chip so met tren thanh tren; gan -> o vang, qua gan -> o do (de len cho bien) */
+    ui_set_speed(72);
+    ui_set_speed_limit(80);
+    ui_set_nav(true, 2, 850, 0, "Nguyễn Văn Linh", 0);
+    xa(1, 1, 0, 72, 68, 55);
+    run(400);
+    snprintf(p, sizeof p, "%s/xa_1_an_toan.bmp", dir); save_bmp(p);
+    xa(1, 2, 0, 72, 57, 55);
+    run(400);
+    snprintf(p, sizeof p, "%s/xa_2_gan.bmp", dir); save_bmp(p);
+    xa(1, 3, 0, 72, 42, 55);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_3_qua_gan.bmp", dir); save_bmp(p);
+    /* 16/11 toi: xADAS + dan duong + canh bao: canh bao gop vao o cuoi hang day, o xADAS giu to */
+    ui_set_route("17:36", 2900, 12);
+    {
+        ui_alert_t a[1] = {{3, 1500, -1}};
+        ui_set_alerts(a, 1);
+    }
+    xa(1, 1, 0, 72, 68, 55);
+    run(900);
+    snprintf(p, sizeof p, "%s/xn_1_an_toan_canh_bao.bmp", dir); save_bmp(p);
+    xa(1, 2, 0, 72, 57, 55);
+    run(300);
+    snprintf(p, sizeof p, "%s/xn_2_gan_canh_bao.bmp", dir); save_bmp(p);
+    xa(1, 3, 0, 72, 42, 55);
+    run(150);
+    snprintf(p, sizeof p, "%s/xn_3_qua_gan_canh_bao.bmp", dir); save_bmp(p);
+    xa(0, 0, 0, 0, 0xFFFF, 0xFFFF);
+    run(300);
+    snprintf(p, sizeof p, "%s/xn_4_cho_do.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    xa(1, 1, 0, 72, 68, 55);
+    run(900);
+    snprintf(p, sizeof p, "%s/xn_5_khong_canh_bao.bmp", dir); save_bmp(p);
+    ui_set_mode(UI_MODE_DAY);                       /* ban ngay */
+    run(900);
+    snprintf(p, sizeof p, "%s/xn_6_ngay_khong_canh_bao.bmp", dir); save_bmp(p);
+    {
+        ui_alert_t a[1] = {{3, 1500, -1}};
+        ui_set_alerts(a, 1);
+    }
+    run(900);
+    snprintf(p, sizeof p, "%s/xn_7_ngay_canh_bao.bmp", dir); save_bmp(p);
+    xa(1, 2, 0, 72, 57, 55);
+    run(300);
+    snprintf(p, sizeof p, "%s/xn_8_ngay_gan_canh_bao.bmp", dir); save_bmp(p);
+    xa(0, 0, 0, 0, 0xFFFF, 0xFFFF);
+    run(300);
+    snprintf(p, sizeof p, "%s/xn_9_ngay_cho_do.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    ui_set_mode(UI_MODE_AUTO);
+    run(900);
+    xa(1, 4, 0, 255, 30, 0xFFFF);
+    run(800);
+    snprintf(p, sizeof p, "%s/xa_4_mat_gps.bmp", dir); save_bmp(p);
+    xa(3, 0, 0, 72, 0xFFFF, 0xFFFF);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_5_may_nong.bmp", dir); save_bmp(p);
+    run(3200);
+    snprintf(p, sizeof p, "%s/xa_6_mat_tin_hieu.bmp", dir); save_bmp(p);
+    ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
+    ui_set_speed(96);
+    ui_set_speed_limit(120);
+    xa(1, 1, 0, 96, 92, 70);
+    run(1200);
+    snprintf(p, sizeof p, "%s/xa_7_cao_toc_an_toan.bmp", dir); save_bmp(p);
+    xa(1, 3, 0, 96, 48, 70);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_8_cao_toc_qua_gan.bmp", dir); save_bmp(p);
+    if (getenv("REPLAY")) {                          /* REPLAY=goi.txt: moi dong "km/h<TAB>goi A1", 10 dong/giay -> r_00000.bmp */
+        FILE *rf = fopen(getenv("REPLAY"), "r");
+        char ln[160];
+        int k = 0;
+        while (rf && fgets(ln, sizeof ln, rf)) {
+            char *tab = strchr(ln, '\t');
+            if (!tab) continue;
+            char *pkt = tab + 1;
+            pkt[strcspn(pkt, "\r\n")] = 0;
+            ui_set_speed(atoi(ln));
+            phone_adas_t pa;
+            xadas_frame_t f;
+            if (phone_adas_parse(pkt, strlen(pkt), &pa)) {
+                phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &f);
+                obstacle_ui_phone(&f, pa.ldw, pa.pl > 50 && pa.pr > 50, pa.level >= 3);
+            }
+            run(100);
+            snprintf(p, sizeof p, "%s/r_%05d.bmp", dir, k++); save_bmp(p);
+        }
+        if (rf) fclose(rf);
+        return 0;
+    }
+    {                                               /* 17/11: app Lan tren dien thoai (goi A1, phone_adas.c) */
+        static const char *pk[] = {
+            "A1|-|3|98|97|74|-2|0|0|96|0",          /* an toan, thay 2 vach */
+            "A1|L|-62|95|93|74|-2|0|0|96|0",        /* lan lan trai */
+            "A1|-|5|96|96|52|-8|0|1|96|0",          /* gan hon TT38 (70 m) */
+            "A1|-|0|90|91|21|-60|13|3|96|0",        /* PHANH */
+            "A1|-|0|0|0|0|0|0|0|0|1",               /* xe do: AI dung */
+        };
+        static const char *nm[] = {"dt_1_an_toan", "dt_2_lan_lan_trai", "dt_3_gan", "dt_4_phanh", "dt_5_xe_do"};
+        for (int i = 0; i < 5; i++) {
+            phone_adas_t pa;
+            xadas_frame_t f;
+            phone_adas_parse(pk[i], strlen(pk[i]), &pa);
+            phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &f);
+            obstacle_ui_phone(&f, pa.ldw, pa.pl > 50 && pa.pr > 50, pa.level >= 3);
+            run(i == 1 ? 60 : 300);
+            snprintf(p, sizeof p, "%s/%s.bmp", dir, nm[i]); save_bmp(p);
+        }
+        obstacle_ui_phone(NULL, '-', false, false);
+        run(300);
+    }
+    if (getenv("TLSTOP")) {                         /* 24/11: dung den do 60 s khong dan duong (truoc: 30 s la ve man cho, mat den) */
+        int nosig = atoi(getenv("TLSTOP")) == 2;    /* 2: Waze/GOFA khong noi HUD */
+        if (nosig) { hlp_dash_on_disconnect(); ui_set_nav(false, 0, -1, 0, "", 0); run(4000); }
+        if (nosig && getenv("TLSHOT")) { snprintf(p, sizeof p, "%s/lane_0_cho_truoc.bmp", dir); save_bmp(p); }
+        ui_set_mode(UI_MODE_NIGHT);
+        ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+        ui_set_speed_limit(50);
+        int k = 0;
+        for (int f = 0; f < 80; f++) {              /* 1 hinh / giay, 80 s */
+            int v = f < 3 ? 20 - 7 * f : f < 64 ? 0 : (f - 64) * 4;
+            if (v < 0) v = 0;
+            char a1[64];
+            if (v < 1) snprintf(a1, sizeof a1, "A1|-|0|0|0|0|0|0|0|0|1");
+            else snprintf(a1, sizeof a1, "A1|-|2|96|95|%d|0|0|0|%d|0", 8 + v / 2, v);
+            phone_adas_t pa;
+            xadas_frame_t xf;
+            phone_adas_parse(a1, strlen(a1), &pa);
+            phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &xf);
+            for (int j = 0; j < 10; j++) {
+                obstacle_ui_phone(&xf, pa.ldw, pa.pl > 50 && pa.pr > 50, false);
+                if (!nosig) ui_set_speed(v);
+                else hlp_dash_lane(v);                  /* chi co app LANE: A1 lam nguon (phone_adas.c) */
+                run(100);
+            }
+            if (f < 62) obstacle_ui_tlight('R', 62 - f);
+            else if (f < 76) obstacle_ui_tlight('G', 30 - (f - 62));
+            snprintf(p, sizeof p, "%s/st_%05d.bmp", dir, k++); save_bmp(p);
+        }
+        return 0;
+    }
+    if (getenv("TLVIDEO")) {                        /* 23/11: den giao thong (goi T1): kich ban dung den do -> xanh, 10 hinh/giay */
+        int style = atoi(getenv("TLVIDEO"));
+        obstacle_ui_tlight_style(style);
+        ui_set_mode(getenv("TLDAY") ? UI_MODE_DAY : UI_MODE_NIGHT);
+        ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+        ui_set_speed_limit(50);
+        int k = 0;
+        for (int f = 0; f < 200; f++) {             /* 20 s */
+            double t = f / 10.0;
+            int v = t < 4 ? (int)(32 - 8 * t) : t < 13 ? 0 : t < 18 ? (int)((t - 13) * 8) : 40;
+            if (v < 0) v = 0;
+            char a1[64];
+            if (v < 1) snprintf(a1, sizeof a1, "A1|-|0|0|0|0|0|0|0|0|1");
+            else snprintf(a1, sizeof a1, "A1|-|2|96|95|%d|0|0|0|%d|0", 8 + v / 2, v);
+            phone_adas_t pa;
+            xadas_frame_t xf;
+            phone_adas_parse(a1, strlen(a1), &pa);
+            phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &xf);
+            obstacle_ui_phone(&xf, pa.ldw, pa.pl > 50 && pa.pr > 50, false);
+            ui_set_speed(v);
+            if (f % 10 == 0) {                      /* app gui 1 goi/giay */
+                int sec = 15 - (int)t;              /* do: 15 .. 3 .. 0 */
+                if (t < 13) obstacle_ui_tlight('R', t < 1 ? -1 : sec < 0 ? 0 : sec);
+                else if (t < 18) obstacle_ui_tlight('G', 25 - (int)(t - 13));
+            }
+            run(100);
+            snprintf(p, sizeof p, "%s/tl_%05d.bmp", dir, k++); save_bmp(p);
+        }
+        return 0;
+    }
+    {                                               /* 23/11: den giao thong tu app LANE (goi T1) */
+        static const struct { char c; int s; int v; const char *a1; const char *nm; } sc[] = {
+            {'R', 24, 0, "A1|-|0|0|0|0|0|0|0|0|1", "tl_1_do_24"},
+            {'R', 3, 0, "A1|-|0|0|0|0|0|0|0|0|1", "tl_2_do_sap_het"},
+            {'G', 18, 12, "A1|-|2|96|95|14|0|0|0|12|0", "tl_3_xanh_18"},
+            {'Y', 3, 18, "A1|-|2|96|95|20|0|0|0|18|0", "tl_4_vang_3"},
+            {'R', -1, 20, "A1|-|2|96|95|30|0|0|0|20|0", "tl_5_do_khong_so"},
+        };
+        ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+        ui_set_speed_limit(50);
+        for (int md = 0; md < 4; md++) {
+            int st = md % 2 + 1;
+            ui_set_mode(md < 2 ? UI_MODE_NIGHT : UI_MODE_DAY);
+            obstacle_ui_tlight_style(st);
+            for (int i = 0; i < 5; i++) {
+                phone_adas_t pa;
+                xadas_frame_t f;
+                phone_adas_parse(sc[i].a1, strlen(sc[i].a1), &pa);
+                phone_adas_to_xadas(&pa, adas_feed_legal_m(pa.kmh), &f);
+                obstacle_ui_phone(&f, pa.ldw, pa.pl > 50 && pa.pr > 50, false);
+                ui_set_speed(sc[i].v);
+                obstacle_ui_tlight(sc[i].c, sc[i].s);
+                run(500);
+                snprintf(p, sizeof p, "%s/pa%d_%s_%s.bmp", dir, st, sc[i].nm, md < 2 ? "dem" : "ngay"); save_bmp(p);
+            }
+            ui_set_nav(true, 3, 350, 0, "Nguyễn Văn Linh", 0);    /* co dan duong: the bien chia doi */
+            ui_set_route("06:42", 4200, 9);
+            obstacle_ui_tlight('R', 24);
+            ui_set_speed(0);
+            run(800);
+            snprintf(p, sizeof p, "%s/pa%d_tl_6_dan_duong_%s.bmp", dir, st, md < 2 ? "dem" : "ngay"); save_bmp(p);
+            ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+            run(3600);
+        }
+        obstacle_ui_tlight(0, -1);
+        obstacle_ui_tlight_style(1);
+        ui_set_mode(UI_MODE_AUTO);
+        obstacle_ui_phone(NULL, '-', false, false);
+        run(300);
+    }
+    {                                               /* 18/11: app Lan dan theo tuyen (goi D1), co va khong co Waze */
+        static const char *pk[] = {
+            "D1|3|350|0|4200|9|06:42|Nguyễn Văn Linh",
+            "D1|11|120|2|2600|6|06:42|Đường Tân Mỹ",
+            "D1|17|180|0|180|1|06:42|VinFast Lotte Mart Q7",
+            "D1|17|20|0|20|1|06:42|VinFast Lotte Mart Q7",
+        };
+        static const char *nm[] = {"pn_1_re_phai", "pn_2_vong_xuyen", "pn_3_sap_toi_tram", "pn_4_da_den"};
+        ui_set_speed(42);
+        ui_set_speed_limit(50);
+        for (int i = 0; i < 4; i++) {
+            phone_nav_t nv;
+            phone_nav_parse(pk[i], strlen(pk[i]), &nv);
+            ui_phone_nav(nv.on, nv.turn, nv.dist_m, nv.exit_n, nv.remain_m, nv.remain_min, nv.eta, nv.street);
+            run(600);
+            snprintf(p, sizeof p, "%s/%s.bmp", dir, nm[i]); save_bmp(p);
+        }
+        ui_phone_nav(false, 0, -1, 0, 0, 0, "", "");
+        run(300);
+    }
+    ui_cam_state(true);                             /* 16/11: cam camera USB -> camera uu tien, bo xADAS */
+    obstacle_ui_cam(true);
+    ui_cam_status(UI_CAM_OK);
+    xa(1, 1, 2, 96, 25, 70);                        /* khung xADAS bi bo qua */
+    obstacle_ui_set(OBS_NONE, DET_CLS_CAR, 0, 0, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_9a_cam_chua_thay_xe.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_NONE, DET_CLS_CAR, 92, 0, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_9b_cam_an_toan.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_CAUTION, DET_CLS_CAR, 58, 0, false);
+    run(300);
+    snprintf(p, sizeof p, "%s/xa_9c_cam_gan.bmp", dir); save_bmp(p);
+    obstacle_ui_set(OBS_DANGER, DET_CLS_CAR, 31, 0, false);
+    run(150);
+    snprintf(p, sizeof p, "%s/xa_9d_cam_qua_gan.bmp", dir); save_bmp(p);
+    obstacle_ui_clear();
+    ui_cam_state(false);
+    obstacle_ui_cam(false);
+    run(3600);                                      /* het giu dan duong: man Cao toc that */
+    {
+        ui_alert_t a2[2] = {{20, 5200, -1}, {19, 18000, -1}};
+        ui_set_alerts(a2, 2);
+    }
+    xa(1, 1, 0, 96, 92, 70);
+    run(900);
+    snprintf(p, sizeof p, "%s/xa_10_cao_toc_ct.bmp", dir); save_bmp(p);
+    xa(0, 0, 0, 96, 0xFFFF, 0xFFFF);
+    obstacle_ui_xadas(NULL);
+    run(300);
+    snprintf(p, sizeof p, "%s/cao_toc_ct.bmp", dir); save_bmp(p);
+    ui_set_alerts(NULL, 0);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_speed(58);
+    ui_set_speed_limit(60);
+    run(3600);
+    ui_cam_state(true);
+    obstacle_ui_cam(true);
+    ui_cam_status(UI_CAM_CALIB);
+    ui_toast("Đã nhận camera · xem ảnh: Cài đặt › Hiển thị");
+    run(300);
+    snprintf(p, sizeof p, "%s/cam_1_da_nhan.bmp", dir); save_bmp(p);
+    run(2500);
+    snprintf(p, sizeof p, "%s/cam_2_dang_chinh.bmp", dir); save_bmp(p);
+    ui_cam_status(UI_CAM_OK);
+    run(300);
+    snprintf(p, sizeof p, "%s/cam_3_san_sang.bmp", dir); save_bmp(p);
+    ui_cam_status(UI_CAM_ERR);
+    run(300);
+    snprintf(p, sizeof p, "%s/cam_4_loi.bmp", dir); save_bmp(p);
+    ui_cam_status(UI_CAM_OK);
+    obstacle_ui_set(OBS_CAUTION, DET_CLS_CAR, 18, 0, false);   /* doi man khi dang co o vat can: bien khong duoc lo ra */
+    run(400);
+    ui_set_nav(false, 0, -1, 0, "Cao tốc TP.HCM – Long Thành", 0);
+    ui_set_speed(88);
+    ui_set_speed_limit(80);
+    for (int k = 0; k < 4; k++) {
+        run(150);
+        snprintf(p, sizeof p, "%s/vc_8_doi_man_%d.bmp", dir, k); save_bmp(p);
+    }
+    obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
+    run(800);
+    obstacle_ui_set(OBS_NONE, 0, 0, 0, false);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_speed(58);
+    ui_set_speed_limit(60);
+    run(3600);
+    ui_set_speed(45);
+    ui_set_speed_limit(50);
+    ui_set_nav(false, 0, -1, 0, "Nguyễn Văn Linh", 0);
+    ui_set_alerts(NULL, 0);
+    ui_set_signal(false);
+    ui_set_phone(false);
+    run(300);
+    /* Nut BOOT trong cai dat: 1 lan = muc ke (khung vang), 2 lan = chon */
+    /* Gia lap app Gofa: ban tin protobuf giong tai lieu (so truong = thu tu trong bang) */
+    ui_set_source(UI_SRC_GOFA);
+    run(300);
+    snprintf(p, sizeof p, "%s/gofa_cho_chua_noi.bmp", dir); save_bmp(p);   /* o GOFA xam: chua noi dien thoai */
+    gofa_connected(true);
+    run(2600);                                      /* het man "Da ket noi dien thoai" */
+    {
+        char sum[96];
+        static const uint8_t tm[] = {0x0A, 0x06, 0x08, 14, 0x10, 5, 0x18, 9};
+        static const uint8_t spd[] = {0x08, 45};
+        static const uint8_t sg[] = {0x08, 5, 0x10, 33, 0x18, 0xAC, 0x02};
+        uint8_t nav[96];
+        size_t n = 0;
+        const char *a = "Mai Chí Thọ", *b = "Đồng Văn Cống";
+        nav[n++] = 0x08; nav[n++] = 2;
+        nav[n++] = 0x12; nav[n++] = (uint8_t)strlen(a); memcpy(nav + n, a, strlen(a)); n += strlen(a);
+        nav[n++] = 0x1A; nav[n++] = (uint8_t)strlen(b); memcpy(nav + n, b, strlen(b)); n += strlen(b);
+        nav[n++] = 0x20; nav[n++] = 4; nav[n++] = 0x28; nav[n++] = 0x96; nav[n++] = 0x01;
+        gofa_handle(GOFA_CHR_TIME, tm, sizeof tm, sum, sizeof sum); printf("%s\n", sum);
+        gofa_handle(GOFA_CHR_SPEED, spd, sizeof spd, sum, sizeof sum); printf("%s\n", sum);
+        gofa_handle(GOFA_CHR_SIGN, sg, sizeof sg, sum, sizeof sum); printf("%s\n", sum);
+        run(300);
+        snprintf(p, sizeof p, "%s/gofa_cruise.bmp", dir); save_bmp(p);
+        gofa_handle(GOFA_CHR_NAV, nav, n, sum, sizeof sum); printf("%s\n", sum);
+        char last[160];
+        snprintf(last, sizeof last, "%s\n08 02 12 0E 4D 61 69 20", sum);
+        ui_gofa_debug("GOFA: đang nhận dữ liệu", last);
+        run(300);
+        snprintf(p, sizeof p, "%s/gofa_nav.bmp", dir); save_bmp(p);
+        static const uint8_t off[] = {0x08, 0};
+        gofa_handle(GOFA_CHR_NAV, off, sizeof off, sum, sizeof sum);
+        gofa_connected(false);
+        run(7000);
+    }
+    ui_set_source(UI_SRC_WAZE);
+    ui_set_mac("A0:B7:65:2C:4F:A6");
+    ui_open_settings();
+    static const int keys[] = {UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_OK, UI_KEY_NEXT, UI_KEY_OK, UI_KEY_NEXT, UI_KEY_NEXT, UI_KEY_OK};
+    for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
+        ui_settings_key(keys[i]);
+        run(200);
+        snprintf(p, sizeof p, "%s/nut_%02d.bmp", dir, (int)i); save_bmp(p);
+    }
+    ui_settings_key(UI_KEY_OK);
+    run(200);
+    snprintf(p, sizeof p, "%s/nut_99.bmp", dir); save_bmp(p);
+    /* tung trang cai dat + man "Da chon GOFA" */
+    for (int pg = 0; pg < 4; pg++) {
+        ui_open_settings_page(pg);
+        run(200);
+        snprintf(p, sizeof p, "%s/cai_dat_%d.bmp", dir, pg); save_bmp(p);
+    }
+    ui_cam_state(false);
+    ui_cam_note("Lỗi camera: thấy camera, thiếu RAM · RAM còn 41K");
+    ui_open_settings_page(0);
+    run(200);
+    snprintf(p, sizeof p, "%s/cai_dat_cam_loi.bmp", dir); save_bmp(p);
+    ui_cam_note("");
+    ui_test_switch(UI_SRC_GOFA);
+    run(200);
+    snprintf(p, sizeof p, "%s/cai_dat_doi_nguon.bmp", dir); save_bmp(p);
+    /* cap nhat firmware (OTA): trang He thong co ban moi + cac trang thai man cap nhat */
+    ui_set_version("1.0.0");
+    ui_ota_badge("1.1.0");
+    ui_open_settings_page(3);
+    run(200);
+    snprintf(p, sizeof p, "%s/ota_he_thong.bmp", dir); save_bmp(p);
+    ui_open_ota();
+    static const ui_ota_view_t vs[] = {
+        {.tone = UI_OTA_INFO, .title = "Phiên bản đang chạy 1.0.0", .pct = -1,
+         .detail = "Kiểm tra bản mới trên máy chủ EVCarHUD qua Wi-Fi.\nHoặc tải file .bin lên từ trình duyệt trên điện thoại / máy tính cùng mạng Wi-Fi.",
+         .btn_a = "Kiểm tra bản mới", .act_a = UI_OTA_ACT_CHECK, .btn_b = "Tải lên từ trình duyệt", .act_b = UI_OTA_ACT_WEB},
+        {.tone = UI_OTA_NEW, .title = "Có bản mới 1.1.0", .pct = -1,
+         .detail = "Đang chạy 1.0.0 · nhanh chậm tùy mạng Wi-Fi của HUD.\nCảnh báo vật cản cao tốc, sửa lỗi GOFA\nNên cập nhật khi xe đứng yên, không tắt nguồn HUD.",
+         .btn_a = "Cập nhật ngay", .act_a = UI_OTA_ACT_INSTALL, .btn_b = "Để sau", .act_b = UI_OTA_ACT_CLOSE},
+        {.tone = UI_OTA_BUSY, .title = "Đang tải và ghi bản mới…", .pct = 45, .lock = true,
+         .detail = "2118 / 4706 KB · không tắt nguồn HUD"},
+        {.tone = UI_OTA_INFO, .title = "Mở trình duyệt, vào địa chỉ:", .big = "http://192.168.43.27", .pct = -1,
+         .detail = "Mã xác nhận  4821\nĐiện thoại / máy tính phải cùng mạng Wi-Fi với HUD. Chọn file .bin (file gộp hoặc app-0x10000 đều được). Tự tắt sau 10 phút.",
+         .btn_b = "Dừng", .act_b = UI_OTA_ACT_WEB_STOP},
+        {.tone = UI_OTA_OK, .title = "Đã cài bản 1.1.0", .pct = 100, .lock = true,
+         .detail = "Khởi động lại sau 3 giây…\nBản mới lỗi thì HUD tự quay về bản cũ."},
+        {.tone = UI_OTA_FAIL, .title = "Không cập nhật được", .pct = -1,
+         .detail = "HUD chưa đăng ký: nạp lần đầu qua evcarhud.com/account\nHUD vẫn chạy bản 1.0.0.",
+         .btn_a = "Thử lại", .act_a = UI_OTA_ACT_CHECK, .btn_b = "Tải lên từ trình duyệt", .act_b = UI_OTA_ACT_WEB},
+        {.tone = UI_OTA_INFO, .title = "Đang kiểm tra bản mới…", .pct = -1, .spin = true, .detail = "Phiên bản đang chạy 1.0.0"},
+    };
+    static const char *const names[] = {"mo", "co_ban_moi", "dang_tai", "trinh_duyet", "xong", "loi", "dang_kiem_tra"};
+    for (int i = 0; i < 7; i++) {
+        ui_ota_view(&vs[i]);
+        run(300);
+        snprintf(p, sizeof p, "%s/ota_%s.bmp", dir, names[i]); save_bmp(p);
+    }
+    return 0;
+}

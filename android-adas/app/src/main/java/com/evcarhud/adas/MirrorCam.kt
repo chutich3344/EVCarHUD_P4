@@ -1,0 +1,534 @@
+package com.evcarhud.adas
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.SystemClock
+import android.util.Log
+import android.util.Size
+import android.view.Surface
+import org.bytedeco.ffmpeg.global.avutil
+import org.bytedeco.ffmpeg.global.swscale
+import org.bytedeco.javacv.FFmpegFrameGrabber
+import org.bytedeco.javacv.Frame
+import org.bytedeco.javacv.FrameGrabber
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.ByteBuffer
+
+/**
+ * Cam guong Wi-Fi (app hang "rearview_wifi", Sinjet): API http://192.168.5.1:8000/app/...,
+ * goi app/enterrecorder thi cam mo RTSP rtsp://192.168.5.1:554 (KHONG path).
+ * 70mai: rtsp://192.168.0.1:554/livestream/12 sau khi dang ky client.cgi.
+ *
+ * 20/11: VLC KHONG giai ma noi luong cam nay tren chip may (Vout=0 ca giai ma phan cung lan phan mem,
+ * du da co du lieu buf=45-100%). Chuyen sang **ffmpeg truc tiep (JavaCV FFmpegFrameGrabber)** — DUNG
+ * engine app hang (media_kit = mpv/ffmpeg) chay UDP on dinh. ffmpeg giai ma -> BGR24 1280x720 ->
+ * doi sang YUV (I420) -> cung duong onFrame(YuvFrame) nhu camera dien thoai.
+ * Goc nhin: 3 clip 4K 17/11 khop f ~ 520 px o ngang 1280.
+ */
+class MirrorCam(
+    private val ctx: Context,
+    private val onFrame: (YuvFrame) -> Unit,
+    private val onErr: (String) -> Unit,
+    private val onSize: () -> Unit,
+    private val log: (String) -> Unit = {},
+    /** "mirror" = cam guong Sinjet (goi API :8000 truoc), "70mai" = cam 70mai (RTSP /livestream/12, 192.168.0.1). */
+    private val kind: String = "mirror",
+    /** true = 1080p (net hon, nong + tre hon), false = 720p (mat, muot, do tre). AI tu thu nho nen 720p khong giam do chinh xac. */
+    private val hd: Boolean = false,
+) : FrameSource {
+    private val is70 = kind == "70mai"
+    private val HOST = if (is70) "192.168.0.1" else "192.168.5.1"
+    private val paths70 = listOf("/livestream/12", "/livestream/11", "/livestream/1", "/live")
+
+    // Nguon cam 4K -> ffmpeg scale ve do phan giai chon: 1080p net / 720p mat + do tre + nhe giai ma.
+    private val W = if (hd) 1920 else 1280
+    private val H = if (hd) 1080 else 720
+
+    @Volatile private var want = false
+    @Volatile private var grabber: FFmpegFrameGrabber? = null
+    private var worker: Thread? = null
+    private var retry = 0
+    @Volatile private var frames = 0
+    @Volatile private var gotFrame = false
+    @Volatile private var lastFrameAt = 0L      // lan cuoi grabImage ra khung (watchdog đứng hình)
+    // 70mai: nho luong (udp/path) da ra khung de uu tien, khoi do lai tu dau moi lan noi lai
+    @Volatile private var goodUdp: Boolean? = null
+    @Volatile private var goodPath = -1
+    private var goodFail = 0
+    private var curUdp = false
+    private var curPath = 0
+    private var watch: Thread? = null
+    private var frAt = 0L
+    // 70mai: da register thanh cong chua. true -> noi lai luong KHONG register nua (khoi keu "ting"), chi kiem mang.
+    @Volatile private var registered70 = false
+    // Thong ke VOT khung (cam guong giam tre): tong so khung da vot + so chu ky, log trung binh moi ~3s.
+    private var drainSum = 0
+    private var drainCyc = 0
+    private var drainLogAt = 0L
+
+    // 2 bo dem I420 luan phien (buffer chi can hop le trong luc goi onFrame dong bo)
+    private val i420 = arrayOf(
+        ByteBuffer.allocateDirect(W * H * 3 / 2),
+        ByteBuffer.allocateDirect(W * H * 3 / 2),
+    )
+    private var bufI = 0
+
+    override val size: Size get() = Size(W, H)
+    // 70mai: ong kinh mat ca goc rong -> tieu cu equidistant (f = 1262 px o ngang 2880 = 0.438*W,
+    //   kiem bang openpilot tren clip 70mai that: pose/cu ly ve dung). Cam guong: pinhole ~520 px o 1280.
+    override val focalPx: Double get() = (if (is70) 561.0 else 520.0) * W / 1280.0
+    override val fisheye: Boolean get() = is70
+    override val focalSrc = if (is70) "cam 70mai mắt cá" else "cam gương Wi-Fi"
+    override val flip = false
+    override val isOpen get() = want
+    @Volatile var status = "chưa mở"
+
+    private fun traceStr(udp: Boolean) = "FFMPEG[${if (udp) "UDP" else "TCP"} khung=$frames ${W}x$H]"
+
+    // Cam Wi-Fi KHONG co internet -> he dieu hanh de luong mac dinh ra 5G, socket native cua ffmpeg
+    // khong ra duoc cam (-101 ENETUNREACH) du da bindProcessToNetwork. Phai XIN rieng mang Wi-Fi
+    // KHONG yeu cau NET_CAPABILITY_INTERNET (requestNetwork), cho onAvailable, roi bam ca tien trinh
+    // vao mang do va GIU callback (buong callback = mat mang). Bam lai ngay truoc khi mo ffmpeg.
+    private val cm get() = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    @Volatile private var camNet: Network? = null
+    @Volatile private var bound = false
+    private var netCb: ConnectivityManager.NetworkCallback? = null
+
+    private val netLock = Object()
+
+    /** Xin mang Wi-Fi cam (khong internet), cho co mang <=timeoutMs, bam tien trinh. Tra Network hoac null.
+     *  Dung Wi-Fi may DANG NOI san (user tu chon Wi-Fi cam), requestNetwork thuong cho CA 2 cam.
+     *  KHONG dung WifiNetworkSpecifier: mang specifier (local-only) KHONG dinh tuyen duoc socket native cua
+     *  ffmpeg qua bindProcessToNetwork -> ca register HTTP lan RTSP deu ENONET (-64) (da thu 0.1.105, teo han).
+     *  Chong nhay mang = viec nguoi dung (quen Wi-Fi nha / tat tu doi mang) — app chi lo khong dap nham router. */
+    private fun acquireCamNet(timeoutMs: Long): Network? {
+        camNet?.let { return it }
+        if (netCb == null) {
+            val b = NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(n: Network) {
+                    synchronized(netLock) {
+                        camNet = n
+                        try { cm.bindProcessToNetwork(n); bound = true; log("bám mạng Wi-Fi cam ip=${myIp(n)} ${wifiInfo(n)}") }
+                        catch (e: Exception) { log("bind net lỗi ${e.javaClass.simpleName}") }
+                        netLock.notifyAll()
+                    }
+                }
+                override fun onLost(n: Network) {
+                    synchronized(netLock) { if (camNet == n) { camNet = null; bound = false } }
+                }
+                override fun onUnavailable() {
+                    // 70mai: specifier bi tu choi / het han -> go callback de vong sau xin lai (hien lai hop thoai).
+                    synchronized(netLock) {
+                        try { cm.unregisterNetworkCallback(this) } catch (_: Exception) {}
+                        if (netCb === this) netCb = null
+                        netLock.notifyAll()
+                    }
+                }
+            }
+            try {
+                cm.requestNetwork(b.build(), cb)
+                netCb = cb
+            } catch (e: Exception) { log("requestNetwork lỗi ${e.javaClass.simpleName}"); return null }
+        }
+        synchronized(netLock) {
+            val end = SystemClock.elapsedRealtime() + timeoutMs
+            while (camNet == null && SystemClock.elapsedRealtime() < end) {
+                try { netLock.wait(end - SystemClock.elapsedRealtime()) } catch (_: InterruptedException) { break }
+            }
+        }
+        return camNet
+    }
+
+    /** Bam lai tien trinh vao mang cam (goi ngay truoc khi mo ffmpeg). */
+    private fun rebind() {
+        camNet?.let { try { cm.bindProcessToNetwork(it); bound = true } catch (_: Exception) {} }
+    }
+
+    private fun releaseCamNet() {
+        netCb?.let { try { cm.unregisterNetworkCallback(it) } catch (_: Exception) {} }
+        netCb = null
+        if (bound) { try { cm.bindProcessToNetwork(null) } catch (_: Exception) {} }
+        bound = false; camNet = null
+    }
+
+    private fun api(net: Network, q: String): String = try {
+        val c = net.openConnection(URL("http://$HOST:8000/app/$q")) as HttpURLConnection
+        c.connectTimeout = 2000; c.readTimeout = 3000
+        val code = c.responseCode
+        val b = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText().replace(Regex("\\s+"), " ").take(220) } ?: ""
+        c.disconnect(); "$code $b"
+    } catch (e: Exception) { "lỗi ${e.javaClass.simpleName} ${e.message?.take(80) ?: ""}" }
+
+    private fun hisnet(net: Network, q: String): String = try {
+        val c = net.openConnection(URL("http://$HOST/cgi-bin/hisnet/$q")) as HttpURLConnection
+        c.connectTimeout = 2000; c.readTimeout = 3000
+        val code = c.responseCode
+        val b = (if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText().replace('\n', ' ').take(160) } ?: ""
+        c.disconnect(); "$code $b"
+    } catch (e: Exception) { "lỗi ${e.javaClass.simpleName} ${e.message?.take(80) ?: ""}" }
+
+    /** Ghi SSID/BSSID/RSSI cua mang dang bam -> phan biet cam TU NHA LAI IP MOI (cung AP, cung BSSID) vs
+     *  may NHAY sang AP KHAC (Wi-Fi nha, khac BSSID). Can quyen vi tri (app da co cho GPS). */
+    private fun wifiInfo(net: Network): String = try {
+        val caps = cm.getNetworkCapabilities(net)
+        val wi = caps?.transportInfo as? android.net.wifi.WifiInfo
+        if (wi != null) "SSID=${wi.ssid} BSSID=${wi.bssid} RSSI=${wi.rssi}dBm" else "wifi?"
+    } catch (e: Exception) { "wifi lỗi ${e.javaClass.simpleName}" }
+
+    private fun myIp(net: Network): String? {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        return cm.getLinkProperties(net)?.linkAddresses?.firstOrNull { it.address is java.net.Inet4Address }?.address?.hostAddress
+    }
+
+    // Dashcam cam guong co 2 mat: switchcam(0/1) chon mat SAU / mat TRUOC. Mac dinh cam phat mat SAU;
+    // ADAS can mat TRUOC (nhin duong). Doc gia tri hien tai (= cam sau), dao sang gia tri con lai =
+    // cam truoc, giu co dinh moi vong (khong doc-dao lai keo lat nguoc). Mac dinh doan 1 neu doc loi.
+    @Volatile private var frontVal: String? = null
+    @Volatile private var camLogged = false
+    private fun selectFrontCam(net: Network) {
+        if (frontVal == null) {
+            val cur = api(net, "getparamvalue?param=switchcam")       // "<code> <body>"
+            val body = cur.substringAfter(' ', cur)
+            val after = if (body.contains("switchcam")) body.substringAfter("switchcam") else body
+            val rear = after.firstOrNull { it == '0' || it == '1' }?.toString()
+            frontVal = when (rear) { "0" -> "1"; "1" -> "0"; else -> "1" }
+            log("switchcam đọc='$cur' → cam trước=$frontVal")
+        }
+        val r = api(net, "setparamvalue?param=switchcam&value=$frontVal")
+        if (!camLogged) { camLogged = true; log("đặt cam trước ($frontVal): $r") }
+    }
+
+    private var keep: Thread? = null
+    private fun startKeep(net: Network) {
+        if (keep?.isAlive == true) return
+        keep = Thread {
+            var n = 0
+            while (want) {
+                // 70mai: luong NGUNG day hinh ~6s sau khi mo = PHIEN LIVE het han vi thieu HEARTBEAT (app goc gui
+                // lenh giu phien lien tuc khi xem live). getdeviceattr (0.1.108) KHONG giu duoc. => gui LAI register
+                // (lenh DUY NHAT dong toi luong live) 3s/lan de LAM TUOI phien. Register lai tu CUNG mot IP = lam tuoi
+                // nguoi xem san co, thuong KHONG keu "ting" moi (ting = nguoi xem MOI). Ghi 4 dap an dau de doi chieu.
+                val r = if (is70) hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
+                        else api(net, "getparamvalue?param=rec")
+                if (n++ < 4) log("${if (is70) "70mai làm tươi phiên" else "cam gương giữ phiên"}: $r")
+                try { Thread.sleep(if (is70) 3000 else 1500) } catch (_: InterruptedException) { break }
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
+    override fun open() {
+        if (worker?.isAlive == true) { want = true; return }
+        want = true
+        worker = Thread { runLoop() }.apply { isDaemon = true; name = "mirror-ffmpeg"; start() }
+        watch = Thread { watchLoop() }.apply { isDaemon = true; name = "mirror-watch"; start() }
+    }
+
+    /** Canh luong đứng hình: cam gương hay treo (mat goi I-frame, UDP ngăt) nhung khong bao loi ->
+     *  grabImage ket treo mai. Neu >4s khong co khung moi (da tung co khung) thi stop grabber de
+     *  pha ket, vong lap bat loi -> noi lai luong. */
+    private fun watchLoop() {
+        // 70mai day khung theo tung DOT (UDP, co khe vai giay) -> cho rong 5s moi coi la treo that, tranh
+        // noi lai lien tuc (moi lan noi lai den man ~2s, giat hon la cho dot ke tiep). Cam guong giu 4s nhu cu.
+        val froze = if (is70) 5000L else 4000L
+        while (want) {
+            sleep(800)
+            val last = lastFrameAt
+            if (gotFrame && last > 0 && SystemClock.elapsedRealtime() - last > froze) {
+                log("đứng hình >${froze / 1000.0}s → mở lại luồng")
+                lastFrameAt = SystemClock.elapsedRealtime()      // tranh goi stop lien tuc
+                try { grabber?.stop() } catch (_: Exception) {}   // pha grabImage dang ket
+            }
+        }
+    }
+
+    private fun runLoop() {
+        avutil.av_log_set_level(avutil.AV_LOG_ERROR)
+        while (want) {
+            lastFrameAt = 0L            // reset watchdog khi bat dau 1 lan noi: tranh watchLoop goi stop() luc dang mo lai
+            val net = acquireCamNet(6000)
+            if (net == null) {
+                status = "chưa nối Wi-Fi cam"
+                onErr(if (is70) "Chưa nối Wi-Fi cam 70mai (70mai_…)" else "Chưa nối Wi-Fi cam gương (mirror_wifi…)")
+                sleep(2000); retry++; continue
+            }
+            if (!want) break    // da bi close() (doi nguon cam) -> dung ngay, DUNG goi API cam nua (tranh giành mang)
+            // cam guong chi 1 phien RTSP -> reset phien (exit roi enter) de lan nao cung co du lieu
+            val info = if (is70) {
+                // "TING" = moi lan client.cgi register, 70mai keu. Luong hay dung ~11s roi noi lai -> moi lan noi
+                // register lai = ting lien tuc. => CHI register 1 LAN (lan dau / sau khi mat hinh han). Lan noi lai
+                // (da tung ra hinh) chi KIEM MANG bang getdeviceattr.cgi (thu dong, KHONG keu ting) roi mo lai RTSP.
+                if (registered70) {
+                    hisnet(net, "getdeviceattr.cgi")            // kiem con dung AP 70mai (200 = ok, 404 = sai mang)
+                } else {
+                    if (retry == 0) log("70mai: " + hisnet(net, "getdeviceattr.cgi"))
+                    val r = hisnet(net, "client.cgi?&-operation=register&-ip=${myIp(net)}")
+                    if (r.startsWith("200")) registered70 = true
+                    r
+                }
+            } else {
+                api(net, "exitrecorder"); sleep(400)
+                selectFrontCam(net)                 // dashcam 2 mat: chon cam TRUOC (mat duong)
+                api(net, "enterrecorder")
+            }
+            // 70mai: neu register KHONG thanh cong = may dang o NHAM mang (Wi-Fi nha trả 404/HTML) HOAC khong
+            // dinh tuyen (ENONET/ENETUNREACH/UnknownHost). Dung mo ffmpeg (chi toi -64/-111 lap vo tan). Nha
+            // mang (de he dieu hanh chon lai), backoff, cho may ve dung AP 70mai (nguoi dung co the can chon lai Wi-Fi).
+            val bad70 = info.startsWith("404") || info.contains("<?xml") || info.contains("<html") ||
+                info.contains("<!DOCTYPE") || info.contains("ENONET") || info.contains("ENETUNREACH") ||
+                info.contains("UnknownHost") || info.contains("ECONNREFUSED")
+            if (is70 && bad70) {
+                log("70mai: sai mạng (kiểm=$info) → chờ về AP 70mai")
+                onErr("Camera chưa lên hình (hãy nối lại Wi-Fi 70mai)")
+                registered70 = false        // mat mang = phien cu chet, lan sau phai register lai
+                releaseCamNet()
+                retry++
+                sleep(minOf(6000L, 2000L * retry))
+                continue
+            }
+            startKeep(net)
+            log("${if (is70) "70mai" else "cam gương"} mở: $info")
+
+            // REALTIME: dung UDP (bo goi cu -> tre co dinh thap, giong app hang). TCP khong mat goi nhung
+            // neu giai ma khong kip thi don lai -> tre tang dan toi vai PHUT, va 70mai TCP chay ~6s roi
+            // DUNG HAN (log 22/11: lap mo-treo moi 16s). 70mai CHI chay UDP /livestream/12 that su (da xac
+            // nhan chay muot 7 phut o 0.1.95). => 70mai ep UDP + /12 luon; cam guong uu tien UDP (2/3 lan),
+            // thinh thoang thu TCP phong UDP bi chan.
+            val udp = if (is70) true else (retry % 3 != 2)
+            val pathIdx = 0                                   // 70mai: /livestream/12 (duy nhat chay)
+            curUdp = udp; curPath = pathIdx
+            if (!want) break    // doi nguon cam giua chung -> khong mo ffmpeg nua
+            val url = "rtsp://$HOST:554" + (if (is70) paths70[pathIdx] else "")
+            status = "mở ffmpeg ${if (udp) "UDP" else "TCP"} $url"
+            log(status); onErr("Cam: " + traceStr(udp))
+
+            var g: FFmpegFrameGrabber? = null
+            try {
+                rebind()   // bam lai mang cam ngay truoc khi ffmpeg mo socket (tranh -101 ra 5G)
+                g = FFmpegFrameGrabber(url).apply {
+                    format = "rtsp"
+                    setOption("rtsp_transport", if (udp) "udp" else "tcp")
+                    // KHONG set rtsp_flags="" (rong) -> avformat_open_input tra -22 EINVAL. Chi set khi co gia tri.
+                    setOption("timeout", "8000000")       // timeout socket (us) cho rtsp (ffmpeg 6)
+                    setOption("buffer_size", "1048576")
+                    setOption("fflags", "nobuffer")       // khong don khung -> khong tre dan (realtime)
+                    setOption("flags", "low_delay")
+                    // Load NHANH (ca 2 cam): khong cho phan tich lau truoc khi ra khung dau (mac dinh ~5s -> ~10s load).
+                    setOption("probesize", "500000")      // ~500KB (mac dinh 5MB)
+                    setOption("analyzeduration", "500000") // toi da 0.5s (mac dinh ~5s)
+                    // Cau hinh streaming ON DINH cho CA 2 cam (nhu ban cam guong chay muot truoc day). KHONG
+                    // ep giam tre ganh (max_delay=0/reorder=0/rtbufsize nho): no lam luong UDP RUNG/RƠT ca 2 cam.
+                    // Cam guong tre ~2s thi chap nhan (user: "tre thi khac phuc sau", uu tien on dinh).
+                    setOption("max_delay", "100000")      // 0.1s
+                    imageMode = FrameGrabber.ImageMode.COLOR
+                    // Lay thang YUV420P (I420) tu ffmpeg -> KHONG phai doi mau BGR->YUV tung diem tren Kotlin
+                    // (vong lap 2M diem/khung = nang, tre + nong). Chi can chep khoi -> nhanh hon nhieu.
+                    pixelFormat = avutil.AV_PIX_FMT_YUV420P
+                    imageWidth = W                        // ffmpeg tu scale ve 1920x1080 (nguon co the 4K)
+                    imageHeight = H
+                    imageScalingFlags = swscale.SWS_BICUBIC   // co anh net hon mac dinh (bilinear)
+                }
+                g.start()
+                grabber = g
+                log("ffmpeg mở luồng OK ${g.imageWidth}x${g.imageHeight} codec=${try { g.videoCodecName } catch (_: Exception) { "?" }} fps=${try { "%.0f".format(g.frameRate) } catch (_: Exception) { "?" }}")
+                gotFrame = false
+                lastFrameAt = 0L
+                var lastDeliver = 0L
+                var excN = 0                                  // so lan grabImage NEM LOI lien tiep (grabber da bi stop)
+                val startAt = SystemClock.elapsedRealtime()
+                while (want) {
+                    var grabEx = false
+                    val f: Frame? = try { g.grabImage() } catch (e: Exception) { grabEx = true; if (excN < 2) log("grab lỗi ${e.message?.take(80)}"); null }
+                    if (f == null) {
+                        // 70mai: neu mo luong duoc ma 5 s khong co khung thi chuyen luong khac cho nhanh (dò /12→/11→/1→/live)
+                        if (!gotFrame && SystemClock.elapsedRealtime() - startAt > (if (is70) 5_000L else 12_000L)) {
+                            log("không có khung ${if (is70) 5 else 12} s (${if (udp) "UDP" else "TCP"} $url)")
+                            if (is70 && goodPath >= 0 && ++goodFail >= 2) { goodPath = -1; goodFail = 0; log("bỏ nhớ luồng, dò lại từ đầu") }
+                            break
+                        }
+                        if (grabEx) {
+                            // grabImage NEM LOI = grabber da bi watchLoop stop() de pha treo -> noi lai (backoff nhanh vi gotFrame=true).
+                            excN++
+                            if (gotFrame && excN >= 8) { log("luồng dừng (grabber stop) → nối lại"); break }
+                            sleep(5)
+                        } else {
+                            // null KHONG loi = khe UDP tam thoi (70mai day khung theo tung dot). ĐUNG noi lai voi —
+                            // cu cho dot ke tiep. Chi khi dung hinh THAT (watchLoop qua nguong froze) moi stop -> loi -> noi lai.
+                            excN = 0
+                            sleep(15)
+                        }
+                        continue
+                    }
+                    excN = 0
+                    // CAM GUONG: cat tre ~2s = khung bi DON HANG (giai ma/TCP cham hon luc toi) -> grabImage luon tra
+                    // khung CU. Khac phuc chac (khong ep max_delay=0 gay rung): VOT bo khung ton dong, chi giu khung
+                    // MOI NHAT. Grab lien tiep: tra ngay (<12ms) = con hang ton -> bo, lay tiep; grab cho lau = da bat
+                    // kip luong truc tiep -> dung. 23/11: AP DUNG CA 70mai (Kevin bao 70mai van tre 2s).
+                    var cur = f
+                    run {
+                        // Phan biet "con hang ton" vs "da bat kip live" KHONG dua vao thoi gian giai ma mot khung
+                        // (1080p giai ma >12ms se danh lua nguong cu -> dung vot ngay -> van tre 2s). Dua vao:
+                        // PTS cua luong (dong ho trong khung) chay NHANH hon dong ho thuc bao nhieu. Con hang ton ->
+                        // moi lan grab PTS nhay vot >> thoi gian thuc -> vot tiep; bang nhau -> da bat kip -> dung.
+                        // 70mai (23/11): cung vot. 70mai day khung theo DOT nhung khi co don hang (tre 2s) thi cac
+                        // khung ton nam san trong buffer -> grabImage tra lien tiep, PTS vot -> vot toi khung moi nhat;
+                        // het ton thi grabImage tra null -> break ngay (khong bo khung live, khong dung tang demux -> khong rung).
+                        var k = 0
+                        val wall0 = SystemClock.elapsedRealtime()
+                        val pts0 = g.timestamp                        // us, PTS khung f vua lay
+                        val budget = wall0 + 150L                     // tran an toan 150ms/chu ky (khong chiem CPU mai)
+                        while (k < 90 && want && SystemClock.elapsedRealtime() < budget) {
+                            val nf: Frame? = try { g.grabImage() } catch (_: Exception) { null }
+                            if (nf == null) break                     // het hang ton / loi -> giu khung moi nhat da co
+                            cur = nf; k++
+                            val ptsAdvMs = (g.timestamp - pts0) / 1000.0        // luong da tien (ms)
+                            val wallAdvMs = (SystemClock.elapsedRealtime() - wall0).toDouble()
+                            if (ptsAdvMs - wallAdvMs < 45) break      // luong khong con vuot dong ho -> da bat kip live
+                        }
+                        drainSum += k; drainCyc++
+                        if (SystemClock.elapsedRealtime() - drainLogAt > 3000) {
+                            drainLogAt = SystemClock.elapsedRealtime()
+                            log("${if (is70) "70mai" else "cam gương"}: vớt ${if (drainCyc > 0) drainSum / drainCyc else 0} khung tồn/chu kỳ (hết = đã bám live)")
+                            drainSum = 0; drainCyc = 0
+                        }
+                    }
+                    val now = SystemClock.elapsedRealtime()
+                    lastFrameAt = now                           // luong con song (watchdog theo doi)
+                    if (now - lastDeliver < (if (is70) 70 else 55)) continue   // ~14fps 70mai / ~18fps cam gương
+                    lastDeliver = now
+                    deliver(cur ?: continue)        // cur luon non-null (f non-null + vot chi gan khung that), guard cho chac
+                }
+            } catch (e: Throwable) {
+                status = "lỗi ffmpeg ${if (udp) "UDP" else "TCP"}"
+                log("ffmpeg lỗi: ${e.javaClass.simpleName} ${e.message?.take(100)}")
+                onErr("Cam ${if (udp) "UDP" else "TCP"}: ffmpeg lỗi · ${e.message?.take(60)}")
+            } finally {
+                grabber = null
+                try { g?.stop() } catch (_: Exception) {}
+                try { g?.release() } catch (_: Exception) {}
+            }
+            if (want) {
+                retry++
+                // 70mai: lan mo vua roi KHONG ra khung nao = phien co the chet han -> register lai lan sau (chap nhan
+                // 1 "ting" de hoi phuc). Co ra khung (chi giat/treo) -> GIU registered70 -> noi lai KHONG register (im).
+                if (is70 && !gotFrame) registered70 = false
+                // Luong vua roi DA tung ra khung (chi giat/treo) -> noi lai NHANH cho muot, nhat la 70mai
+                // (da nho goodPath nen mo thang luong cu). Chua bao gio ra khung -> giai do dan tranh dap cam.
+                val quick = gotFrame
+                sleep(if (quick) (if (is70) 500L else 900L) else minOf(8000L, 1500L * retry))
+            }
+        }
+        keep?.interrupt(); keep = null
+        if (!is70) camNet?.let { n -> try { api(n, "exitrecorder") } catch (_: Exception) {} }
+        releaseCamNet()
+        status = "đã tắt"
+    }
+
+    /** ffmpeg xuat YUV420P. Tuy build JavaCV: Y/U/V co the o 3 BUFFER RIENG (image[0],[1],[2])
+     *  HOAC LIEN KHOI trong 1 buffer image[0] (limit co the bi dat = W*H). Xu ly ca 2 kieu de
+     *  khong vut khung (loi 0.1.88: ep 3 buffer, image[1]/[2] null -> deliver thoat som -> den man).
+     *  Chep tung mat phang sang bo dem (stride chuan W) -> YuvFrame -> onFrame. Khong doi mau tung diem. */
+    private fun deliver(f: Frame) {
+        val img = f.image ?: return
+        val yb = (img.getOrNull(0) as? ByteBuffer) ?: return
+        if (f.imageWidth != W || f.imageHeight != H) return
+        val yStride = f.imageStride                      // stride plane Y (>= W do can le)
+        val cStride = yStride / 2                         // YUV420P: stride U/V = 1/2 plane Y
+        val cw = W / 2; val ch = H / 2
+        val buf = i420[bufI]; bufI = bufI xor 1
+        buf.clear()
+        val uStart = W * H
+        val vStart = W * H + W * H / 4
+        val ub = img.getOrNull(1) as? ByteBuffer
+        val vb = img.getOrNull(2) as? ByteBuffer
+        if (!layoutLogged) {
+            layoutLogged = true
+            log("YUV layout: planes=${img.size} y.lim=${yb.limit()} y.cap=${yb.capacity()} stride=$yStride" +
+                (if (ub != null) " u.lim=${ub.limit()} u.cap=${ub.capacity()}" else " u=null") +
+                (if (vb != null) " v.lim=${vb.limit()}" else " v=null"))
+        }
+        if (ub != null && vb != null) {                  // 3 buffer rieng
+            copyPlane(yb, 0, yStride, buf, 0, W, W, H)
+            copyPlane(ub, 0, cStride, buf, uStart, cw, cw, ch)
+            copyPlane(vb, 0, cStride, buf, vStart, cw, cw, ch)
+        } else {                                         // lien khoi trong image[0]: doc theo capacity
+            val src = yb.duplicate(); src.position(0); src.limit(yb.capacity())
+            val uOff = yStride * H                        // U bat dau sau plane Y
+            val vOff = uOff + cStride * ch                // V sau plane U
+            copyPlane(src, 0, yStride, buf, 0, W, W, H)
+            copyPlane(src, uOff, cStride, buf, uStart, cw, cw, ch)
+            copyPlane(src, vOff, cStride, buf, vStart, cw, cw, ch)
+        }
+        frames++; gotFrame = true
+        if (is70 && goodPath < 0) { goodPath = curPath; goodUdp = curUdp; goodFail = 0; log("nhớ luồng chạy được: ${if (curUdp) "UDP" else "TCP"} ${paths70[curPath]}") }
+        if (!gotFrameLogged) { gotFrameLogged = true; log("khung hình đầu tiên ${W}x$H"); onErr("") }
+        val now = SystemClock.elapsedRealtime()
+        if (now - frAt > 10_000) { log("nhận $frames khung/10 s"); frames = 0; frAt = now }
+
+        val yPlane = sliced(buf, 0, W * H)
+        val uPlane = sliced(buf, uStart, W * H / 4)
+        val vPlane = sliced(buf, vStart, W * H / 4)
+        val fr = YuvFrame(
+            W, H, SystemClock.elapsedRealtimeNanos(),
+            arrayOf(
+                YuvFrame.Plane(yPlane, W, 1),
+                YuvFrame.Plane(uPlane, W / 2, 1),
+                YuvFrame.Plane(vPlane, W / 2, 1),
+            ),
+        ) {}
+        try { onFrame(fr) } catch (e: Throwable) { Log.w(TAG, "onFrame", e) }
+    }
+
+    private fun sliced(buf: ByteBuffer, start: Int, len: Int): ByteBuffer {
+        val d = buf.duplicate(); d.position(start); d.limit(start + len); return d.slice()
+    }
+
+    /** Chep 1 mat phang: tu src (base, srcStride) sang dst (dstStart, dstStride=rowW) rong rowW cao rows.
+     *  Chong tran: neu stride nguon la ma le khac du doan thi chep tung hang va bo qua hang vuot gioi han. */
+    private fun copyPlane(src: ByteBuffer, base: Int, srcStride: Int, dst: ByteBuffer, dstStart: Int, rowW: Int, dstStride: Int, rows: Int) {
+        val cap = src.capacity()
+        if (srcStride == dstStride && base + srcStride * rows <= cap) {   // lien tuc + vua -> chep 1 phat
+            val s = src.duplicate(); s.position(base); s.limit(base + srcStride * rows)
+            val d = dst.duplicate(); d.position(dstStart); d.put(s)
+            return
+        }
+        for (j in 0 until rows) {                            // co dem le: chep tung hang
+            val sp = base + j * srcStride
+            if (sp + rowW > cap) break                       // het du lieu nguon -> dung
+            val s = src.duplicate(); s.position(sp); s.limit(sp + rowW)
+            val d = dst.duplicate(); d.position(dstStart + j * dstStride); d.put(s)
+        }
+    }
+
+    @Volatile private var gotFrameLogged = false
+    @Volatile private var layoutLogged = false
+
+    private fun sleep(ms: Long) { try { Thread.sleep(ms) } catch (_: InterruptedException) {} }
+
+    override fun close() {
+        want = false
+        val g = grabber
+        grabber = null
+        try { g?.stop() } catch (_: Exception) {}   // mo khoa grabImage dang cho
+        keep?.interrupt(); keep = null
+        watch?.interrupt()
+        worker?.interrupt()
+        // NHA mang + go callback NGAY: neu khong, cam cu van giu bindProcessToNetwork + callback ->
+        // khi doi sang cam kia, 2 cam GIANH mang chung cua app -> cam kia bam nham mang, rot/ting.
+        releaseCamNet()
+    }
+
+    override fun setRate(hz: Int) {}
+    override fun setPreview(s: Surface?) {}
+    override fun release() { close() }
+
+    companion object {
+        private const val TAG = "MirrorCam"
+    }
+}

@@ -1,0 +1,82 @@
+# Build app Android "EVCarHUD Lan" (thu muc android-adas/): mo hinh openpilot tren dien thoai -> goi A1 len HUD.
+# Mo hinh .onnx (MIT, comma.ai) khong de trong git: tai tu Drive luc build roi dong vao APK.
+name: Build app Lan (openpilot)
+
+on:
+  push:
+    paths:
+      - "android-adas/**"
+      - ".github/workflows/android-adas.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: app-lan-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-adas
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Tai mo hinh openpilot v0.10.3
+        run: |
+          mkdir -p app/src/main/assets
+          get() { curl -fsSL --retry 4 -o "app/src/main/assets/$2" "https://drive.usercontent.google.com/download?id=$1&export=download&confirm=t"; }
+          get 1_dfJ4pQKVx8B4xi16LpOJjV-iMOcQUqT driving_vision.onnx
+          get 1v4tFEJI44wAcHSMGryp0-voq9ynDRRKJ driving_policy.onnx
+          sha256sum app/src/main/assets/*.onnx
+          ls -la app/src/main/assets
+          # file Drive hong (trang HTML) thi dung lai
+          test $(stat -c%s app/src/main/assets/driving_vision.onnx) -gt 40000000
+          test $(stat -c%s app/src/main/assets/driving_policy.onnx) -gt 10000000
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Doi mo hinh fp16 -> fp32 (ONNX Runtime ARM64 tinh fp16 thuan bi lech, xem tools/fp32.py)
+        run: |
+          pip install -q onnx==1.17.0 numpy
+          for n in vision policy; do
+            python tools/fp32.py app/src/main/assets/driving_$n.onnx /tmp/$n.onnx && mv /tmp/$n.onnx app/src/main/assets/driving_$n.onnx
+          done
+          ls -la app/src/main/assets
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          # ten de nho (yeu cau 19/11): lan-<phien ban>-<ngay>.apk, vd lan-0.1.49-20261119.apk (phien ban hien trong Cai dat > Thong tin)
+          SHORT="0.1.${GITHUB_RUN_NUMBER}-$(TZ=Asia/Ho_Chi_Minh date +%Y%m%d)"
+          cp app/build/outputs/apk/release/app-release.apk "../lan-$SHORT.apk"
+          echo "SHORT=$SHORT" >> "$GITHUB_ENV"
+          echo "SHA=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lan-${{ env.SHORT }}
+          path: lan-${{ env.SHORT }}.apk
+
+      - name: Cap nhat ban phat hanh "app-lan-thu"
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # moi nhanh 1 ban phat hanh rieng: ugakxl -> app-lan-thu, a7qrzx (dan duong PiP) -> app-lan-pip-thu
+          if [ "$GITHUB_REF_NAME" = "claude/project-thread-ugakxl" ]; then TAG=app-lan-thu; else TAG=app-lan-pip-thu; fi
+          gh release delete $TAG --yes --cleanup-tag || true
+          gh release create $TAG "lan-$SHORT.apk" --target "$GITHUB_SHA" \
+            --title "App EVCarHUD Làn $SHORT" \
+            --notes "APK thử, build tự động từ commit $SHA (nhánh ${GITHUB_REF_NAME}). Mô hình openpilot v0.10.3 (MIT, comma.ai)." --prerelease
